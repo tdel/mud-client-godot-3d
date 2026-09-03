@@ -1,0 +1,49 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scenes/game/hud/Hotbar.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/game/hud/HotbarSlot.tscn" id="2"]
+
+[node name="Hotbar" type="Control"]
+anchor_left = 0.5
+anchor_right = 0.5
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = -330.0
+offset_top = -64.0
+offset_right = 330.0
+offset_bottom = -12.0
+grow_horizontal = 2
+grow_vertical = 0
+mouse_filter = 2
+script = ExtResource("1")
+
+[node name="SlotsContainer" type="HBoxContainer" parent="."]
+unique_name_in_owner = true
+anchor_right = 1.0
+anchor_bottom = 1.0
+theme_override_constants/separation = 6
+alignment = 1
+
+[node name="Slot0" parent="SlotsContainer" instance=ExtResource("2")]
+
+[node name="Slot1" parent="SlotsContainer" instance=ExtResource("2")]
+
+[node name="Slot2" parent="SlotsContainer" instance=ExtResource("2")]
+
+[node name="Slot3" parent="SlotsContainer" instance=ExtResource("2")]
+
+[node name="Slot4" parent="SlotsContainer" instance=ExtResource("2")]
+
+[node name="Slot5" parent="SlotsContainer" instance=ExtResource("2")]
+
+[node name="Slot6" parent="SlotsContainer" instance=ExtResource("2")]
+
+[node name="Slot7" parent="SlotsContainer" instance=ExtResource("2")]
+
+[node name="Slot8" parent="SlotsContainer" instance=ExtResource("2")]
+
+[node name="Slot9" parent="SlotsContainer" instance=ExtResource("2")]
+
+[node name="Slot10" parent="SlotsContainer" instance=ExtResource("2")]
+
+[node name="Slot11" parent="SlotsContainer" instance=ExtResource("2")]

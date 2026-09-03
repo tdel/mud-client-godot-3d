@@ -1,0 +1,69 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scenes/game/hud/OptionsWindow.gd" id="1"]
+
+[node name="OptionsWindow" type="Control"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(300, 0)
+offset_left = 560.0
+offset_top = 260.0
+offset_right = 860.0
+offset_bottom = 420.0
+script = ExtResource("1")
+
+[node name="Panel" type="PanelContainer" parent="."]
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="MarginContainer" type="MarginContainer" parent="Panel"]
+layout_mode = 2
+theme_override_constants/margin_left = 20
+theme_override_constants/margin_top = 16
+theme_override_constants/margin_right = 20
+theme_override_constants/margin_bottom = 20
+
+[node name="VBoxContainer" type="VBoxContainer" parent="Panel/MarginContainer"]
+layout_mode = 2
+theme_override_constants/separation = 14
+
+[node name="TitleBar" type="HBoxContainer" parent="Panel/MarginContainer/VBoxContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="TitleLabel" type="Label" parent="Panel/MarginContainer/VBoxContainer/TitleBar"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 22
+text = "Options"
+
+[node name="CloseButton" type="Button" parent="Panel/MarginContainer/VBoxContainer/TitleBar"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(30, 30)
+theme_override_font_sizes/font_size = 16
+text = "×"
+
+[node name="HSeparator" type="HSeparator" parent="Panel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+
+[node name="Body" type="VBoxContainer" parent="Panel/MarginContainer/VBoxContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="LogoutButton" type="Button" parent="Panel/MarginContainer/VBoxContainer/Body"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Se déconnecter"
+
+[node name="QuitButton" type="Button" parent="Panel/MarginContainer/VBoxContainer/Body"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Quitter"
+
+[node name="ConfirmDialog" type="ConfirmationDialog" parent="."]
+unique_name_in_owner = true
+title = "Confirmer"
+ok_button_text = "Oui"
+cancel_button_text = "Annuler"
