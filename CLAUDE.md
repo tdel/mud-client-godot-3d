@@ -1997,3 +1997,48 @@ seulement en capture) et qu'aucune régression de performance n'est perceptible 
 nouveau `_on_node_added` connecté à `SceneTree.node_added` (appelé à chaque nœud ajouté à
 l'arbre, y compris les entités 3D — le filtre `node is Control` en tête de fonction devrait
 le rendre négligeable, mais jamais mesuré en jeu réel avec de nombreuses entités).
+
+## Session du 2026-09-04 (suite) : titre flottant au-dessus du nom (vert)
+
+Demande explicite : afficher le "title" ajouté côté backend au-dessus du nom flottant d'une
+entité (monstre/PNJ/personnage), en vert bien visible sans être trop clair.
+
+**Aucun changement backend nécessaire** : `EntityView.title`/`GamePlayerStats.Payload.title`
+existaient déjà (vérifiés à la source, WSL — `AbstractObject.title`, `null` par défaut,
+utilisé côté PNJ pour leur fonction, ex. "Blacksmith"/"Innkeeper" ; jamais encore lu côté
+client jusqu'ici). `GameState.player_stats = payload` (verbatim, voir `GameState.gd`) porte
+donc déjà ce champ pour notre propre personnage sans aucune modification de ce fichier.
+
+**`Game3D.gd`** : nouveau `TITLE_LABEL_COLOR := Color(0.15, 0.85, 0.25)` — vert nettement
+plus saturé qu'`OTHER_PLAYER_COLOR.lightened(0.5)` (le ton pâle déjà utilisé pour le nom des
+autres joueurs), pour rester bien distinct et lisible sans être fade ni criard. `_make_entity_
+node` gagne un second `Label3D` (`"TitleLabel"`, texte vide par défaut — la plupart des
+entités n'ont pas de titre, un `Label3D` sans texte ne dessine rien) positionné juste
+au-dessus du nom : même hypothèse de mise à l'échelle linéaire avec `font_size` que celle
+documentée pour `NameLabel` (0.825 unité de haut à `font_size=120`) — à `font_size=72`,
+hauteur ≈0.495, centré à 3.5625 (sommet du nom) + 0.15 (marge) + 0.495/2 ≈ **3.96**, contre
+3.15 pour le nom. Nouveau `_extract_title(entry)` (garde-fou : le champ vaut `null`, pas `""`,
+quand absent — `Dictionary.get("title", "")` renverrait ce `null` tel quel puisque la clé EST
+présente) et `_set_entity_title(node, text)` (analogue à `_set_entity_label`, mais accepte un
+texte vide pour effacer un titre existant, contrairement à `_set_entity_label` qui ignore un
+texte vide — un titre absent est le cas normal, pas une valeur à ignorer). `_set_entity_label`
+retrouve désormais son `Label3D` par `child.name == "NameLabel"` plutôt que le premier
+`Label3D` trouvé (devenu ambigu avec l'ajout de `TitleLabel`).
+
+Branché à 3 endroits : `_apply_appeared_entity` (EntityAppeared — tout monstre/PNJ/joueur
+découvert), `_ensure_player_node` (création de notre propre capsule, titre lu depuis
+`GameState.player_stats`) et le handler `"GamePlayerStats"` (rafraîchit notre titre si reçu
+en cours de partie).
+
+Vérifié avec l'exécutable console Godot en `--headless` : `Game.tscn` rechargé sans nouvelle
+erreur (mêmes avertissements "pas connecté" habituels). Une scène de test jetable (même
+principe que les sessions précédentes, supprimée après usage) a instancié `Game.tscn`,
+appelé `_ensure_player_node()` avec un `GameState.player_stats` synthétique
+(`title: "Le Vaillant"`), puis `_apply_appeared_entity` pour un monstre sans titre
+(`title: null`) et un PNJ avec titre (`title: "Forgeron"`) : le nœud joueur affiche bien
+"Le Vaillant" en `Color(0.15, 0.85, 0.25)` à la position `(0, 3.96, 0)`, le monstre sans
+titre affiche un texte vide (aucune régression du cas normal, majoritaire), le PNJ affiche
+"Forgeron". Aucune erreur dans la sortie debug. **Reste à confirmer par un humain, une fois
+un backend démarré** : le rendu visuel réel (lisibilité du vert à l'échelle du jeu, espacement
+titre/nom) et qu'un titre change bien de PNJ en PNJ/personnage en personnage en jeu réel
+(jamais visuellement inspecté, seule la logique — texte/couleur/position — a été vérifiée).
