@@ -35,11 +35,17 @@ const ITEM_TYPE_LABELS := {
 	"WEAPON": "Arme", "HELMET": "Casque", "ARMOR": "Armure", "PANTS": "Jambières",
 	"BOOTS": "Bottes", "GLOVES": "Gants", "SHIELD": "Bouclier", "NECKLACE": "Collier",
 	"EARRING": "Boucle d'oreille", "RING": "Anneau", "POTION": "Potion", "KEY": "Clé",
-	"TOOL": "Outil", "MISC": "Objet",
+	"TOOL": "Outil", "MISC": "Objet", "SOULSHOT": "Soulshot", "SPIRITSHOT": "Spiritshot",
 }
 const ARMOR_CATEGORY_LABELS := {"LIGHT": "légère", "MEDIUM": "moyenne", "HEAVY": "lourde"}
 
-@onready var _items_container: VBoxContainer = %ItemsContainer
+## Taille d'une cellule de la grille (voir _build_cell) — refonte "façon L2" du 2026-09-04
+## (voir CLAUDE.md) : la liste nom+icône d'origine (une HBoxContainer par ligne) devient une
+## grille d'icônes façon Lineage 2, le nom ne s'affichant plus qu'en tooltip (comme un vrai
+## slot L2). GridContainer.columns fixé dans InventoryWindow.tscn (6 colonnes).
+const CELL_SIZE := Vector2(52, 52)
+
+@onready var _items_container: GridContainer = %ItemsContainer
 @onready var _gold_label: Label = %GoldLabel
 @onready var _drop_confirm_dialog: ConfirmationDialog = %DropConfirmDialog
 @onready var _message_label: Label = %MessageLabel
@@ -94,6 +100,18 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 			_show_message("Cet objet n'est plus dans votre inventaire.")
 		"ItemNotUsable":
 			_show_message("« %s » ne peut pas être utilisé." % str(payload.get("name", "?")))
+		"ShotGradeChanged", "ShotOutOfStock":
+			# Fait réagir le surlignage "actif" (voir _is_shot_active) sans attendre un aller-
+			# retour "inventory" complet — GameState.active_soulshot_grade/
+			# active_spiritshot_grade est déjà à jour à ce point (GameState.gd traite le même
+			# signal indépendamment, voir Net.message_received, sans garantie d'ordre entre les
+			# deux écouteurs mais peu importe : seule la valeur une fois les deux exécutés compte).
+			_refresh()
+		"ShotUsed":
+			# Corrige juste la quantité affichée en place, sans redemander "inventory" à
+			# chaque tir/coup consommé (un vrai combat en enverrait des dizaines par minute) —
+			# voir _patch_shot_quantity.
+			_patch_shot_quantity(str(payload.get("shotType", "")), int(payload.get("remainingQuantity", 0)))
 		_:
 			pass
 
@@ -118,23 +136,39 @@ func _refresh() -> void:
 		return
 
 	for item in carried:
-		_items_container.add_child(_build_row(item))
+		_items_container.add_child(_build_cell(item))
 
 
-func _build_row(item: Dictionary) -> Control:
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 10)
-
+## Une cellule carrée façon slot L2 (fond de HotbarSlot.tscn répliqué en code faute de scène
+## dédiée pour une grille dynamique) : icône seule, nom relégué au tooltip, fin bandeau de
+## couleur de grade en bas (remplace le texte coloré par grade de l'ancienne ligne), badge de
+## quantité en bas à droite pour les charges (soulshot/spiritshot) empilées, pastille dorée en
+## haut à gauche si la charge est actuellement armée (voir _is_shot_active). Glisser-déposer/
+## clic droit inchangés (DraggableIcon), voir CLAUDE.md session "refonte L2" du 2026-09-04.
+func _build_cell(item: Dictionary) -> Control:
 	var item_id := str(item.get("id", ""))
 	var item_name := str(item.get("name", ""))
 	var grade := str(item.get("grade", "NOGRADE"))
+	var type_key := str(item.get("type", ""))
+	var is_shot := type_key == "SOULSHOT" or type_key == "SPIRITSHOT"
+	var quantity := int(item.get("quantity", 1))
+	var active := is_shot and _is_shot_active(type_key, grade)
+
+	var cell := Control.new()
+	cell.custom_minimum_size = CELL_SIZE
+
+	var background := Panel.new()
+	background.anchor_right = 1.0
+	background.anchor_bottom = 1.0
+	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	cell.add_child(background)
 
 	var icon := DraggableIcon.new()
-	icon.custom_minimum_size = Vector2(40, 40)
+	icon.anchor_right = 1.0
+	icon.anchor_bottom = 1.0
 	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	icon.mouse_default_cursor_shape = Control.CURSOR_MOVE
 	icon.texture = ZoneAssets3D.make_slot_icon_texture("item", item_name)
-	icon.tooltip_text = "%s\n\nClic droit : utiliser\nGlisser hors de la fenêtre : jeter" % _item_tooltip(item)
 
 	# ref_id (l'UUID d'instance, contrairement à SkillBook qui ne l'utilise que pour les
 	# sorts) est indispensable ici : EquipmentSlot.gd envoie "equip <uuid>" directement sur
@@ -142,19 +176,90 @@ func _build_row(item: Dictionary) -> Control:
 	icon.drag_kind = "item"
 	icon.drag_ref_id = item_id
 	icon.drag_ref_name = item_name
+	icon.drag_item_type = type_key
+	icon.drag_item_grade = grade
 	icon.drag_preview_text = item_name
-	icon.right_clicked.connect(func(): Net.send_command("use", item_id))
+	icon.modulate = Color(1.25, 1.1, 0.55) if active else Color(1, 1, 1, 1)
+
+	if is_shot:
+		# Soulshot/spiritshot (voir CLAUDE.md, commit backend "Ajoute le système soulshot/
+		# spiritshot" du 2026-09-04) : pas un "use" ponctuel comme une potion, mais un toggle
+		# d'auto-use — clic droit renvoie "soulshot <grade>"/"spiritshot <grade>", le serveur
+		# se charge lui-même du bascule actif/inactif (renvoyer la même grade l'éteint).
+		icon.tooltip_text = "%s\n\n%s\nClic droit : %s\nGlisser hors de la fenêtre : jeter" % [
+			_item_tooltip(item),
+			"Auto-use : actif" if active else "Auto-use : inactif",
+			"désactiver" if active else "activer",
+		]
+		icon.right_clicked.connect(func(): Net.send_command(type_key.to_lower(), grade.to_lower()))
+	else:
+		icon.tooltip_text = "%s\n\nClic droit : utiliser\nGlisser hors de la fenêtre : jeter" % _item_tooltip(item)
+		icon.right_clicked.connect(func(): Net.send_command("use", item_id))
 	icon.drag_finished.connect(_on_item_drag_finished.bind(item_id, item_name))
-	row.add_child(icon)
+	cell.add_child(icon)
 
-	var name_label := Label.new()
-	name_label.text = item_name
-	name_label.add_theme_color_override("font_color", GRADE_COLORS.get(grade, Color.WHITE))
-	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	name_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	row.add_child(name_label)
+	var grade_bar := ColorRect.new()
+	grade_bar.color = GRADE_COLORS.get(grade, Color.WHITE)
+	grade_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	grade_bar.anchor_left = 0.0
+	grade_bar.anchor_right = 1.0
+	grade_bar.anchor_top = 1.0
+	grade_bar.anchor_bottom = 1.0
+	grade_bar.offset_top = -3.0
+	cell.add_child(grade_bar)
 
-	return row
+	if quantity != 1:
+		var qty_label := Label.new()
+		qty_label.text = str(quantity)
+		qty_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		qty_label.add_theme_font_size_override("font_size", 12)
+		qty_label.add_theme_color_override("font_color", Color(1, 1, 1, 1))
+		qty_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 1))
+		qty_label.add_theme_constant_override("outline_size", 3)
+		qty_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		qty_label.anchor_left = 0.0
+		qty_label.anchor_right = 1.0
+		qty_label.anchor_top = 1.0
+		qty_label.anchor_bottom = 1.0
+		qty_label.offset_top = -18.0
+		qty_label.offset_right = -3.0
+		cell.add_child(qty_label)
+
+	if active:
+		var active_marker := Label.new()
+		active_marker.text = "●"
+		active_marker.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		active_marker.add_theme_font_size_override("font_size", 13)
+		active_marker.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3, 1))
+		active_marker.add_theme_color_override("font_outline_color", Color(0, 0, 0, 1))
+		active_marker.add_theme_constant_override("outline_size", 3)
+		active_marker.offset_left = 2.0
+		active_marker.offset_top = -2.0
+		cell.add_child(active_marker)
+
+	return cell
+
+
+## Dupliqué à l'identique dans Hotbar.gd (même convention que le reste du HUD, voir CLAUDE.md :
+## chaque fenêtre reste un Control autonome sans dépendance croisée).
+func _is_shot_active(item_type: String, item_grade: String) -> bool:
+	var active_grade := GameState.active_soulshot_grade if item_type == "SOULSHOT" else GameState.active_spiritshot_grade
+	return not active_grade.is_empty() and active_grade == item_grade
+
+
+## Corrige juste la quantité affichée en place, sans redemander "inventory" à chaque tir/coup
+## consommé (un vrai combat en enverrait des dizaines par minute) — voir ShotUsed ci-dessus.
+## Ne retire jamais l'entrée à 0 (le serveur la supprime, voir Item.quantity côté backend) :
+## une prochaine ouverture de fenêtre (Net.send_command("inventory") dans open()) la fera
+## disparaître pour de bon, léger décalage cosmétique jugé préférable à re-fetch systématique.
+func _patch_shot_quantity(shot_type: String, remaining: int) -> void:
+	if shot_type.is_empty():
+		return
+	for item in GameState.inventory.get("items", []):
+		if str(item.get("type", "")) == shot_type:
+			item["quantity"] = remaining
+			break
+	_refresh()
 
 
 ## Un drop qui n'a atterri sur aucune cible valide (hotbar/équipement, seuls Control à
@@ -211,6 +316,9 @@ static func _item_tooltip(item: Dictionary) -> String:
 	if armor_category != null and not str(armor_category).is_empty():
 		type_line += " (%s)" % ARMOR_CATEGORY_LABELS.get(str(armor_category), str(armor_category))
 	lines.append(type_line)
+
+	if type_key == "SOULSHOT" or type_key == "SPIRITSHOT":
+		lines.append("Quantité : %d" % int(item.get("quantity", 1)))
 
 	var atk_def_line := PackedStringArray()
 	if int(item.get("pAtk", 0)) != 0:

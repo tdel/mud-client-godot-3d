@@ -15,6 +15,7 @@ var _level := 1
 
 func _ready() -> void:
 	visible = false
+	UITheme.decorate_corners(self)
 
 
 func show_target(entity_name: String, level: int, current_health: int, max_health: int) -> void:

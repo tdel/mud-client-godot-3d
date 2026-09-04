@@ -12,8 +12,9 @@ animées en position/orientation, chat de zone.
 Groupe, sous-classe — pas demandés pour l'instant. Sélection de cible, combat (attaque +
 cooldown), sorts (incantation/projectile/impact/buff-debuff), hotbar, portails (portés du
 client 2D le 2026-09-02), inventaire/équipement visuel avec fenêtres déplaçables façon L2J
-(depuis le 2026-09-03) et mort/respawn (fenêtre de respawn, également depuis le
-2026-09-03 — voir "Ce qui est nouveau" ci-dessous), en revanche, sont bien présents : ce
+(depuis le 2026-09-03), mort/respawn (fenêtre de respawn, également depuis le
+2026-09-03) et boutique PNJ (achat multi-objets/quantités, depuis le 2026-09-04 — voir
+"Ce qui est nouveau" ci-dessous), en revanche, sont bien présents : ce
 n'est donc plus la liste de tout ce que le client 2D a et que ce prototype n'a pas,
 seulement ce qui reste hors scope. Les entités
 sont toujours de simples capsules colorées (bleu = soi, vert = autres joueurs, rouge =
@@ -1430,6 +1431,91 @@ tournant après cette session (redémarré en début d'investigation) ; compte/p
 test (`monstertest<timestamp>`/`Zog<suffixe>`) laissés dans `mud-server.db`, même
 convention que les comptes `probe*`/`clitest*` déjà présents (base de dev).
 
+## Session du 2026-09-03 (suite) : minimap ronde en haut à droite, zoomée et centrée sur le
+## personnage
+
+Demande explicite (en deux temps) : une minimap ronde en haut à droite pour suivre le
+personnage sur la carte courante, avec le nom de la carte et les coordonnées x/y en dessous
+(déménagées depuis %InfoLabel, jusqu'ici en haut à gauche) ; puis, après une première
+version montrant la carte entière avec un simple point mobile, retour explicite qu'il
+fallait plutôt ZOOMER sur le personnage, celui-ci restant au CENTRE du disque tandis que la
+carte défile sous lui — comportement finalement retenu, décrit ci-dessous (même principe
+que la minimap de la plupart des MMO, L2 compris).
+
+**`scenes/game/hud/Minimap.gd`/`.tscn`** (nouveau) : réutilise directement la texture de
+sol déjà construite par `ZoneAssets3D.build_ground_texture` pour chaque carte (voir
+`Game3D._rebuild_map`, qui lui passe désormais cette texture via `_minimap.set_map(...)`
+en plus de l'assigner au sol 3D) — mêmes couleurs de terrain, aucune génération dédiée.
+`%MapLayer` (un `TextureRect` en `stretch_mode=SCALE`/`expand_mode=IGNORE_SIZE`) l'étire à
+l'échelle de zoom voulue (`PIXELS_PER_TILE`, dérivée de `VISIBLE_TILES_DIAMETER=40` — choisi
+égal à la portée de perception serveur `AWARENESS_RANGE`, voir session EntityAppeared/
+EntityDisappeared plus haut : la minimap montre ainsi exactement la zone dans laquelle une
+entité peut nous être signalée) puis `set_player_tile_position` la repositionne à chaque
+frame pour que la tuile du joueur reste toujours exactement au centre du disque — c'est la
+carte qui bouge, jamais le point du joueur (`%PlayerDot`, un `Panel` avec un `StyleBoxFlat`
+à coins totalement arrondis, immobile au centre — même technique que `LevelBadge` dans
+`PlayerFrame.tscn`).
+
+Le disque lui-même (fond + carte qui défile + point) est rendu dans un `SubViewport` de
+taille FIXE 168×168 (`%CircleViewport`), affiché à travers un `SubViewportContainer`
+(`%CircleViewportContainer`) portant un `ShaderMaterial` canvas_item (découpe circulaire +
+bandeau doré près du bord, même style d'écriture que `ROUNDED_BAR_SHADER_CODE` dans
+`Game3D.gd` : shader construit à l'exécution depuis une constante de code, pas de ressource
+`.gdshader` séparée). **Un `CanvasGroup` a été essayé en premier** (fusionner les enfants —
+fond/carte/point — dans un tampon post-traité par ce même shader, en théorie plus léger
+qu'un `SubViewport`) mais s'est révélé inutilisable : la taille de son tampon composé suit
+les bornes RÉELLES (non écrêtées) de ses enfants, y compris `%MapLayer` qui dépasse
+largement 168×168 une fois à l'échelle de zoom et qui défile en plus — le disque gonflait
+donc en un énorme cercle blanc occupant tout l'écran au lieu de rester un petit cercle fixe,
+constaté sans ambiguïté par une capture d'écran de test (voir vérification plus bas) avant
+de basculer sur le `SubViewport`, qui agit comme une vraie "caméra" fixe sur cette zone :
+tout ce qui dépasse ses bornes est simplement non rendu, quelle que soit la taille réelle du
+contenu.
+
+**`Game3D.gd`** : `%InfoLabel`/`_info_label` retirés, remplacés par `%Minimap`/`_minimap`.
+`_rebuild_map` appelle `_minimap.set_map(texture, _map_width, _map_height,
+_current_map_name)` juste après avoir construit la texture de sol (même texture, pas de
+double génération). `_update_info_label()` (appelée chaque frame depuis `_process`) devient
+`_update_minimap()`, qui ne fait plus qu'alimenter `_minimap.set_player_tile_position(...)`
+— le nom de carte est déjà fixé par `set_map` (ne change qu'au changement de carte, pas
+besoin de le repousser chaque frame).
+
+**`Game.tscn`** : `InfoPanel`/`InfoLabel` supprimés, `Minimap` instancié à leur place sous
+`HUD` (ancré en haut à droite, sous `PlayerFrame` dans l'arbre). `HintLabel` (déjà en haut à
+droite, juste en dessous d'où arrive la minimap) repoussé plus bas (`offset_top`/
+`offset_bottom` +120) pour ne pas se chevaucher avec le nouveau cercle + les deux labels
+en dessous.
+
+Vérifié avec `mcp__godot__run_project` (disponible dans cet environnement, mais retombé de
+façon répétée en "No active Godot process" sur ce test précis avant de fonctionner —
+diagnostiqué comme une course avec un script de test qui se terminait/`quit()`ait trop vite
+pour que l'outil ait le temps d'attacher/interroger le process, pas un vrai crash : corrigé
+en ajoutant un `await get_tree().create_timer(3.0).timeout` avant le `quit()` de la scène de
+test, qui n'a plus jamais échoué ensuite — à garder en tête pour de futures scènes de test
+courtes dans cet environnement) : une scène de test jetable (même principe que les sessions
+précédentes, supprimée après usage) a appelé `Minimap.set_map`/`set_player_tile_position`
+directement (sans dépendre du réseau) sur `Orée de la forêt` (450×270) avec 3 positions de
+joueur successives simulant un déplacement — (50,50) puis (80,30) puis (22,10, proche d'un
+coin de la carte) — capturant une vraie image du viewport à chaque étape
+(`get_viewport().get_texture().get_image().save_png`, même technique que les sessions
+précédentes). Confirme visuellement, sur les 3 captures : disque net de taille CONSTANTE
+avec bandeau doré (contrairement à la tentative `CanvasGroup`, qui donnait un disque
+grossissant/blanc — capture de cette régression également prise avant le correctif, non
+conservée), sol correctement coloré par terrain et zoomé (bien plus proche que la vue
+d'ensemble de la première tentative), point bleu du joueur TOUJOURS exactement au centre du
+disque sur les 3 captures malgré des positions très différentes, le terrain visible en
+arrière-plan changeant bien entre chaque capture (confirmant que c'est la carte qui défile,
+pas le point qui se déplace), et la 3e capture (joueur proche du coin (22,10) sur une carte
+de 450×270) montrant correctement une bande de vide (fond sombre, hors carte) en haut du
+disque — comportement attendu en bord de carte. `Game.tscn` rechargé seul (sans réseau)
+après coup, aucune nouvelle erreur (mêmes avertissements "pas connecté" habituels). Scène de
+test et captures supprimées après usage. **Reste à confirmer par un humain, une fois un
+backend démarré** : le ressenti réel en jeu (lisibilité/vitesse de défilement à l'échelle
+réelle de l'écran, fluidité pendant un déplacement continu) et qu'un changement de carte
+(portail/respawn) reconstruit bien la minimap sans accroc (chemin de code partagé avec le
+sol 3D, déjà validé, mais jamais exercé spécifiquement pour la minimap contre un vrai
+backend).
+
 ## Lancer le projet
 
 Même backend que le client 2D (`mud-server-java`, `mvn spring-boot:run`, port 4002 — voir
@@ -1506,3 +1592,408 @@ d'entités) une fois un backend démarré, Forward+ pouvant légèrement différ
 de la compatibilité (éclairage indirect/nombre de lumières simultanées notamment, sans
 impact connu ici vu le rendu volontairement simple de ce prototype — capsules colorées,
 sol peint, pas de lumières dynamiques multiples).
+
+## Session du 2026-09-04 : soulshots/spiritshots (nograde), auto-use depuis l'inventaire et la
+## hotbar, lueur d'arme
+
+Backend touché la veille par le commit `60649e3` ("Ajoute le système soulshot/spiritshot",
+`mud-server-java`, WSL) — signalé par l'utilisateur en préambule de cette session, sans backend
+en cours d'exécution dans cet environnement, donc entièrement investigué par lecture de source
+avant tout code : deux objets consommables empilables (`ItemType.SOULSHOT`/`SPIRITSHOT`,
+`data/items/shots.xml`, grade `NOGRADE` pour l'instant — D/C/B/A/S déjà supportés par
+l'énumération/les commandes/les messages, seules les entrées XML manquent). Mécanique auto-use
+façon L2, PAS un `use <uuid>` ponctuel comme une potion : les commandes `soulshot`/`spiritshot
+<nograde|d|c|b|a|s|off>` arment/désarment une grade (renvoyer la grade déjà active l'éteint,
+logique de toggle entièrement côté serveur), consommée automatiquement à chaque tentative
+d'attaque (soulshot, ×2 dégâts physiques) ou chaque incantation (spiritshot, ×√2 dégâts
+magiques/soin + incantation 30% plus rapide) — jamais par ce client, qui ne fait qu'arme/désarme
+la grade.
+
+**Deux lacunes de protocole trouvées et comblées côté backend** (même bâtiment que les
+correctifs `EntityView.kind`/champs XP de sessions précédentes — additifs, aucun champ
+retiré/renommé, donc sans impact sur le client 2D) :
+- `Inventory.Entry` n'exposait aucune quantité (`Item.quantity`, le champ backend existait déjà,
+  simplement jamais renvoyé) : impossible d'afficher un stock réel de charges depuis un
+  rafraîchissement d'inventaire. Ajouté `quantity` en dernier champ de l'`Entry`, peuplé depuis
+  `item.getQuantity()` dans `Inventory` (command) `toEntry`.
+- `GamePlayerStats.Payload` n'exposait pas `activeSoulshotGrade`/`activeSpiritshotGrade`
+  (persistés en base par `CharacterDao`, lus via `CharacterInstance.getActiveSoulshotGrade()`/
+  `getActiveSpiritshotGrade()`) : un client qui se reconnecte n'aurait eu aucun moyen de savoir
+  qu'une grade était déjà armée avant de la re-toggler ou d'attaquer une première fois — le
+  surlignage "actif" décrit plus bas aurait été faux jusque-là. Ajoutés en fin de `Payload`,
+  peuplés dans `GamePlayerStats.toJson`.
+
+Compilé avec succès (`mvn -o -q compile`, WSL, aucune erreur) ; **serveur `mvn spring-boot:run`
+à redémarrer pour prendre en compte ces deux champs**, non fait ici (pas de serveur tournant
+dans cet environnement).
+
+**Portée du travail client, cadrée par 3 questions posées à l'utilisateur avant de coder** : (1)
+combler la lacune `quantity` côté backend — oui ; (2) où exposer le toggle d'auto-use — depuis
+l'inventaire ET depuis un slot de hotbar si la charge y est glissée (demande explicite,
+formulation exacte : "on doit pouvoir sélectionner les Soulshots/spiritshot depuis
+l'inventaire, mais lorsque l'item est dans la hotbar, on doit également pouvoir le
+sélectionner/déselectionner") ; (3) lueur d'arme visuelle sur consommation — oui.
+
+**`GameState.gd`** : deux nouveaux champs `active_soulshot_grade`/`active_spiritshot_grade`
+(`String`, `""` = désactivé, sinon `"NOGRADE"`/`"D"`/etc.), alimentés par `GamePlayerStats`
+(état persisté, utile à la reconnexion — voir le correctif backend ci-dessus),
+`ShotGradeChanged` (toggle confirmé, `grade: null` = désactivé) et `ShotOutOfStock` (le serveur
+désarme lui-même la grade épuisée côté personnage, reflété ici sans attendre un
+`GamePlayerStats`/`ShotGradeChanged` qui ne viendrait pas spontanément). Remis à `""` par
+`clear_session()`.
+
+**`InventoryWindow.gd`** : une ligne de soulshot/spiritshot (`item.type` == `SOULSHOT`/
+`SPIRITSHOT`) n'utilise plus le clic droit "Utiliser" (`use <uuid>`, toujours actif pour tout
+le reste) mais envoie `soulshot`/`spiritshot <grade en minuscules>` — pas de résolution d'UUID
+d'instance nécessaire, contrairement à un objet consommable classique. Affiche `× <quantité>`
+à côté du nom (uniquement pour ces deux types — le reste des objets vaut toujours 1, sans
+intérêt à afficher), un marqueur `●` doré devant le nom et l'icône teintée dorée
+(`Color(1.25, 1.1, 0.55)`) quand la grade de cette ligne correspond à
+`GameState.active_soulshot_grade`/`active_spiritshot_grade`, et une ligne "Quantité : N" en
+plus dans l'infobulle (`_item_tooltip`, désormais partagée par les deux types de charge —
+`ITEM_TYPE_LABELS` gagne les entrées `SOULSHOT`/`SPIRITSHOT`). Nouveaux cas dans
+`_on_message_received` : `ShotGradeChanged`/`ShotOutOfStock` déclenchent juste un `_refresh()`
+(le surlignage dépend de `GameState`, déjà mis à jour indépendamment par `GameState.gd` sur le
+même signal) ; `ShotUsed` corrige la quantité affichée EN PLACE (`_patch_shot_quantity`,
+cherche l'entrée par `type` dans `GameState.inventory` et écrit `remainingQuantity`) plutôt que
+de redemander un `inventory` complet à chaque tir/coup consommé, ce qu'un vrai combat
+déclencherait des dizaines de fois par minute — léger décalage cosmétique assumé si la
+quantité tombe à 0 (le serveur supprime alors l'objet, mais la ligne locale reste visible à
+"×0" jusqu'à la prochaine ouverture de fenêtre, qui redemande "inventory").
+
+**Glisser-déposer vers la hotbar, propagation du type/grade** : `DraggableIcon.gd` gagne deux
+champs `drag_item_type`/`drag_item_grade` (vides pour tout ce qui n'est pas une charge, posés
+uniquement par `InventoryWindow._build_row`), inclus dans le dictionnaire retourné par
+`_get_drag_data`. `HotbarSlot.gd` (`slot_drop_requested`) et `Hotbar.gd` (`set_slot`,
+persistance `user://hotbar.cfg` — dict générique, les deux nouvelles clés survivent
+automatiquement à la sauvegarde/relecture, y compris pour une config déjà existante qui ne les
+contient pas encore, lue avec un repli `""`) propagent ces deux champs de bout en bout jusqu'au
+slot. `Hotbar._trigger_slot`, cas `"item"` : si `item_type` vaut `SOULSHOT`/`SPIRITSHOT`,
+envoie le toggle (`soulshot`/`spiritshot <item_grade en minuscules>`) au lieu de résoudre un
+UUID d'objet et d'envoyer `use` — sans ça, un stock tombé à 0 (l'objet disparaît alors de
+l'inventaire, voir plus haut) aurait rendu le slot injustifiable une fois la résolution par nom
+en échec, alors que le toggle n'a lui-même jamais besoin d'UUID d'instance.
+
+**Surlignage "actif" du slot de hotbar** : nouveau nœud `%ActiveOverlay` dans
+`HotbarSlot.tscn` (`ColorRect` doré translucide, même famille que `%CooldownOverlay`/
+`%ErrorOverlay` déjà existants, inséré juste après `Icon` dans l'arbre pour que
+cooldown/erreur restent dessinés par-dessus si les deux se superposaient un jour) +
+`HotbarSlot.set_active(bool)` (persistant, contrairement à `flash_error` qui est temporaire).
+`Hotbar._refresh_shot_active_states()` (nouveau) parcourt les 12 slots et surligne ceux dont
+`item_type`/`item_grade` correspond à la grade actuellement armée
+(`GameState.active_soulshot_grade`/`active_spiritshot_grade` — `_is_shot_active`, dupliqué à
+l'identique dans `InventoryWindow.gd`, même convention que le reste du HUD : chaque fenêtre
+reste un `Control` autonome sans dépendance croisée) ; appelé après tout changement de contenu
+de slot (`set_slot`, donc au chargement de `user://hotbar.cfg` aussi) et sur
+`GamePlayerStats`/`ShotGradeChanged`/`ShotOutOfStock`.
+
+**Lueur d'arme (`Game3D.gd`)** : `_flash_entity` (déjà utilisé pour le flash de dégâts) gagne
+deux paramètres optionnels `up_duration`/`down_duration` (défauts inchangés pour les appelants
+existants) — réutilisé tel quel plutôt que dupliqué, avec une durée de fondu plus longue
+(`SHOT_GLOW_UP_DURATION`/`SHOT_GLOW_DOWN_DURATION`, 0.1s/0.35s contre 0.05s/0.15s pour le
+flash de dégâts) pour rester bien visible en "lueur". Couleurs dédiées :
+`SOULSHOT_GLOW_COLOR` orange (physique), `SPIRITSHOT_GLOW_COLOR` cyan (magique, cohérent avec
+`CAST_BAR_COLOR` déjà bleu) — délibérément différentes du rouge du flash de dégâts pour ne pas
+les confondre. Nouveaux cas de message : `ShotUsed` (envoyé uniquement à nous-même, voir
+`GameState.gd`) flashe `_player_node` ; `SoulshotUsed`/`SpiritshotUsed` (diffusés à toute la
+zone SAUF à l'auteur, résolus par `characterId` via `_entity_node_by_id`) flashent l'entité qui
+vient d'utiliser une charge — combinés, tout le monde voit la lueur de tout le monde,
+soi-même compris. `ShotGradeChanged`/`ShotOutOfStock`/`InvalidShotGrade` journalisés en gris
+italique (même style que les autres messages purement informatifs déjà dans ce fichier, ex.
+"Aucune cible sélectionnée").
+
+Vérifié en deux temps : `mvn -o -q compile` (WSL) sans erreur pour les trois fichiers backend
+touchés ; côté client, `Game.tscn`/`Login.tscn` rechargés en headless (exécutable console,
+`mcp__godot__run_project` s'étant de nouveau révélé indisponible pour cette session — "No
+active Godot process" dès le lancement, même symptôme non résolu que documenté dans une
+session précédente) sans nouvelle erreur, puis une scène de test jetable
+(`scenes/_test_soulshot.gd`/`.tscn`, supprimée après usage, même principe que les sessions
+précédentes) instanciant `Game.tscn` avec un `GameState.inventory` synthétique (un soulshot
+×250, un spiritshot ×80, tous deux `NOGRADE`) a, via l'exécutable console en `--headless
+--quit-after 100000` (nécessaire ici : ce test fait de vrais allers-retours entre plusieurs
+`await get_tree().process_frame`, un `--quit-after` compté en frames trop bas aurait coupé le
+test en cours de route, piège déjà documenté dans une session précédente) : construit les
+deux lignes d'inventaire et vérifié texte/tooltip exacts (quantité, état "inactif") ; simulé le
+clic droit sur l'icône soulshot et confirmé l'envoi exact de `{"verb":"soulshot",
+"argument":"nograde"}` (capturé via l'avertissement "pas connecté" de `Net.gd`, qui reproduit
+la commande) ; émis un vrai signal `Net.message_received` (`ShotGradeChanged`, pas un appel
+direct à un handler interne) et vérifié `GameState.active_soulshot_grade` mis à jour PUIS la
+ligne d'inventaire réaffichée avec le marqueur `●`/la teinte dorée/le tooltip "actif" ; émis
+`ShotUsed` et vérifié la quantité locale corrigée à 249 sans requête réseau ; simulé un
+glisser-déposer réel (`Hotbar._on_slot_drop_requested`) du soulshot vers le slot F1 et vérifié
+que `_trigger_slot(0)` envoie bien `{"verb":"soulshot","argument":"nograde"}` (pas `"use"`) ;
+vérifié `%ActiveOverlay` visible sur ce même slot tant que la grade reste armée, puis invisible
+après un `ShotOutOfStock` simulé (qui désarme aussi bien `GameState.active_soulshot_grade`) ;
+vérifié qu'un `InvalidShotGrade` synthétique ne fait planter ni journal ni scène ; enfin
+enregistré une seconde entité (`_ensure_entity_node`/`_register_entity_id`) et vérifié
+qu'un `ShotUsed` (soi-même) et un `SoulshotUsed` ciblant cette entité déclenchent chacun
+`_flash_entity` sans erreur. Aucune capture d'écran prise (rendu visuel de la lueur/du
+surlignage doré jamais visuellement inspecté, seule la logique — visibilité des nœuds,
+couleurs de modulation, texte — a été vérifiée par lecture de sortie debug). **Reste
+entièrement à confirmer par un humain, une fois le backend redémarré avec les deux champs de
+protocole ajoutés ici** : le ressenti visuel réel (lueur d'arme en combat, surlignage doré des
+lignes/slots actifs, lisibilité du marqueur `●`) ; qu'activer un soulshot puis attaquer
+consomme bien la charge et double les dégâts (formule déjà vérifiée par lecture de source côté
+backend, jamais exercée en combat réel) ; que la persistance de la grade active survit
+réellement à une reconnexion (`activeSoulshotGrade`/`activeSpiritshotGrade` désormais dans
+`GamePlayerStats`, jamais témoin d'une vraie reconnexion serveur ici) ; et qu'un stock qui tombe
+à 0 en plein combat se comporte proprement à l'écran (log "plus de X", surlignage qui
+s'éteint) sans que la ligne d'inventaire à "×0" ne prête à confusion avant la prochaine
+ouverture de la fenêtre.
+
+## Session du 2026-09-04 (suite) : boutique PNJ (clic droit → Boutique, achat multi-objets/
+## quantités façon L2J)
+
+Demande explicite : sur un PNJ sélectionné, un clic droit doit proposer un petit menu (comme
+pour le portail) avec "Shop", ouvrant une fenêtre d'achat listant les objets vendus avec leur
+prix, permettant de choisir plusieurs objets et/ou des quantités (notamment pour les shots) et
+de confirmer en une fois — les objets achetés doivent se retrouver dans l'inventaire.
+
+**Backend (`mud-server-java`, WSL) : l'essentiel du modèle existait déjà, mais uniquement
+derrière un menu texte bloquant.** `NpcSellerInstance` (catalogue `NpcShop`/`NpcShopEntry`,
+prix par unité) et `InventorySystem.gold`/`buyItem` existaient déjà, de même que les messages
+`ShopCatalog`/`ItemBought`/`NotEnoughGold`/`ShopItemNotFound`. Mais le seul point d'entrée
+était `Talk.java` (`talk <npcUuid>`) : un dialogue `SHOP` déclenchait `connection.
+requestBlocking(...)`, qui monopolise la PROCHAINE ligne brute reçue sur la connexion quel
+que soit son type — un mécanisme façon MUD texte, incompatible avec une fenêtre GUI devant
+coexister avec les commandes normales (déplacement, attaque...). Aucune commande dédiée
+`buy`/`shop` stateless n'existait, et `NpcSellerInstance.sell` n'acceptait aucune quantité (un
+achat = un exemplaire). Enfin, `EntityView` (ce qui alimente `EntityAppeared`/`kind` côté
+client, voir session du 2026-09-03 sur le spawn temps réel) ne portait aucun indicateur
+"vend quelque chose" : impossible de savoir côté client si le clic droit doit proposer
+"Boutique" sans d'abord tenter un `talk`.
+
+Ajouts additifs (aucun champ retiré/renommé, `Talk.java`/le chemin texte restent inchangés
+et continuent de fonctionner à l'identique) :
+- `EntityView.hasShop` (`app/network/message/ingame/EntityView.java`) : `character instanceof
+  NpcSellerInstance`, calculé une fois dans `EntityView.of()` (site de construction unique,
+  vérifié).
+- `NpcSellerInstance.sell(CharacterInstance, String, int quantity)` (nouvel overload, l'ancien
+  `sell(buyer, input)` délègue à `sell(buyer, input, 1)` — `Talk.java` inchangé) : solvabilité
+  totale (`prix unitaire × quantité`) vérifiée une seule fois en amont pour un achat
+  tout-ou-rien, puis un seul `Item` de quantité `qty` pour un type stackable (soulshot/
+  spiritshot, un seul débit/événement `ItemPurchased`) ou une boucle d'`Item` individuels sinon
+  (arme/armure/potion — jamais stackables, voir `ItemType.stackable()`). `PurchaseOutcome.
+  Purchased` simplifié en record sans champ (Talk.java ne lisait déjà ni `item` ni `price` sur
+  ce cas, `case ... Purchased ignored -> {}` — aucun changement nécessaire côté Talk.java).
+- Deux nouvelles commandes stateless, contreparties du chemin `Talk`/`requestBlocking` (qui
+  reste le seul chemin pour un éventuel client texte, inchangé) :
+  - `shop <npcUuid>` (`app/network/command/ingame/Shop.java`) : envoie directement `ShopCatalog`
+    sans bloquer la connexion.
+  - `buy <npcUuid>|<itemTemplateUuidOuNom>|<quantité>` (`app/network/command/ingame/Buy.java`) :
+    résout/valide puis délègue à `NpcSellerInstance.sell`, retombe sur
+    `ShopItemNotFound`/`NotEnoughGold` (mêmes messages que le chemin texte).
+Compilé avec succès (`mvn -o -q compile`, aucune erreur) ; **serveur `mvn spring-boot:run` à
+redémarrer pour prendre en compte ces changements**, non fait ici (pas de serveur tournant dans
+cet environnement). Écriture hors de ce projet (WSL) confirmée explicitement par l'utilisateur
+avant modification, comme à chaque fois (bloquée une première fois par le classifieur de
+permissions du bac à sable, voir sessions précédentes).
+
+**Client (`mud-godot-3d`)** :
+- `Game3D.gd` — `_apply_appeared_entity` pose désormais une meta `has_shop` (bool, depuis
+  `EntityView.hasShop`) sur chaque nœud d'entité, quel que soit son `kind` (toujours faux pour
+  un joueur/monstre, calculé côté backend). `_handle_right_click` teste d'abord le portail
+  (inchangé) puis, si rien n'a matché, la cible actuellement sélectionnée (`_selected_target_id`)
+  : si son nœud porte `has_shop=true`, ouvre `%NpcMenu` (nouveau `PopupMenu`, même construction
+  que `%PortalMenu` — un seul item "Boutique") plutôt qu'un rayon physique dédié, puisqu'un clic
+  droit ne fait sens ici que sur une cible déjà sélectionnée (même logique que "portail déjà
+  sélectionné"). "Boutique" choisi → `Net.send_command("shop", _selected_target_id)`. `_clear_
+  selection` cache aussi `%NpcMenu` (comme `_clear_portal_selection` cache déjà `%PortalMenu`).
+  Nouveaux cas `ItemBought`/`NotEnoughGold`/`ShopItemNotFound` dans `_on_message_received` :
+  journalisés dans le chat (`LOG_COLOR_LOOT` pour un achat réussi, même couleur que
+  `EquipmentLooted`/`GoldLooted` — sémantiquement proche, "on possède désormais quelque chose de
+  nouveau").
+- **`scenes/game/hud/ShopWindow.gd`/`.tscn`** (nouveau, touche aucune — jamais ouverte au
+  clavier/bas-droite comme les autres fenêtres, uniquement via le menu contextuel PNJ) : hérite
+  de `WindowFrame` (même déplaçable/croix de fermeture/pile Échap que le reste du HUD) mais, fait
+  notable, ne reçoit AUCUNE référence depuis `Game3D.gd` — elle s'abonne directement à `Net.
+  message_received` et s'ouvre ELLE-MÊME dès qu'un `"ShopCatalog"` arrive (réponse à la commande
+  `shop` envoyée par `Game3D.gd`), sur le même principe que `GameState.gd` qui réagit à
+  `ShotGradeChanged` indépendamment de ce que fait `Game3D.gd` avec le même signal — `Game3D.gd`
+  n'a donc besoin d'aucune connaissance de `ShopWindow` au-delà de l'envoi de la commande réseau.
+  Chaque ligne (icône procédurale `ZoneAssets3D.make_slot_icon_texture("item", ...)`, nom coloré
+  par grade, prix unitaire) porte son propre `SpinBox` (0 à 999, 0 = pas dans le panier) plutôt
+  qu'un bouton "Ajouter au panier" séparé — demandé explicitement ("sélectionner plusieurs items
+  ... ou plusieurs quantités facilement dans le cas des shots") ; aucun autre pattern de
+  sélection de quantité n'existait dans ce projet (`SpinBox` est un contrôle natif Godot, jamais
+  utilisé ailleurs ici mais le plus direct pour ce besoin). Le pied de fenêtre affiche le total
+  du panier et désactive "Confirmer l'achat" tant qu'il vaut 0 ou dépasse l'or affiché (`Or : `,
+  seedé par `ShopCatalog.gold` à l'ouverture, resynchronisé sur tout `"Inventory"` reçu tant que
+  la fenêtre est visible — un achat ne pousse pas d'`Inventory` complet de lui-même côté backend,
+  d'où le `Net.send_command("inventory")` explicite envoyé après confirmation). "Confirmer
+  l'achat" envoie un `buy <npcId>|<itemTemplateId>|<quantité>` par ligne à quantité > 0 (achat
+  tout-ou-rien par ligne, voir `NpcSellerInstance.sell` ci-dessus — pas un envoi unité par unité),
+  vide tout le panier (toutes les lignes, pas seulement celles achetées — un nouveau round d'achat
+  repart de zéro) puis redemande `"inventory"`. `ItemBought`/`NotEnoughGold`/`ShopItemNotFound`
+  affichés dans un label de message local (même convention que `InventoryWindow._show_message`)
+  en plus du log général tenu par `Game3D.gd`.
+- `Game.tscn` : `%ShopWindow` instanciée sous `HUD`, `%NpcMenu` (`PopupMenu`) ajouté à côté de
+  `%PortalMenu`. `HintLabel` mentionne désormais "PNJ marchand" à côté de "portail" pour le clic
+  droit maintenu/bref.
+
+Vérifié avec l'exécutable console Godot en `--headless --editor --quit` (ré-import, aucune
+erreur) puis `--headless res://scenes/game/Game.tscn --quit-after 30` (aucune nouvelle erreur,
+mêmes avertissements "pas connecté" habituels) — `mcp__godot__run_project` non tenté cette fois
+(pattern déjà documenté dans une session précédente : indisponible de façon intermittente dans
+cet environnement, l'exécutable console headless suffit pour ce genre de vérification logique
+pure). Une scène de test jetable (`scenes/_test_shop.gd`/`.tscn`, même principe que les sessions
+précédentes, supprimée après usage) a instancié `Game.tscn` en entier et émis de vrais signaux
+`Net.message_received` (pas d'appel direct aux handlers internes, même piège que documenté dans
+une session précédente sur `GameState.gd`) pour exercer le chemin complet : (1) un PNJ avec
+`hasShop=true` reçoit bien la meta `has_shop=true`, un second PNJ avec `hasShop=false` reçoit
+bien `false` ; (2) sélectionner le PNJ vendeur (`TargetSelected`) puis appeler
+`_handle_right_click()` (le vrai chemin emprunté par un clic droit bref, pas un raccourci direct
+vers `_open_npc_menu`) ouvre bien `%NpcMenu` ; sélectionner le PNJ non-vendeur puis rejouer le
+même geste ne l'ouvre PAS ; (3) cliquer "Boutique" envoie exactement `{"verb":"shop",
+"argument":"npc-uuid-1111"}` (confirmé via l'avertissement "pas connecté" de `Net.gd`, qui
+reproduit la commande) ; (4) un `ShopCatalog` synthétique (2 entrées) ouvre bien `%ShopWindow`
+avec 2 lignes et le bon montant d'or ; (5) régler les `SpinBox` de chaque ligne (2×120 + 10×5)
+calcule le bon total (290), active bien "Confirmer l'achat" (290 ≤ 1000 or) ; (6) le clic sur
+"Confirmer l'achat" envoie exactement les deux `buy` attendus
+(`npc-uuid-1111|item-tpl-sword|2` et `npc-uuid-1111|item-tpl-soulshot|10`) puis `inventory`, et
+vide bien le panier (total revenu à 0, bouton de nouveau désactivé) ; (7) `NotEnoughGold`/
+`ItemBought` synthétiques mettent à jour le label de message local avec le texte exact attendu ;
+(8) fermer la fenêtre puis rejouer un nouveau `ShopCatalog` la rouvre bien d'elle-même ; (9)
+désélectionner la cible (`_clear_selection`) cache bien `%NpcMenu` s'il était resté ouvert.
+Aucune erreur dans la sortie debug sur l'ensemble du scénario. Scène de test supprimée après
+usage. **Reste à confirmer par un humain** : le ressenti visuel réel (mise en page de
+`ShopWindow`, lisibilité des `SpinBox`/icônes) ; et que le clic droit sur un PNJ non encore
+sélectionné (qui ne fait actuellement rien, comme avant cette session — il faut d'abord un clic
+gauche pour sélectionner) reste un comportement voulu plutôt que gênant à l'usage.
+
+**Vérification de bout en bout contre le vrai backend redémarré (même session, à la demande de
+l'utilisateur — "backend is restarted, test it")**, cette fois avec une vraie connexion réseau
+(pas des signaux synthétiques) : trois scènes de test jetables successives (protocole brut via
+de vrais `Net.connect_to_server()`/`send_command`/`message_received`, même méthode que
+l'investigation "Fox invisible" d'une session précédente, supprimées après usage) ont créé un
+compte/personnage jetables (`shoptest_live_01`/`ShopBuyer1`, laissés dans `mud-server.db`, or
+injecté à 1000 via `sqlite3` directement — un personnage neuf démarre à 0 or,
+`WorldInstance.createCharacter`, aucune commande de triche n'existe côté backend pour ça) puis :
+- `EntityAppeared` réel à l'entrée sur "Place du village" confirme `hasShop=true` pour
+  Blacksmith/Innkeeper et `hasShop=false` pour Village Guard/Gate Guard — le nouveau champ
+  fonctionne exactement comme prévu pour de vraies instances de PNJ.
+- `select`/`shop <blacksmithId>` renvoie un `ShopCatalog` dont les 8 entrées (noms/grades/prix)
+  correspondent exactement à `npcs-shop.xml`.
+- `buy <blacksmithId>|<daggerTemplateId>|3` (Dagger, `WEAPON`, non stackable) déclenche bien 3
+  `GoldSpent(2)`/`ItemBought` distincts côté serveur (boucle d'`Item` individuels, voir
+  `NpcSellerInstance.sell`) ; l'`Inventory` demandé ensuite confirme 3 lignes distinctes
+  (UUID différents, quantité 1 chacune) et l'or passé de 1000 à 994 — les objets achetés
+  atterrissent bien réellement dans l'inventaire.
+- `buy` sur la Plate Armor (1500 or, plus que les 994 restants) renvoie bien
+  `NotEnoughGold{price:1500}` sans qu'aucun or ne soit débité ni qu'aucun objet ne soit créé.
+  `buy <innkeeperId>|<spiritshotTemplateId>|25` (Spiritshot, stackable) déclenche à l'inverse un
+  SEUL `GoldSpent(250)`/`ItemBought` et une SEULE ligne d'inventaire à `quantity: 25` — confirme
+  que les deux branches de `NpcSellerInstance.sell` (item unique agrégé vs boucle d'exemplaires)
+  se comportent bien différemment comme conçu, contre le vrai backend. Or final 744 (1000 - 6 -
+  250), cohérent sur toute la séquence.
+Aucune erreur serveur/client sur l'ensemble de ces échanges réseau réels. **La mécanique
+serveur du achat (catalogue, quantité, or, atterrissage en inventaire) est donc désormais
+prouvée de bout en bout, pas seulement par lecture de code** — seul reste le ressenti visuel de
+`ShopWindow`/`%NpcMenu` en jeu réel (jamais ouvert dans un vrai client Godot avec rendu, ces
+trois vérifications étant restées protocole-only sans instancier `Game.tscn`), à confirmer par
+un humain.
+
+## Session du 2026-09-04 (suite) : refonte visuelle "façon Lineage 2" + bug de fond découvert
+## sur `UITheme` (le thème global n'a en réalité jamais atteint le HUD en jeu)
+
+Demande explicite : reprendre le thème/la direction artistique de Lineage 2 pour toute
+l'interface, à partir de captures d'écran fournies par l'utilisateur (fiche de personnage,
+inventaire, une fenêtre L2 complète, une boutique) — fond quasi noir/brun à peine doré,
+angles carrés (pas arrondis comme jusqu'ici), filet doré fin, petits ornements dorés aux
+coins des fenêtres, barres PV rouge/mana bleue déjà dans l'esprit voulu.
+
+**`autoload/UITheme.gd`** : nouvelle palette (`BG_PANEL`/`BG_PANEL_LIGHT`/`BG_FIELD`
+nettement plus sombres et moins bruns-clairs qu'avant, `BORDER_GOLD`/`BORDER_GOLD_BRIGHT`
+moins "néon", nouvelle constante `SEPARATOR_GOLD`) ; tous les rayons de coin
+(`_panel_style`/`_button_style`/`_field_style`, sliders/scrollbars) ramenés de 5-22 à 0-1 —
+angles carrés façon L2 plutôt qu'arrondis façon "fantasy médiéval" d'origine. Nouveau
+`_separator_style` (`StyleBoxLine`, un simple filet doré) appliqué à `HSeparator`/
+`VSeparator` (remplace le trait gris par défaut du moteur entre le titre et le corps de
+chaque fenêtre HUD). Thème `SpinBox` ajouté (utilisé par `ShopWindow`, jusqu'ici stylé par
+défaut). Nouvelles fonctions publiques `decorate_corners(control, ornament_size=16)` +
+`_corner_ornament_texture` : 4 petits losanges dorés à facettes (procédural, distance de
+Manhattan pour un losange plutôt qu'un disque — même esprit que `_knob_texture` déjà
+existant, aucune image externe, voir plus haut) superposés aux 4 coins d'un `Control`,
+pour évoquer les rivets/ornements de coin des fenêtres L2 maintenant que les angles sont
+carrés (un simple filet ne suffisait plus à lui seul à donner ce style). Appelé une fois
+par `WindowFrame._ready()` (voir plus bas, profite donc gratuitement à
+SkillBook/InventoryWindow/EquipmentWindow/CharacterSheetWindow/OptionsWindow/ShopWindow)
+et manuellement par `PlayerFrame.gd`/`TargetStatusBar.gd`/`DeathPopup.gd` (n'héritent pas
+de `WindowFrame`).
+
+**`scenes/game/hud/WindowFrame.gd`** : titre centré et en doré (`TEXT_GOLD`) plutôt
+qu'aligné à gauche en couleur de texte par défaut, plus l'appel à `decorate_corners`
+ci-dessus — un seul point de changement pour les 6 fenêtres qui en héritent.
+
+**`PlayerFrame.tscn`/`TargetStatusBar.tscn`** : leurs `StyleBoxFlat` codés en dur (ces deux
+fenêtres n'héritent pas de `WindowFrame`, donc pas du thème global pour leur panneau
+principal) alignés sur la même palette/les mêmes angles carrés que le thème global, barres
+PV/mana simplifiées (bordure fine plutôt que coins arrondis).
+
+**`scenes/game/hud/InventoryWindow.gd`/`.tscn`** : la liste (une `HBoxContainer` icône+nom
+par ligne) devient une grille d'icônes façon slot L2 (`GridContainer` 6 colonnes, cellules
+52×52 construites en code — `_build_cell`, remplace `_build_row`) : le nom ne s'affiche
+plus qu'en tooltip (comme un vrai slot L2, glisser-déposer/clic droit inchangés via
+`DraggableIcon`), un fin bandeau de couleur de grade en bas de cellule remplace le texte
+coloré par grade, badge de quantité en bas à droite pour les charges empilées (soulshot/
+spiritshot), pastille dorée en haut à gauche si la charge est actuellement armée. `ShopWindow.
+gd` (`_build_row`) : chaque ligne enveloppée dans une petite carte (`PanelContainer`, thème
+par défaut) et icône encadrée par un `Panel` carré façon slot, sans toucher à l'interaction
+(`SpinBox` par ligne, demandé explicitement à la session précédente pour choisir une
+quantité — une grille pure façon "Items on Sale" de la capture n'aurait pas pu accueillir ce
+contrôle, compromis délibéré). `CharSelect.gd` (`_row_style`, survol de la liste de
+personnages, ajouté le 2026-09-03) : coins carrés également, pour rester cohérent avec le
+reste de la refonte.
+
+**Bug de fond découvert en vérifiant (sans lien direct avec la demande de refonte, mais
+bloquant pour elle)** : capture d'écran après les changements ci-dessus montrant des
+fenêtres au fond gris-bleu par défaut du moteur plutôt que le brun sombre voulu, alors que
+`PlayerFrame` (StyleBox codé en dur, pas via le thème global) s'affichait correctement.
+Mesuré précisément (échantillonnage de pixels via le navigateur, `getImageData` sur la
+capture) : les fenêtres pilotées par le thème global affichaient exactement `(0.1, 0.1,
+0.1, 0.6)`, la couleur de secours du thème PAR DÉFAUT du moteur (`ThemeDB.
+get_default_theme()`), et non `BG_PANEL`. Confirmé par un test isolé minimal (scène jetable
+sans aucun rapport avec ce projet) : `get_tree().root.theme = mon_theme` (root étant le
+`Window` de base, `SceneTree.root`) est bien assigné (vérifié par identité d'objet
+immédiatement après), MAIS aucun `Control` descendant — y compris un `PanelContainer`
+placé directement sous la racine sans aucun nœud intermédiaire, donc même une chaîne
+100% `Control` — ne consulte jamais ce thème racine dans cette build de Godot (4.7.2) : il
+retombe systématiquement sur le thème par défaut du moteur. À l'inverse, assigner `theme`
+directement sur un `Control` (`mon_control.theme = mon_theme`) propage correctement à ses
+descendants (vérifié dans le même test isolé). Ce bug est donc très probablement latent
+depuis la création de `UITheme.gd` le 2026-09-02/03 : tout le HUD en jeu (sous `Game.tscn`
+→ `HUD` un `CanvasLayer`, donc jamais un `Control` direct sous la racine) a donc toujours
+utilisé le gris par défaut du moteur pour tout élément sans `StyleBoxFlat` codé en dur dans
+sa propre scène — seuls Login/CharSelect/CharacterCreate (dont la racine de scène EST déjà
+un `Control`, sans nœud 3D/CanvasLayer intermédiaire) semblent avoir échappé au problème,
+probablement par coïncidence de structure plutôt que par un mécanisme réellement
+différent (non revérifié isolément pour ce cas précis, mais cohérent avec l'observation).
+Palliatif ajouté dans `UITheme._ready()` : `get_tree().node_added.connect(_on_node_added)`
+qui affecte `theme` directement à chaque `Control` nouvellement ajouté à l'arbre n'ayant
+pas lui-même de `Control` parent (`node.get_parent() is Control` faux — donc la racine
+d'une scène Control, ou tout `Control` juste sous un `CanvasLayer`/nœud 3D) : un tel
+`Control`, une fois son propre `theme` posé directement, propage alors correctement à ses
+descendants (comportement confirmé fonctionner, voir le test isolé) — sans avoir à toucher
+individuellement chaque scène HUD. `get_tree().root.theme = theme` conservé en plus (sans
+effet nuisible, simple redondance).
+
+Vérifié avec `mcp__godot__run_project` (rendu réel GPU, indispensable ici — voir plus haut
+pour la limite de `--headless`) : `Game.tscn`/`Login.tscn` rechargés sans nouvelle erreur.
+Une scène de test jetable (même principe que les sessions précédentes, supprimée après
+usage) a instancié `Game.tscn` avec des données `GameState` synthétiques (stats, inventaire
+avec soulshot/spiritshot/potions/armure de grades variés, or), ouvert
+`CharacterSheetWindow`/`SkillBook`/`EquipmentWindow`/`InventoryWindow`, et une seconde a
+instancié `Login.tscn` puis `Game.tscn` avec un `ShopWindow` ouvert via un `ShopCatalog`
+synthétique — trois captures d'écran réelles du viewport (`get_viewport().get_texture().
+get_image().save_png`, même technique que les sessions précédentes) confirment, une fois le
+palliatif ci-dessus en place : fond quasi noir/brun sur toutes les fenêtres (plus le gris
+par défaut du moteur), angles carrés, 4 losanges dorés aux coins de chaque fenêtre,
+titres centrés en doré, séparateurs fins dorés, grille d'inventaire avec icônes/bandeaux de
+grade/badges de quantité/pastille "actif" tous corrects, boutique avec lignes encadrées et
+`SpinBox` au thème doré/sombre, écran de connexion inchangé visuellement (déjà correct
+avant, structure Control pure). Scène de test et captures supprimées après usage. **Reste à
+confirmer par un humain** : le ressenti réel en jeu (à l'échelle d'un vrai écran, pas
+seulement en capture) et qu'aucune régression de performance n'est perceptible avec le
+nouveau `_on_node_added` connecté à `SceneTree.node_added` (appelé à chaque nœud ajouté à
+l'arbre, y compris les entités 3D — le filtre `node is Control` en tête de fonction devrait
+le rendre négligeable, mais jamais mesuré en jeu réel avec de nombreuses entités).

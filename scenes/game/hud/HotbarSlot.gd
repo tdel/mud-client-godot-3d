@@ -5,7 +5,9 @@ extends Control
 ## (mud-godot/scenes/game/hud/HotbarSlot.gd), Control pur indépendant du rendu 2D/3D ;
 ## seule différence : icône générée par ZoneAssets3D plutôt que ZoneAssets.
 
-signal slot_drop_requested(slot_index: int, kind: String, ref_id: String, ref_name: String)
+signal slot_drop_requested(
+	slot_index: int, kind: String, ref_id: String, ref_name: String, item_type: String, item_grade: String
+)
 ## Clic gauche sur le slot : Hotbar.gd le traite exactement comme un appui sur la touche
 ## F1-F12 correspondante (voir Hotbar._trigger_slot).
 signal slot_clicked(slot_index: int)
@@ -22,6 +24,7 @@ const NEEDLE_MARGIN := 3.0
 @onready var _icon: TextureRect = %Icon
 @onready var _glyph_label: Label = %GlyphLabel
 @onready var _key_label: Label = %KeyLabel
+@onready var _active_overlay: ColorRect = %ActiveOverlay
 @onready var _cooldown_overlay: ColorRect = %CooldownOverlay
 @onready var _cooldown_label: Label = %CooldownLabel
 @onready var _error_overlay: ColorRect = %ErrorOverlay
@@ -34,6 +37,7 @@ var _cooldown_total_msec: float = 0.0
 
 
 func _ready() -> void:
+	_active_overlay.visible = false
 	_cooldown_overlay.visible = false
 	_cooldown_label.visible = false
 	_error_overlay.visible = false
@@ -68,6 +72,16 @@ func set_content(kind: String, ref_name: String, tooltip: String = "") -> void:
 
 func clear_content() -> void:
 	set_content("", "")
+	set_active(false)
+
+
+## Surlignage persistant (contrairement à flash_error, temporaire) pour un slot "item" de
+## charge (soulshot/spiritshot) actuellement armée en auto-use — voir Hotbar._refresh_shot_
+## active_states, seule appelante. Sans rapport avec le cooldown/l'erreur, qui restent
+## indépendants et continuent de s'afficher par-dessus (voir l'ordre des nœuds dans
+## HotbarSlot.tscn).
+func set_active(active: bool) -> void:
+	_active_overlay.visible = active
 
 
 func set_cooldown_overlay(remaining_ms: float) -> void:
@@ -133,4 +147,7 @@ func _can_drop_data(_pos: Vector2, data) -> bool:
 
 
 func _drop_data(_pos: Vector2, data) -> void:
-	slot_drop_requested.emit(slot_index, data["kind"], str(data.get("ref_id", "")), data["ref_name"])
+	slot_drop_requested.emit(
+		slot_index, data["kind"], str(data.get("ref_id", "")), data["ref_name"],
+		str(data.get("item_type", "")), str(data.get("item_grade", ""))
+	)

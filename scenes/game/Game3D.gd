@@ -41,7 +41,24 @@ const OTHER_PLAYER_COLOR := Color(0.30, 0.80, 0.55)
 const MONSTER_COLOR := Color(0.85, 0.30, 0.28)
 const NPC_COLOR := Color(0.85, 0.75, 0.30)
 const PORTAL_COLOR := Color(0.65, 0.35, 0.85)
+## Titre optionnel (EntityView.title / GamePlayerStats.Payload.title côté backend, ex. fonction
+## d'un PNJ comme "Blacksmith") affiché au-dessus du nom, voir TITLE_LABEL_OFFSET_Y. Vert saturé
+## volontairement plus soutenu que OTHER_PLAYER_COLOR (0.30, 0.80, 0.55, très clair une fois
+## éclairci par `lightened(0.5)` pour le nom des autres joueurs) pour rester lisible sans être
+## fade — couleur "titre" classique de RPG (vert distinct du blanc du nom).
+const TITLE_LABEL_COLOR := Color(0.15, 0.85, 0.25)
 const SELECTION_COLOR := Color(0.92, 0.20, 0.16)
+
+## Lueur d'arme sur la consommation d'un soulshot/spiritshot (voir _flash_entity, réutilisé
+## avec une durée plus longue que le flash de dégâts pour rester bien visible) — orange pour
+## le soulshot (physique), cyan pour le spiritshot (magique, cohérent avec CAST_BAR_COLOR déjà
+## bleu). Déclenché par ShotUsed (nous-même) et SoulshotUsed/SpiritshotUsed (les autres,
+## diffusés à toute la zone sauf à l'auteur — voir commit backend "Ajoute le système
+## soulshot/spiritshot" du 2026-09-04).
+const SOULSHOT_GLOW_COLOR := Color(1.0, 0.55, 0.15)
+const SPIRITSHOT_GLOW_COLOR := Color(0.3, 0.85, 1.0)
+const SHOT_GLOW_UP_DURATION := 0.1
+const SHOT_GLOW_DOWN_DURATION := 0.35
 
 ## Couleurs des lignes de journal de combat/progression (voir les _log_* plus bas), reprises
 ## telles quelles de mud-godot/scenes/game/hud/ChatOverlay.gd pour un rendu identique — la
@@ -174,12 +191,13 @@ const WIND_WISP_SIZE := Vector2(0.24, 0.5)
 @onready var _entities_root: Node3D = $World/Entities
 @onready var _camera_rig: Node3D = $CameraRig
 @onready var _camera: Camera3D = $CameraRig/Camera3D
-@onready var _info_label: Label = %InfoLabel
+@onready var _minimap: Control = %Minimap
 @onready var _player_frame: Control = %PlayerFrame
 @onready var _log_label: RichTextLabel = %LogLabel
 @onready var _chat_input: LineEdit = %ChatInput
 @onready var _target_status_bar: Control = %TargetStatusBar
 @onready var _portal_menu: PopupMenu = %PortalMenu
+@onready var _npc_menu: PopupMenu = %NpcMenu
 @onready var _death_popup: Control = %DeathPopup
 
 var _player_node: Node3D
@@ -260,6 +278,8 @@ func _ready() -> void:
 
 	_portal_menu.add_item("Se téléporter", 0)
 	_portal_menu.id_pressed.connect(_on_portal_menu_id_pressed)
+	_npc_menu.add_item("Boutique", 0)
+	_npc_menu.id_pressed.connect(_on_npc_menu_id_pressed)
 	_player_frame.self_clicked.connect(_on_player_frame_self_clicked)
 
 	_camera.size = _camera_size
@@ -317,7 +337,7 @@ func _process(delta: float) -> void:
 	else:
 		_position_query_timer = 0.0
 
-	_update_info_label()
+	_update_minimap()
 	_update_player_frame()
 
 
@@ -384,6 +404,7 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 		"GamePlayerStats":
 			_ensure_player_node()
 			_set_entity_label(_player_node, str(payload.get("name", "")))
+			_set_entity_title(_player_node, _extract_title(payload))
 			# Enregistre notre propre UUID sous PLAYER_KEY : sans ça, _apply_target_current_health
 			# (AttackResult/CastResult/SkillCastAnnounced qui nous ciblent) ne nous reconnaît
 			# jamais comme cible (elle indexe par _key_by_entity_id, pas par comparaison directe
@@ -511,6 +532,36 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 		"SkillModifierAnnounced":
 			if bool(payload.get("hit", false)):
 				_play_skill_animation(str(payload.get("targetId", "")), str(payload.get("skillName", "")))
+		"ShotUsed":
+			# Envoyé uniquement à nous-même (voir GameState.gd) : la lueur d'arme des AUTRES
+			# personnages arrive séparément via SoulshotUsed/SpiritshotUsed ci-dessous.
+			_ensure_player_node()
+			var used_color := SOULSHOT_GLOW_COLOR if str(payload.get("shotType", "")) == "SOULSHOT" else SPIRITSHOT_GLOW_COLOR
+			_flash_entity(_player_node, used_color, SHOT_GLOW_UP_DURATION, SHOT_GLOW_DOWN_DURATION)
+		"SoulshotUsed":
+			var soulshot_node := _entity_node_by_id(str(payload.get("characterId", "")))
+			if soulshot_node != null:
+				_flash_entity(soulshot_node, SOULSHOT_GLOW_COLOR, SHOT_GLOW_UP_DURATION, SHOT_GLOW_DOWN_DURATION)
+		"SpiritshotUsed":
+			var spiritshot_node := _entity_node_by_id(str(payload.get("characterId", "")))
+			if spiritshot_node != null:
+				_flash_entity(spiritshot_node, SPIRITSHOT_GLOW_COLOR, SHOT_GLOW_UP_DURATION, SHOT_GLOW_DOWN_DURATION)
+		"ShotGradeChanged":
+			var sg_label := "Soulshot" if str(payload.get("shotType", "")) == "SOULSHOT" else "Spiritshot"
+			var sg_grade = payload.get("grade")
+			if sg_grade == null:
+				_log("[i][color=#999999]%s désactivé.[/color][/i]" % sg_label)
+			else:
+				_log("[i][color=#999999]%s activé (%s).[/color][/i]" % [sg_label, str(sg_grade)])
+		"ShotOutOfStock":
+			var out_label := "Soulshots" if str(payload.get("shotType", "")) == "SOULSHOT" else "Spiritshots"
+			_log("[i][color=#999999]Plus de %s (%s) — auto-use désactivé.[/color][/i]" % [
+				out_label, str(payload.get("grade", "?")),
+			])
+		"InvalidShotGrade":
+			_log("[i][color=#999999]Grade de charge invalide : %s[/color][/i]" % _bbcode_escape(
+				str(payload.get("argument", ""))
+			))
 		"RegenTick":
 			# Message privé (jamais diffusé à la zone, voir CLAUDE.md du client 2D) : concerne
 			# toujours notre propre personnage, contrairement à AttackResult/CastResult qui
@@ -544,6 +595,17 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 			_log("[color=%s]Vous trouvez %s pièces d'or.[/color]" % [
 				LOG_COLOR_LOOT, str(payload.get("amount", 0)),
 			])
+		"ItemBought":
+			# Réponse à "shop"/"buy" (voir %ShopWindow, qui réagit indépendamment au même
+			# message pour son propre panneau de confirmation — même principe que GameState/
+			# Game3D réagissant chacun à ShotGradeChanged sans se coordonner).
+			_log("[color=%s]Vous achetez : %s (%s or).[/color]" % [
+				LOG_COLOR_LOOT, _bbcode_escape(str(payload.get("itemName", "?"))), str(payload.get("price", 0)),
+			])
+		"NotEnoughGold":
+			_log("[i][color=#999999]Pas assez d'or (%s requis).[/color][/i]" % str(payload.get("price", 0)))
+		"ShopItemNotFound":
+			_log("[i][color=#999999]Cet objet n'est plus disponible chez ce marchand.[/color][/i]")
 		"GamePlayerDefeated":
 			_log_player_defeated(payload)
 			if str(payload.get("characterName", "")) == str(GameState.player_stats.get("name", "")):
@@ -639,6 +701,7 @@ func _rebuild_map(payload: Dictionary) -> void:
 
 	_rebuild_obstacles()
 	_rebuild_portals(payload.get("portals", []))
+	_minimap.set_map(texture, _map_width, _map_height, _current_map_name)
 	_log("[color=#9a9488]Carte : %s (%dx%d)[/color]" % [_current_map_name, _map_width, _map_height])
 
 
@@ -817,11 +880,19 @@ func _handle_left_click() -> void:
 
 func _handle_right_click() -> void:
 	var point = _ground_point_at_mouse()
-	if point == null:
-		return
-	var pick := _pick_at_point(Vector2(point.x, point.z))
-	if pick.get("type", "") == "portal" and int(pick["index"]) == _selected_portal_index:
-		_open_portal_menu()
+	if point != null:
+		var pick := _pick_at_point(Vector2(point.x, point.z))
+		if pick.get("type", "") == "portal" and int(pick["index"]) == _selected_portal_index:
+			_open_portal_menu()
+			return
+	# PNJ marchand déjà sélectionné (voir _apply_selection/EntityView.hasShop) : contrairement
+	# aux portails (test au sol ci-dessus), on relit simplement la cible courante — inutile de
+	# re-tester un rayon physique sous la souris, un clic droit ne fait sens ici que sur la
+	# cible déjà sélectionnée (même logique que le portail, "déjà sélectionné").
+	if not _selected_target_id.is_empty():
+		var target_node := _entity_node_by_id(_selected_target_id)
+		if target_node != null and bool(target_node.get_meta("has_shop", false)):
+			_open_npc_menu()
 
 
 ## Début d'un appui du bouton droit : ne fait encore rien de visible, voir _process pour la
@@ -875,6 +946,17 @@ func _open_portal_menu() -> void:
 ## transmis par le client.
 func _on_portal_menu_id_pressed(_id: int) -> void:
 	Net.send_command("portal")
+
+
+func _open_npc_menu() -> void:
+	_npc_menu.popup(Rect2i(get_viewport().get_mouse_position(), Vector2i.ZERO))
+
+
+## "Boutique" choisie dans le menu contextuel : envoie "shop <npcId>", le PNJ ciblé étant la
+## sélection courante (voir _handle_right_click) — le serveur répond par ShopCatalog, que
+## %ShopWindow s'ouvre elle-même en réagissant à ce message (voir ShopWindow.gd).
+func _on_npc_menu_id_pressed(_id: int) -> void:
+	Net.send_command("shop", _selected_target_id)
 
 
 func _select_portal(index: int) -> void:
@@ -950,6 +1032,7 @@ func _clear_selection() -> void:
 		return
 	_selected_target_id = ""
 	_target_status_bar.hide_target()
+	_npc_menu.hide()
 
 
 func _update_selection_ring() -> void:
@@ -1071,8 +1154,12 @@ func _apply_appeared_entity(entry: Dictionary) -> void:
 			key = "%s:%s" % [kind, entity_id]
 	var node := _ensure_entity_node(key, entity_name, color)
 	node.position = Vector3(entry.get("x", 0.0), 0.0, entry.get("y", 0.0))
+	_set_entity_title(node, _extract_title(entry))
 	_face_heading(node, float(entry.get("heading", 0.0)))
 	_entity_speed_by_key[key] = float(entry.get("speed", DEFAULT_SPEED_TILES_PER_SEC))
+	# EntityView.hasShop côté backend (2026-09-04, "Shop PNJ") : détermine si le clic droit sur
+	# ce PNJ, une fois sélectionné, propose "Boutique" (voir _handle_right_click/_open_npc_menu).
+	node.set_meta("has_shop", bool(entry.get("hasShop", false)))
 	_register_entity_id(key, entity_id)
 	if entry.has("currentHealth") or entry.has("maxHealth"):
 		_entity_vitals_by_key[key] = {
@@ -1110,6 +1197,7 @@ func _ensure_player_node() -> void:
 	# pickable = false : on ne se sélectionne pas soi-même (même règle que l'ancien
 	# `if key == PLAYER_KEY: continue` de _pick_at_point).
 	_player_node = _make_entity_node(player_name, PLAYER_COLOR, false)
+	_set_entity_title(_player_node, _extract_title(GameState.player_stats))
 	_entities_root.add_child(_player_node)
 	_entities_by_key[PLAYER_KEY] = _player_node
 	_ensure_bars(PLAYER_KEY)
@@ -1188,14 +1276,48 @@ func _make_entity_node(entity_name: String, color: Color, pickable: bool) -> Nod
 	label.modulate = color.lightened(0.5)
 	root.add_child(label)
 
+	# Titre (fonction/rang, voir TITLE_LABEL_COLOR) : au-dessus du nom, pas trop haut. Même
+	# hypothèse de mise à l'échelle linéaire avec font_size que le calcul de NameLabel ci-dessus
+	# (0.825 unité de haut pour font_size=120) : à font_size=72, hauteur ≈ 0.825*72/120=0.495.
+	# Nom : centre 3.15, sommet 3.15+0.825/2=3.5625. Titre centré à 3.5625+0.15 (marge)+0.495/2 ≈
+	# 3.96. Texte vide par défaut (la plupart des entités n'ont pas de titre) : un Label3D sans
+	# texte ne dessine rien, pas besoin de le cacher explicitement.
+	var title_label := Label3D.new()
+	title_label.name = "TitleLabel"
+	title_label.text = ""
+	title_label.position = Vector3(0.0, 3.96, 0.0)
+	title_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	title_label.no_depth_test = true
+	title_label.font_size = 72
+	title_label.outline_size = 14
+	title_label.modulate = TITLE_LABEL_COLOR
+	root.add_child(title_label)
+
 	return root
+
+
+## AbstractObject.title côté backend vaut `null` (pas "") quand aucun titre n'est défini —
+## `entry.get("title", "")` renverrait ce `null` tel quel (la clé EST présente), d'où ce garde-fou.
+func _extract_title(entry: Dictionary) -> String:
+	var raw = entry.get("title")
+	return raw if raw is String else ""
 
 
 func _set_entity_label(node: Node3D, text: String) -> void:
 	if text.is_empty():
 		return
 	for child in node.get_children():
-		if child is Label3D:
+		if child is Label3D and child.name == "NameLabel":
+			child.text = text
+			return
+
+
+## Contrairement à _set_entity_label (nom, jamais vide en pratique) : un titre vide est un cas
+## normal (la plupart des entités n'en ont pas, voir AbstractObject.title côté backend, null par
+## défaut) et doit bien effacer un ancien titre affiché plutôt que d'être ignoré.
+func _set_entity_title(node: Node3D, text: String) -> void:
+	for child in node.get_children():
+		if child is Label3D and child.name == "TitleLabel":
 			child.text = text
 			return
 
@@ -1500,15 +1622,18 @@ func _flash_entity_by_id(entity_id: String) -> void:
 		_flash_entity(node)
 
 
-func _flash_entity(node: Node3D, color: Color = Color(1.0, 0.3, 0.3)) -> void:
+func _flash_entity(
+	node: Node3D, color: Color = Color(1.0, 0.3, 0.3),
+	up_duration: float = 0.05, down_duration: float = 0.15
+) -> void:
 	var body := node.get_node_or_null("Body") as MeshInstance3D
 	if body == null or body.mesh == null or body.mesh.material == null:
 		return
 	var mat: StandardMaterial3D = body.mesh.material
 	var original := mat.albedo_color
 	var tween := create_tween()
-	tween.tween_property(mat, "albedo_color", color, 0.05)
-	tween.tween_property(mat, "albedo_color", original, 0.15)
+	tween.tween_property(mat, "albedo_color", color, up_duration)
+	tween.tween_property(mat, "albedo_color", original, down_duration)
 
 
 ## Attaché comme enfant de l'entité visée (position locale) plutôt que placé une fois en
@@ -1878,16 +2003,18 @@ func _make_selection_ring() -> void:
 # HUD minimal
 # ---------------------------------------------------------------------------
 
-func _update_info_label() -> void:
-	var pos_text := "?"
+## Nom de carte + coordonnées : affichés sous la minimap ronde (%Minimap, voir
+## scenes/game/hud/Minimap.gd) plutôt que dans un label brut à gauche — déménagé ici le
+## 2026-09-03 à la demande explicite de l'utilisateur (minimap en haut à droite, nom de
+## carte/coordonnées juste en dessous).
+func _update_minimap() -> void:
 	if _player_node != null:
-		pos_text = "%.1f, %.1f" % [_player_node.position.x, _player_node.position.z]
-	_info_label.text = "Carte : %s\nPosition : %s" % [_current_map_name, pos_text]
+		_minimap.set_player_tile_position(_player_node.position.x, _player_node.position.z)
 
 
-## Nom/niveau/PV/mana/XP déménagés ici depuis _info_label le 2026-09-03 (demande explicite
-## d'un vrai cadre "vitaux" façon MMO plutôt qu'une ligne de texte brute, voir CLAUDE.md) —
-## _info_label ne garde plus que le débug carte/position ci-dessus. PV/niveau lus depuis
+## Nom/niveau/PV/mana/XP déménagés ici depuis l'ancien %InfoLabel le 2026-09-03 (demande
+## explicite d'un vrai cadre "vitaux" façon MMO plutôt qu'une ligne de texte brute, voir
+## CLAUDE.md). PV/niveau lus depuis
 ## _entity_vitals_by_key[PLAYER_KEY] (tenu à jour en temps réel par GamePlayerStats/
 ## RegenTick/AttackResult/CastResult/SkillCastAnnounced/PlayerRespawned, voir
 ## _on_message_received) plutôt que GameState.player_stats, qui ne se rafraîchit lui qu'au

@@ -28,6 +28,7 @@ signal self_clicked
 
 func _ready() -> void:
 	_panel.gui_input.connect(_on_panel_gui_input)
+	UITheme.decorate_corners(self)
 
 
 func _on_panel_gui_input(event: InputEvent) -> void:

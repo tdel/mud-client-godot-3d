@@ -71,11 +71,20 @@ func get_slot(index: int) -> Dictionary:
 	return _slots[index]
 
 
-func set_slot(index: int, kind: String, ref_id: String, ref_name: String) -> void:
-	_slots[index] = {"kind": kind, "ref_id": ref_id, "ref_name": ref_name}
+## `item_type`/`item_grade` : ItemType/ItemGrade backend ("SOULSHOT"/"NOGRADE", etc.), vides
+## pour tout ce qui n'est pas une charge — voir DraggableIcon.drag_item_type/drag_item_grade,
+## posés uniquement par InventoryWindow._build_row et propagés ici via
+## _on_slot_drop_requested. Persistés dans user://hotbar.cfg comme le reste du dict (voir
+## _save_config), donc récupérés tels quels au chargement même après un redémarrage.
+func set_slot(index: int, kind: String, ref_id: String, ref_name: String, item_type: String = "", item_grade: String = "") -> void:
+	_slots[index] = {
+		"kind": kind, "ref_id": ref_id, "ref_name": ref_name,
+		"item_type": item_type, "item_grade": item_grade,
+	}
 	_slot_nodes[index].set_content(kind, ref_name, _build_tooltip(kind, ref_name))
 	_save_config()
 	_refresh_mana_affordability()
+	_refresh_shot_active_states()
 
 
 func clear_slot(index: int) -> void:
@@ -112,6 +121,14 @@ func _trigger_slot(index: int) -> void:
 				return
 			Net.send_command("cast", skill_id)
 		"item":
+			var item_type := str(slot.get("item_type", ""))
+			if item_type == "SOULSHOT" or item_type == "SPIRITSHOT":
+				# Toggle d'auto-use, pas "use <uuid>" : le serveur bascule lui-même la charge
+				# active (renvoyer la même grade l'éteint, voir Soulshot.java/Spiritshot.java
+				# côté backend) — aucune résolution d'UUID d'instance nécessaire ici,
+				# contrairement à un objet consommable classique juste en dessous.
+				Net.send_command(item_type.to_lower(), str(slot.get("item_grade", "NOGRADE")).to_lower())
+				return
 			var item_id := _resolve_item_id(str(slot.get("ref_name", "")))
 			if item_id.is_empty():
 				_slot_nodes[index].flash_error()
@@ -143,8 +160,10 @@ func _resolve_item_id(item_name: String) -> String:
 	return ""
 
 
-func _on_slot_drop_requested(index: int, kind: String, ref_id: String, ref_name: String) -> void:
-	set_slot(index, kind, ref_id, ref_name)
+func _on_slot_drop_requested(
+	index: int, kind: String, ref_id: String, ref_name: String, item_type: String, item_grade: String
+) -> void:
+	set_slot(index, kind, ref_id, ref_name, item_type, item_grade)
 
 
 ## Estimation immédiate sur CastResult/SkillModifierAnnounced (voir _on_message_received),
@@ -218,6 +237,25 @@ func _refresh_mana_affordability() -> void:
 		_slot_nodes[i].set_insufficient_mana(cost > GameState.current_mana)
 
 
+## Surligne (voir HotbarSlot.set_active) chaque slot "item" de soulshot/spiritshot dont la
+## grade correspond à celle actuellement armée en auto-use (GameState.active_soulshot_grade/
+## active_spiritshot_grade) — appelé après tout changement de contenu de slot et sur les
+## messages réseau qui font varier ces deux champs (voir _on_message_received).
+func _refresh_shot_active_states() -> void:
+	for i in SLOT_COUNT:
+		var slot: Dictionary = _slots[i]
+		var item_type := str(slot.get("item_type", ""))
+		if item_type == "SOULSHOT" or item_type == "SPIRITSHOT":
+			_slot_nodes[i].set_active(_is_shot_active(item_type, str(slot.get("item_grade", ""))))
+
+
+## Dupliqué à l'identique dans InventoryWindow.gd (même convention que le reste du HUD, voir
+## CLAUDE.md : chaque fenêtre reste un Control autonome sans dépendance croisée).
+func _is_shot_active(item_type: String, item_grade: String) -> bool:
+	var active_grade := GameState.active_soulshot_grade if item_type == "SOULSHOT" else GameState.active_spiritshot_grade
+	return not active_grade.is_empty() and active_grade == item_grade
+
+
 func _skill_mana_cost(skill_name: String) -> int:
 	for entry in GameState.known_skills.get("skills", []):
 		if str(entry.get("name", "")) == skill_name:
@@ -285,6 +323,10 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 			_refresh_mana_affordability()
 		"GamePlayerStats", "RegenTick", "ManaPotionUsed":
 			_refresh_mana_affordability()
+			if type == "GamePlayerStats":
+				_refresh_shot_active_states()
+		"ShotGradeChanged", "ShotOutOfStock":
+			_refresh_shot_active_states()
 		"CastResult":
 			# Démarre une estimation immédiate (cooldownSeconds du catalogue) sans attendre
 			# SkillOnCooldown : malgré l'évolution backend du 2026-09-02 (documentée plus bas)
@@ -361,7 +403,10 @@ func _try_load_config() -> void:
 	for i in SLOT_COUNT:
 		var saved = config.get_value(character_name, "slot_%d" % i, {})
 		if typeof(saved) == TYPE_DICTIONARY and saved.has("kind") and saved.has("ref_name"):
-			set_slot(i, saved["kind"], str(saved.get("ref_id", "")), saved["ref_name"])
+			set_slot(
+				i, saved["kind"], str(saved.get("ref_id", "")), saved["ref_name"],
+				str(saved.get("item_type", "")), str(saved.get("item_grade", "")),
+			)
 
 
 func _save_config() -> void:

@@ -37,16 +37,6 @@ layout_mode = 2
 theme_override_font_sizes/font_size = 28
 text = "Sélection de personnage"
 
-[node name="ScrollContainer" type="ScrollContainer" parent="MarginContainer/Root"]
-layout_mode = 2
-size_flags_vertical = 3
-
-[node name="ListContainer" type="VBoxContainer" parent="MarginContainer/Root/ScrollContainer"]
-unique_name_in_owner = true
-layout_mode = 2
-size_flags_horizontal = 3
-theme_override_constants/separation = 10
-
 [node name="ErrorLabel" type="Label" parent="MarginContainer/Root"]
 unique_name_in_owner = true
 layout_mode = 2
@@ -55,11 +45,49 @@ autowrap_mode = 3
 visible = false
 text = ""
 
-[node name="CreateButton" type="Button" parent="MarginContainer/Root"]
+[node name="TopSpacer" type="Control" parent="MarginContainer/Root"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="ListRow" type="HBoxContainer" parent="MarginContainer/Root"]
+layout_mode = 2
+
+[node name="LeftSpacer" type="Control" parent="MarginContainer/Root/ListRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_stretch_ratio = 1.0
+
+[node name="ScrollContainer" type="ScrollContainer" parent="MarginContainer/Root/ListRow"]
 unique_name_in_owner = true
 layout_mode = 2
-size_flags_horizontal = 0
-text = "Créer un personnage"
+size_flags_horizontal = 3
+size_flags_stretch_ratio = 2.0
+
+[node name="ListContainer" type="VBoxContainer" parent="MarginContainer/Root/ListRow/ScrollContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 0
+
+[node name="RightSpacer" type="Control" parent="MarginContainer/Root/ListRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_stretch_ratio = 1.0
+
+[node name="LogoutButton" type="Button" parent="."]
+unique_name_in_owner = true
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -188.0
+offset_top = -56.0
+offset_right = -48.0
+offset_bottom = -24.0
+grow_horizontal = 0
+grow_vertical = 0
+text = "Déconnexion"
 
 [node name="DeleteConfirmDialog" type="ConfirmationDialog" parent="."]
 unique_name_in_owner = true

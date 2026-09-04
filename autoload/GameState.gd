@@ -59,8 +59,11 @@ var appeared_entities: Dictionary = {}
 ## un joueur qui rejoint un groupe de 3+ n'apprendrait que le leader).
 var party: Dictionary = {}
 
-## Dernier Inventory.payload reçu: {items: Array[{name, grade, slot}], gold: int} — grade
-## (ex-rarity, voir CLAUDE.md) : enum ItemGrade NOGRADE/D/C/B/A/S.
+## Dernier Inventory.payload reçu: {items: Array[{name, grade, slot, type, quantity, ...}],
+## gold: int} — grade (ex-rarity, voir CLAUDE.md) : enum ItemGrade NOGRADE/D/C/B/A/S.
+## `quantity` (2026-09-04, commit backend "Ajoute le système soulshot/spiritshot") vaut 1
+## pour tout objet normal, la taille du stack pour un ItemType stackable (SOULSHOT/
+## SPIRITSHOT pour l'instant, voir ItemType.stackable() côté backend).
 var inventory: Dictionary = {}
 
 ## Dernier KnownSkills.payload reçu (ex-KnownSpells, renommé par le commit backend "Unifie
@@ -91,6 +94,16 @@ var max_mana := 0
 var xp := 0
 var xp_for_current_level := 0
 var xp_for_next_level := 0
+
+## Grade actuellement armé (auto-use) pour chaque type de charge — "" si désactivé, sinon
+## "NOGRADE"/"D"/"C"/"B"/"A"/"S" (voir app.domain.item.ItemGrade côté backend, commit "Ajoute
+## le système soulshot/spiritshot" du 2026-09-04). Alimenté par GamePlayerStats (état persisté,
+## utile à la reconnexion — voir CLAUDE.md, champs activeSoulshotGrade/activeSpiritshotGrade
+## ajoutés côté backend pour ce client), ShotGradeChanged (toggle confirmé) et ShotOutOfStock
+## (le serveur désactive lui-même la charge épuisée). Lu par Hotbar.gd/InventoryWindow.gd pour
+## savoir quelle ligne/quel slot surligner comme "actif".
+var active_soulshot_grade := ""
+var active_spiritshot_grade := ""
 
 ## Vrai si notre personnage est mort (PV à 0, voir CharacterInstance.takeDamage/
 ## GamePlayerDied côté backend). Alimenté par GamePlayerStats (reconnexion pendant qu'on
@@ -129,6 +142,10 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 			xp_for_current_level = int(payload.get("xpForCurrentLevel", xp_for_current_level))
 			xp_for_next_level = int(payload.get("xpForNextLevel", xp_for_next_level))
 			is_dead = int(payload.get("currentHealth", 0)) <= 0
+			var soulshot_grade = payload.get("activeSoulshotGrade")
+			active_soulshot_grade = str(soulshot_grade) if soulshot_grade != null else ""
+			var spiritshot_grade = payload.get("activeSpiritshotGrade")
+			active_spiritshot_grade = str(spiritshot_grade) if spiritshot_grade != null else ""
 		"GamePlayerDefeated":
 			if str(payload.get("characterName", "")) == str(player_stats.get("name", "")):
 				is_dead = true
@@ -152,6 +169,24 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 			inventory = payload
 		"KnownSkills":
 			known_skills = payload
+		"ShotGradeChanged":
+			# grade == null : l'auto-use vient d'être désactivé pour cette catégorie (voir
+			# Soulshot.java/Spiritshot.java côté backend, "off" ou re-toggle de la même
+			# grade déjà active).
+			var changed_grade = payload.get("grade")
+			var changed_grade_str := str(changed_grade) if changed_grade != null else ""
+			if str(payload.get("shotType", "")) == "SOULSHOT":
+				active_soulshot_grade = changed_grade_str
+			elif str(payload.get("shotType", "")) == "SPIRITSHOT":
+				active_spiritshot_grade = changed_grade_str
+		"ShotOutOfStock":
+			# Le serveur désactive lui-même la charge côté personnage (voir
+			# CharacterPersistenceListener.onShotGradeDepleted) : reflété ici plutôt que
+			# d'attendre un GamePlayerStats/ShotGradeChanged qui ne viendra pas spontanément.
+			if str(payload.get("shotType", "")) == "SOULSHOT":
+				active_soulshot_grade = ""
+			elif str(payload.get("shotType", "")) == "SPIRITSHOT":
+				active_spiritshot_grade = ""
 		"RegenTick", "ManaPotionUsed":
 			current_mana = int(payload.get("currentMana", current_mana))
 			max_mana = int(payload.get("maxMana", max_mana))
@@ -269,3 +304,5 @@ func clear_session() -> void:
 	xp_for_next_level = 0
 	is_dead = false
 	party = {}
+	active_soulshot_grade = ""
+	active_spiritshot_grade = ""

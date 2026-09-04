@@ -21,6 +21,15 @@ var drag_kind := ""
 var drag_ref_id := ""
 var drag_ref_name := ""
 var drag_preview_text := ""
+## ItemType/ItemGrade backend ("SOULSHOT"/"NOGRADE", etc.), vides pour tout objet non-charge
+## et pour un sort — posés par InventoryWindow._build_row uniquement. Propagés par
+## HotbarSlot._drop_data jusqu'à Hotbar._on_slot_drop_requested, pour que le slot sache
+## envoyer "soulshot <grade>"/"spiritshot <grade>" plutôt que "use <uuid>" une fois déposé
+## dans la hotbar (voir CLAUDE.md, session soulshot/spiritshot du 2026-09-04) sans devoir
+## re-résoudre le type de l'objet par son nom au moment du clic — utile en particulier une
+## fois le stock épuisé, où l'objet disparaît carrément de l'inventaire.
+var drag_item_type := ""
+var drag_item_grade := ""
 
 
 func _get_drag_data(_pos: Vector2) -> Variant:
@@ -32,7 +41,10 @@ func _get_drag_data(_pos: Vector2) -> Variant:
 	preview.stretch_mode = stretch_mode
 	preview.modulate = Color(1, 1, 1, 0.85)
 	set_drag_preview(preview)
-	return {"kind": drag_kind, "ref_id": drag_ref_id, "ref_name": drag_ref_name}
+	return {
+		"kind": drag_kind, "ref_id": drag_ref_id, "ref_name": drag_ref_name,
+		"item_type": drag_item_type, "item_grade": drag_item_grade,
+	}
 
 
 func _gui_input(event: InputEvent) -> void:

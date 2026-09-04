@@ -10,11 +10,13 @@ extends Control
 
 @onready var _killer_label: Label = %KillerLabel
 @onready var _respawn_button: Button = %RespawnButton
+@onready var _panel: Control = $CenterContainer/PanelContainer
 
 
 func _ready() -> void:
 	visible = false
 	_respawn_button.pressed.connect(_on_respawn_pressed)
+	UITheme.decorate_corners(_panel)
 
 
 func open(killer_name: String) -> void:

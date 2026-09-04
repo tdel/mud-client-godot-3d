@@ -36,6 +36,14 @@ func _ready() -> void:
 	_title_bar.mouse_default_cursor_shape = Control.CURSOR_MOVE
 	_title_bar.gui_input.connect(_on_title_bar_gui_input)
 	_close_button.pressed.connect(close_window)
+	# Refonte visuelle "façon L2" du 2026-09-04 (voir CLAUDE.md) : titre centré en doré
+	# vif plutôt qu'aligné à gauche en couleur de texte par défaut, et 4 ornements de
+	# coin (voir UITheme.decorate_corners) — appliqués ici une seule fois pour que les 6
+	# fenêtres qui héritent de WindowFrame (SkillBook/InventoryWindow/EquipmentWindow/
+	# CharacterSheetWindow/OptionsWindow/ShopWindow) en bénéficient sans dupliquer ce code.
+	_title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_title_label.add_theme_color_override("font_color", UITheme.TEXT_GOLD)
+	UITheme.decorate_corners(self)
 
 
 func set_window_title(text: String) -> void:

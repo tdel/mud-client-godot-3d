@@ -3,24 +3,20 @@
 [ext_resource type="Script" path="res://scenes/game/hud/PlayerFrame.gd" id="1"]
 
 [sub_resource type="StyleBoxFlat" id="1"]
-bg_color = Color(0.09, 0.07, 0.05, 0.94)
-border_color = Color(0.72, 0.58, 0.28, 0.9)
+bg_color = Color(0.058, 0.046, 0.036, 0.96)
+border_color = Color(0.58, 0.46, 0.24, 0.9)
 border_width_left = 2
 border_width_top = 2
 border_width_right = 2
 border_width_bottom = 2
-corner_radius_top_left = 8
-corner_radius_top_right = 8
-corner_radius_bottom_left = 8
-corner_radius_bottom_right = 8
 content_margin_left = 10.0
 content_margin_top = 8.0
 content_margin_right = 10.0
 content_margin_bottom = 8.0
 
 [sub_resource type="StyleBoxFlat" id="2"]
-bg_color = Color(0.16, 0.12, 0.08, 0.96)
-border_color = Color(0.92, 0.80, 0.46, 1.0)
+bg_color = Color(0.10, 0.08, 0.055, 0.97)
+border_color = Color(0.86, 0.72, 0.40, 1.0)
 border_width_left = 2
 border_width_top = 2
 border_width_right = 2
@@ -31,46 +27,37 @@ corner_radius_bottom_left = 22
 corner_radius_bottom_right = 22
 
 [sub_resource type="StyleBoxFlat" id="3"]
-bg_color = Color(0.15, 0.05, 0.05, 0.9)
-corner_radius_top_left = 3
-corner_radius_top_right = 3
-corner_radius_bottom_left = 3
-corner_radius_bottom_right = 3
+bg_color = Color(0.14, 0.035, 0.035, 0.95)
+border_color = Color(0.24, 0.18, 0.10, 0.9)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
 
 [sub_resource type="StyleBoxFlat" id="4"]
-bg_color = Color(0.75, 0.15, 0.15, 1.0)
-corner_radius_top_left = 3
-corner_radius_top_right = 3
-corner_radius_bottom_left = 3
-corner_radius_bottom_right = 3
+bg_color = Color(0.72, 0.12, 0.12, 1.0)
 
 [sub_resource type="StyleBoxFlat" id="5"]
-bg_color = Color(0.05, 0.08, 0.16, 0.9)
-corner_radius_top_left = 3
-corner_radius_top_right = 3
-corner_radius_bottom_left = 3
-corner_radius_bottom_right = 3
+bg_color = Color(0.04, 0.065, 0.14, 0.95)
+border_color = Color(0.24, 0.18, 0.10, 0.9)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
 
 [sub_resource type="StyleBoxFlat" id="6"]
 bg_color = Color(0.16, 0.5, 0.98, 1.0)
-corner_radius_top_left = 3
-corner_radius_top_right = 3
-corner_radius_bottom_left = 3
-corner_radius_bottom_right = 3
 
 [sub_resource type="StyleBoxFlat" id="7"]
-bg_color = Color(0.1, 0.08, 0.04, 0.9)
-corner_radius_top_left = 2
-corner_radius_top_right = 2
-corner_radius_bottom_left = 2
-corner_radius_bottom_right = 2
+bg_color = Color(0.08, 0.065, 0.03, 0.95)
+border_color = Color(0.24, 0.18, 0.10, 0.9)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
 
 [sub_resource type="StyleBoxFlat" id="8"]
-bg_color = Color(0.8, 0.62, 0.18, 1.0)
-corner_radius_top_left = 2
-corner_radius_top_right = 2
-corner_radius_bottom_left = 2
-corner_radius_bottom_right = 2
+bg_color = Color(0.82, 0.64, 0.20, 1.0)
 
 [node name="PlayerFrame" type="Control"]
 unique_name_in_owner = true
