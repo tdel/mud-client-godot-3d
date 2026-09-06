@@ -7,22 +7,24 @@ extends HBoxContainer
 ## clavier (K/I/P, voir leurs _unhandled_input respectifs) — les deux chemins convergent
 ## donc naturellement sans code dupliqué.
 ##
-## Boutons à abréviation texte ("So"/"Sa"/"Pe"/"Éq"/"Op") remplacés le 2026-09-03 par des
+## Boutons à abréviation texte ("So"/"Sa"/"Pe"/"Op") remplacés le 2026-09-03 par des
 ## pictogrammes procéduraux (ZoneAssets3D.make_ui_icon_texture, toujours aucun art externe —
 ## voir CLAUDE.md) — jugés "plus jolis" par l'utilisateur. _style_icon_button resserre au
 ## passage le remplissage du bouton (hérité d'UITheme.gd, pensé pour du texte court) pour
 ## laisser la place à une icône carrée.
+##
+## Pas de bouton "Équipement" (retiré le 2026-09-06, demandé explicitement) : cette fenêtre
+## s'ouvre/se ferme désormais toujours avec InventoryWindow, qui s'en charge seule (voir
+## InventoryWindow.gd).
 
 @onready var _skills_button: Button = %SkillsButton
 @onready var _inventory_button: Button = %InventoryButton
 @onready var _character_button: Button = %CharacterButton
-@onready var _equipment_button: Button = %EquipmentButton
 @onready var _options_button: Button = %OptionsButton
 
 @onready var _skill_book: Control = %SkillBook
 @onready var _inventory_window: Control = %InventoryWindow
 @onready var _character_sheet: Control = %CharacterSheetWindow
-@onready var _equipment_window: Control = %EquipmentWindow
 @onready var _options_window: Control = %OptionsWindow
 
 
@@ -30,19 +32,16 @@ func _ready() -> void:
 	_skills_button.tooltip_text = "Compétences (K)"
 	_inventory_button.tooltip_text = "Inventaire (I)"
 	_character_button.tooltip_text = "Fiche de personnage (P)"
-	_equipment_button.tooltip_text = "Équipement (O)"
 	_options_button.tooltip_text = "Options"
 
 	_style_icon_button(_skills_button, "skills")
 	_style_icon_button(_inventory_button, "inventory")
 	_style_icon_button(_character_button, "character")
-	_style_icon_button(_equipment_button, "equipment")
 	_style_icon_button(_options_button, "options")
 
 	_skills_button.pressed.connect(_toggle.bind(_skill_book))
 	_inventory_button.pressed.connect(_toggle.bind(_inventory_window))
 	_character_button.pressed.connect(_toggle.bind(_character_sheet))
-	_equipment_button.pressed.connect(_toggle.bind(_equipment_window))
 	_options_button.pressed.connect(func(): _options_window.open())
 
 

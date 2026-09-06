@@ -49,6 +49,11 @@ const CELL_SIZE := Vector2(52, 52)
 @onready var _gold_label: Label = %GoldLabel
 @onready var _drop_confirm_dialog: ConfirmationDialog = %DropConfirmDialog
 @onready var _message_label: Label = %MessageLabel
+## Les deux fenêtres vont toujours ensemble (demandé explicitement le 2026-09-06) : plus
+## d'icône ni de raccourci propres à EquipmentWindow, c'est cette fenêtre qui pilote les
+## deux (voir open()/close_window() ci-dessous) — seule exception à la règle "fenêtre HUD
+## autonome" énoncée dans WindowFrame.gd, qui reste valable pour les 4 autres fenêtres.
+@onready var _equipment_window: WindowFrame = %EquipmentWindow
 
 var _pending_drop_id := ""
 var _pending_drop_name := ""
@@ -78,6 +83,15 @@ func open() -> void:
 	_clear_message()
 	Net.send_command("inventory")
 	_refresh()
+	if not _equipment_window.visible:
+		_equipment_window.open()
+
+
+func close_window() -> void:
+	var was_visible := visible
+	super.close_window()
+	if was_visible and _equipment_window.visible:
+		_equipment_window.close_window()
 
 
 func _on_message_received(type: String, payload: Dictionary) -> void:

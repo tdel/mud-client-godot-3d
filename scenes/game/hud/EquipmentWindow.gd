@@ -19,6 +19,12 @@ const SLOT_ORDER := [
 ]
 
 @onready var _message_label: Label = %MessageLabel
+## Plus d'icône ni de raccourci clavier propres à cette fenêtre (demandé explicitement le
+## 2026-09-06) : elle s'ouvre/se ferme toujours avec InventoryWindow, qui pilote normalement
+## les deux (voir InventoryWindow.open()/close_window()) ; ce rappel symétrique ne sert que si
+## cette fenêtre est fermée par sa propre croix ou par Échap alors qu'elle est au sommet de la
+## pile (voir WindowFrame.close_topmost).
+@onready var _inventory_window: WindowFrame = %InventoryWindow
 
 var _slots_by_key: Dictionary = {}
 
@@ -35,23 +41,18 @@ func _ready() -> void:
 		_slots_by_key[slot_key] = slot_node
 
 
-func _unhandled_input(event: InputEvent) -> void:
-	if not (event is InputEventKey and event.pressed and not event.echo):
-		return
-	if event.keycode != KEY_O or get_viewport().gui_get_focus_owner() != null:
-		return
-	if visible:
-		close_window()
-	else:
-		open()
-	get_viewport().set_input_as_handled()
-
-
 func open() -> void:
 	show_window()
 	_clear_message()
 	Net.send_command("inventory")
 	_refresh()
+
+
+func close_window() -> void:
+	var was_visible := visible
+	super.close_window()
+	if was_visible and _inventory_window.visible:
+		_inventory_window.close_window()
 
 
 func _on_message_received(type: String, payload: Dictionary) -> void:
