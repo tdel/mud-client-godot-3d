@@ -6,8 +6,10 @@ extends Node3D
 ## déplacement au clic (un clic = une demande de déplacement), entités (joueurs/PNJ/monstres) visibles et
 ## animées en position/orientation, chat de zone, sélection de cible, attaque, sorts
 ## (incantation/projectile/impact), hotbar/inventaire/équipement/fiche de personnage (voir
-## scenes/game/hud/), portails, dialogue PNJ (%DialogueWindow), cycle jour/nuit
-## (_apply_day_night_preset/_animate_day_night), mort/respawn (%DeathPopup).
+## scenes/game/hud/), portails, dialogue PNJ (%DialogueWindow), cycle jour/nuit avec
+## trajectoire soleil/lune est-ouest et lumières nocturnes procédurales
+## (_apply_day_night_preset/_animate_day_night/_update_celestial_lights), mort/respawn
+## (%DeathPopup).
 ##
 ## PAS dans ce prototype : groupe, sous-classe. Les entités restent de simples capsules
 ## colorées — pas de rig/squelette/attach points d'équipement.
@@ -68,6 +70,10 @@ const SHOT_GLOW_DOWN_DURATION := 0.35
 ## deux transitions (animées sur transitionDurationMs, voir _animate_day_night). Les
 ## valeurs DAY_* reprennent telles quelles le sub_resource Environment/Sun par défaut de
 ## Game.tscn (c'était jusqu'ici la seule ambiance possible).
+const DAWN_START_MIN := 7 * 60
+const DAWN_END_MIN := 8 * 60
+const DUSK_START_MIN := 21 * 60
+const DUSK_END_MIN := 22 * 60
 const NIGHT_BACKGROUND_COLOR := Color(0.04, 0.05, 0.11, 1.0)
 const NIGHT_AMBIENT_COLOR := Color(0.16, 0.18, 0.30, 1.0)
 const NIGHT_AMBIENT_ENERGY := 0.22
@@ -78,6 +84,43 @@ const DAY_AMBIENT_COLOR := Color(0.55, 0.58, 0.65, 1.0)
 const DAY_AMBIENT_ENERGY := 0.7
 const DAY_SUN_ENERGY := 1.15
 const DAY_SUN_COLOR := Color(1.0, 0.96, 0.88, 1.0)
+
+## En-dessous de cette énergie, une lumière directionnelle n'apporte plus rien de visible :
+## on coupe alors son ombre (shadow_enabled) plutôt que de payer une passe d'ombre pour un
+## astre quasi éteint (le Soleil la nuit, la Lune en plein jour, voir _apply_day_night_preset).
+const MIN_SHADOW_LIGHT_ENERGY := 0.03
+
+## Éclairage de la lune : blanc légèrement bleuté, nettement plus faible que le soleil (elle
+## n'a pas d'équivalent DAY_*/NIGHT_* — elle est éteinte en plein jour et à pleine énergie en
+## pleine nuit, voir _apply_day_night_preset). Sa couleur est fixée une fois pour toutes sur
+## le node Moon (Game.tscn), seule son énergie varie ici.
+const MOON_MAX_ENERGY := 0.35
+
+## Simule côté client une horloge in-game continue (le serveur ne pousse qu'un GameTimeSync
+## ponctuel au login, voir plus haut) pour faire avancer Soleil/Lune image par image plutôt
+## que de les figer entre deux resynchronisations. 24h in-game = 8h réelles (voir plus haut).
+const IN_GAME_MINUTES_PER_REAL_SECOND := 1440.0 / (8.0 * 3600.0)
+
+## Élévation maximale (degrés) atteinte par le Soleil/la Lune à leur zénith de trajectoire —
+## volontairement un peu sous 90° (plutôt que droit au-dessus) pour garder une direction
+## d'ombre visible même en milieu de course, voir _celestial_direction.
+const CELESTIAL_MAX_ELEVATION_DEG := 78.0
+
+## Hauteur (mètres) des petites lumières de ville procédurales posées sur les cases de
+## terrain remarquables ci-dessous — hauteur de lanterne/torchère, voir _rebuild_night_lights.
+const NIGHT_LIGHT_HEIGHT := 1.6
+
+## Terrain .tmx (voir ZoneAssets3D.TERRAIN_COLORS) -> lumière de ville posée la nuit sur
+## chaque groupe de cases contigües de ce terrain (fontaine, auberge, forge : les points
+## d'intérêt d'un village où l'on s'attend à voir une lanterne/un brasero). Purement cosmétique
+## et indépendant du gameplay, au même titre que ZoneAssets3D.obstacle_height_for. Couleur
+## reprise en plus chaud/saturé que TERRAIN_COLORS (pensée pour une texture de sol en plein
+## jour, pas pour une source de lumière nocturne).
+const LANDMARK_LIGHTS := {
+	"fountain": {"color": Color(0.55, 0.85, 1.0), "energy": 1.4, "range": 6.0},
+	"auberge": {"color": Color(1.0, 0.72, 0.35), "energy": 1.1, "range": 5.0},
+	"forge": {"color": Color(1.0, 0.55, 0.25), "energy": 1.1, "range": 4.5},
+}
 
 ## Couleurs des lignes de journal de combat/progression (voir les _log_* plus bas), reprises
 ## telles quelles de mud-godot/scenes/game/hud/ChatOverlay.gd pour un rendu identique — la
@@ -220,6 +263,8 @@ const WIND_WISP_SIZE := Vector2(0.24, 0.5)
 @onready var _death_popup: Control = %DeathPopup
 @onready var _world_environment: WorldEnvironment = $WorldEnvironment
 @onready var _sun: DirectionalLight3D = $Sun
+@onready var _moon: DirectionalLight3D = $Moon
+@onready var _night_lights: Node3D = $World/NightLights
 
 var _player_node: Node3D
 var _current_map_name := ""
@@ -293,6 +338,13 @@ var _right_click_press_screen_pos := Vector2.ZERO
 var _day_night_t := 1.0
 var _day_night_tween: Tween
 
+## Horloge in-game continue simulée côté client (minutes depuis minuit, 0.0-1440.0), voir
+## IN_GAME_MINUTES_PER_REAL_SECOND/_advance_day_night_clock — pilote la position Soleil/Lune
+## indépendamment de _day_night_t (qui ne pilote que les couleurs/énergies, resynchronisé/
+## animé par GameTimeSync/Sunrise/Sunset). Défaut à 13h, cohérent avec _day_night_t=1.0
+## ci-dessus (13h est en plein jour, avant tout GameTimeSync).
+var _game_minutes_of_day := 13.0 * 60.0
+
 
 
 func _ready() -> void:
@@ -315,6 +367,7 @@ func _ready() -> void:
 
 	_make_move_marker()
 	_make_selection_ring()
+	_update_celestial_lights()
 	_log("[color=#9a9488]Prototype 3D isométrique — connecté.[/color]")
 
 	Net.send_command("stats")
@@ -341,6 +394,7 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	_advance_day_night_clock(delta)
 	_step_movement(delta)
 	_advance_casting(delta)
 	_update_bars()
@@ -684,8 +738,14 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 			_log("[color=#9a9488]%s[/color]" % _bbcode_escape(str(payload.get("message", "Erreur."))))
 		"GameTimeSync":
 			# Resynchronisation ponctuelle (au login) : bascule immédiate, pas d'animation —
-			# voir _day_night_t_for_time/_apply_day_night_preset.
-			_apply_day_night_preset(_day_night_t_for_time(int(payload.get("hour", 12)), int(payload.get("minute", 0))))
+			# voir _day_night_t_for_time/_apply_day_night_preset. Resynchronise aussi l'horloge
+			# continue qui pilote la trajectoire Soleil/Lune (_advance_day_night_clock) : sans
+			# ça, un client resterait sur son heure locale simulée dérivée de _game_minutes_of_day
+			# (défaut 13h) au lieu de l'heure serveur reçue au login.
+			var sync_hour := int(payload.get("hour", 12))
+			var sync_minute := int(payload.get("minute", 0))
+			_game_minutes_of_day = float(sync_hour * 60 + sync_minute)
+			_apply_day_night_preset(_day_night_t_for_time(sync_hour, sync_minute))
 		"Sunrise":
 			_animate_day_night(1.0, int(payload.get("transitionDurationMs", 0)))
 		"Sunset":
@@ -737,6 +797,7 @@ func _rebuild_map(payload: Dictionary) -> void:
 
 	_rebuild_obstacles()
 	_rebuild_portals(payload.get("portals", []))
+	_rebuild_night_lights()
 	_minimap.set_map(texture, _map_width, _map_height, _current_map_name)
 	_log("[color=#9a9488]Carte : %s (%dx%d)[/color]" % [_current_map_name, _map_width, _map_height])
 
@@ -772,6 +833,76 @@ func _rebuild_obstacles() -> void:
 	for i in transforms.size():
 		mm.set_instance_transform(i, transforms[i])
 	_obstacles.multimesh = mm
+
+
+## Repose les lumières de ville (voir LANDMARK_LIGHTS) sur la carte courante : un
+## OmniLight3D par groupe de cases contigües de chaque terrain remarquable (fontaine,
+## auberge, forge), posé au centre du groupe plutôt qu'un par case (évite une nappe de
+## lumières redondantes sur une place pavée large de plusieurs cases). Reconstruit à chaque
+## _rebuild_map (changement de carte) comme _rebuild_obstacles/_rebuild_portals ci-dessus.
+func _rebuild_night_lights() -> void:
+	for child in _night_lights.get_children():
+		child.queue_free()
+
+	var terrain_grid: Array = ZoneAssets3D.get_terrain_grid(_current_map_name)
+	for terrain_name in LANDMARK_LIGHTS:
+		var props: Dictionary = LANDMARK_LIGHTS[terrain_name]
+		for cluster_center in _terrain_clusters(terrain_grid, terrain_name):
+			var light := OmniLight3D.new()
+			light.light_color = props["color"]
+			light.omni_range = props["range"]
+			light.shadow_enabled = false
+			light.set_meta("base_energy", props["energy"])
+			light.position = Vector3(cluster_center.x, NIGHT_LIGHT_HEIGHT, cluster_center.y)
+			_night_lights.add_child(light)
+
+	_update_night_lights_energy(_day_night_t)
+
+
+## Regroupe par connexité (4 voisins) les cases de terrain_grid valant terrain_name, et
+## renvoie le centre (coordonnées tuile, +0.5 pour retomber au milieu de chaque case comme
+## _rebuild_obstacles) de chaque groupe — voir _rebuild_night_lights.
+func _terrain_clusters(terrain_grid: Array, terrain_name: String) -> Array[Vector2]:
+	var visited: Dictionary = {}
+	var clusters: Array[Vector2] = []
+	for y in terrain_grid.size():
+		var row: Array = terrain_grid[y]
+		for x in row.size():
+			var start := Vector2i(x, y)
+			if visited.has(start) or row[x] != terrain_name:
+				continue
+			visited[start] = true
+			var stack: Array[Vector2i] = [start]
+			var sum := Vector2.ZERO
+			var count := 0
+			while not stack.is_empty():
+				var cell: Vector2i = stack.pop_back()
+				sum += Vector2(cell.x + 0.5, cell.y + 0.5)
+				count += 1
+				var offsets: Array[Vector2i] = [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]
+				for offset in offsets:
+					var neighbor: Vector2i = cell + offset
+					if visited.has(neighbor) or neighbor.y < 0 or neighbor.y >= terrain_grid.size():
+						continue
+					var neighbor_row: Array = terrain_grid[neighbor.y]
+					if neighbor.x < 0 or neighbor.x >= neighbor_row.size() or neighbor_row[neighbor.x] != terrain_name:
+						continue
+					visited[neighbor] = true
+					stack.append(neighbor)
+			clusters.append(sum / count)
+	return clusters
+
+
+## Fait suivre le facteur jour/nuit t (0.0 nuit, 1.0 jour) aux lumières de ville : pleine
+## intensité en pleine nuit, éteintes en plein jour, avec le même fondu que le reste de
+## l'ambiance (voir _apply_day_night_preset, qui appelle cette fonction à chaque mise à
+## jour). Nul besoin d'un Tween dédié : déjà appelée en continu par le tween/l'instantané de
+## _day_night_t existant.
+func _update_night_lights_energy(t: float) -> void:
+	var factor := 1.0 - t
+	for child in _night_lights.get_children():
+		if child is OmniLight3D:
+			child.light_energy = float(child.get_meta("base_energy", 1.0)) * factor
 
 
 func _is_walkable(target: Vector2) -> bool:
@@ -2172,23 +2303,21 @@ func _log(text: String) -> void:
 ## GameClock côté serveur (aube 7h-8h, crépuscule 21h-22h in-game).
 func _day_night_t_for_time(hour: int, minute: int) -> float:
 	var minutes := hour * 60 + minute
-	var dawn_start := 7 * 60
-	var dawn_end := 8 * 60
-	var dusk_start := 21 * 60
-	var dusk_end := 22 * 60
-	if minutes >= dawn_end and minutes < dusk_start:
+	if minutes >= DAWN_END_MIN and minutes < DUSK_START_MIN:
 		return 1.0
-	if minutes >= dawn_start and minutes < dawn_end:
-		return float(minutes - dawn_start) / float(dawn_end - dawn_start)
-	if minutes >= dusk_start and minutes < dusk_end:
-		return 1.0 - float(minutes - dusk_start) / float(dusk_end - dusk_start)
+	if minutes >= DAWN_START_MIN and minutes < DAWN_END_MIN:
+		return float(minutes - DAWN_START_MIN) / float(DAWN_END_MIN - DAWN_START_MIN)
+	if minutes >= DUSK_START_MIN and minutes < DUSK_END_MIN:
+		return 1.0 - float(minutes - DUSK_START_MIN) / float(DUSK_END_MIN - DUSK_START_MIN)
 	return 0.0
 
 
 ## Applique directement (sans transition) l'ambiance correspondant à t (0.0 nuit, 1.0 jour)
-## sur le WorldEnvironment/Sun de la scène — utilisé aussi bien pour une resynchronisation
-## immédiate (GameTimeSync) que comme callback de tween à chaque pas d'une transition animée
-## (voir _animate_day_night).
+## sur le WorldEnvironment/Sun/Moon/lumières de ville de la scène — utilisé aussi bien pour
+## une resynchronisation immédiate (GameTimeSync) que comme callback de tween à chaque pas
+## d'une transition animée (voir _animate_day_night). Ne touche pas à la position de
+## Soleil/Lune : c'est _update_celestial_lights (piloté par l'horloge continue, voir
+## _advance_day_night_clock) qui s'en charge indépendamment, en continu.
 func _apply_day_night_preset(t: float) -> void:
 	_day_night_t = t
 	var env := _world_environment.environment
@@ -2197,6 +2326,10 @@ func _apply_day_night_preset(t: float) -> void:
 	env.ambient_light_energy = lerp(NIGHT_AMBIENT_ENERGY, DAY_AMBIENT_ENERGY, t)
 	_sun.light_energy = lerp(NIGHT_SUN_ENERGY, DAY_SUN_ENERGY, t)
 	_sun.light_color = NIGHT_SUN_COLOR.lerp(DAY_SUN_COLOR, t)
+	_sun.shadow_enabled = _sun.light_energy > MIN_SHADOW_LIGHT_ENERGY
+	_moon.light_energy = (1.0 - t) * MOON_MAX_ENERGY
+	_moon.shadow_enabled = _moon.light_energy > MIN_SHADOW_LIGHT_ENERGY
+	_update_night_lights_energy(t)
 
 
 ## Anime une transition Sunrise (target_t=1.0)/Sunset (target_t=0.0) depuis l'ambiance
@@ -2208,6 +2341,53 @@ func _animate_day_night(target_t: float, duration_ms: int) -> void:
 	var duration_sec: float = max(duration_ms / 1000.0, 0.01)
 	_day_night_tween = create_tween()
 	_day_night_tween.tween_method(_apply_day_night_preset, _day_night_t, target_t, duration_sec)
+
+
+## Avance l'horloge in-game continue simulée côté client (voir _game_minutes_of_day) et
+## replace Soleil/Lune en conséquence à chaque frame — indépendant de _day_night_t/du tween
+## ci-dessus (qui ne pilotent que les couleurs/énergies) : sans cette horloge, le Soleil
+## resterait figé à sa dernière orientation entre deux GameTimeSync/Sunrise/Sunset, ce que le
+## serveur ne pousse que ponctuellement (voir en-tête du fichier).
+func _advance_day_night_clock(delta: float) -> void:
+	_game_minutes_of_day = fposmod(_game_minutes_of_day + delta * IN_GAME_MINUTES_PER_REAL_SECOND, 1440.0)
+	_update_celestial_lights()
+
+
+## Progression (0.0-1.0) du Soleil le long de son arc, de l'aube (DAWN_START_MIN, à l'horizon
+## est) au crépuscule (DUSK_END_MIN, à l'horizon ouest) — voir _celestial_direction.
+func _sun_arc_fraction(minutes: float) -> float:
+	return clampf(float(minutes - DAWN_START_MIN) / float(DUSK_END_MIN - DAWN_START_MIN), 0.0, 1.0)
+
+
+## Équivalent nocturne de _sun_arc_fraction : progression de la Lune du crépuscule
+## (DUSK_END_MIN) à l'aube suivante (DAWN_START_MIN), en traversant minuit.
+func _moon_arc_fraction(minutes: float) -> float:
+	var night_span := 1440.0 - float(DUSK_END_MIN - DAWN_START_MIN)
+	var since_dusk := fposmod(minutes - DUSK_END_MIN, 1440.0)
+	return clampf(since_dusk / night_span, 0.0, 1.0)
+
+
+## Direction de propagation (normalisée, de l'astre vers le sol) d'un astre à la progression
+## d'arc frac (0.0 = levant à l'horizon est, 0.5 = zénith, 1.0 = couchant à l'horizon ouest) —
+## azimut est-ouest linéaire (est = +X, ouest = -X, aucune composante nord-sud), élévation en
+## cloche (sin) plafonnée à CELESTIAL_MAX_ELEVATION_DEG. Partagée par Soleil et Lune : seul
+## frac (voir _sun_arc_fraction/_moon_arc_fraction) diffère entre les deux.
+func _celestial_direction(frac: float) -> Vector3:
+	var azimuth := deg_to_rad(lerpf(90.0, -90.0, frac))
+	var elevation := deg_to_rad(sin(frac * PI) * CELESTIAL_MAX_ELEVATION_DEG)
+	var sky_position := Vector3(sin(azimuth) * cos(elevation), sin(elevation), cos(azimuth) * cos(elevation))
+	return -sky_position
+
+
+## Repositionne Soleil et Lune sur leur trajectoire est-ouest respective d'après l'horloge
+## continue _game_minutes_of_day — un DirectionalLight3D éclaire selon son axe -Z local, donc
+## orienter la lumière revient à orienter cet axe vers _celestial_direction (Basis.looking_at,
+## le vecteur "up" n'a ici aucune importance visuelle : une lumière directionnelle n'a pas de
+## notion de haut/bas propre, seule sa direction compte). Les ombres suivent automatiquement,
+## Godot les recalculant à partir de cette même transformation à chaque frame.
+func _update_celestial_lights() -> void:
+	_sun.transform.basis = Basis.looking_at(_celestial_direction(_sun_arc_fraction(_game_minutes_of_day)), Vector3.FORWARD)
+	_moon.transform.basis = Basis.looking_at(_celestial_direction(_moon_arc_fraction(_game_minutes_of_day)), Vector3.FORWARD)
 
 
 func _bbcode_escape(text: String) -> String:

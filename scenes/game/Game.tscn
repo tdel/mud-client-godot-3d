@@ -36,6 +36,8 @@ script = ExtResource("1")
 
 [node name="Entities" type="Node3D" parent="World"]
 
+[node name="NightLights" type="Node3D" parent="World"]
+
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
 environment = SubResource("Environment_1")
 
@@ -43,6 +45,12 @@ environment = SubResource("Environment_1")
 rotation_degrees = Vector3(-55.0, -35.0, 0.0)
 light_energy = 1.15
 light_color = Color(1.0, 0.96, 0.88, 1.0)
+shadow_enabled = true
+
+[node name="Moon" type="DirectionalLight3D" parent="."]
+rotation_degrees = Vector3(-55.0, 145.0, 0.0)
+light_energy = 0.0
+light_color = Color(0.75, 0.8, 1.0, 1.0)
 shadow_enabled = true
 
 [node name="CameraRig" type="Node3D" parent="."]
