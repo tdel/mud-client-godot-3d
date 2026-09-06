@@ -135,17 +135,24 @@ const LANDMARK_LIGHTS := {
 	"forge": {"color": Color(1.0, 0.55, 0.25), "energy": 1.1, "range": 4.5},
 }
 
-## Couleurs des lignes de journal de combat/progression (voir les _log_* plus bas), reprises
-## telles quelles de mud-godot/scenes/game/hud/ChatOverlay.gd pour un rendu identique — la
-## zone de chat 3D n'affichait jusqu'ici (2026-09-03) qu'une poignée de messages (chat/erreur/
-## zone paisible), très en retrait du 2D qui logue aussi combat/XP/loot/mort/groupe.
-const LOG_COLOR_DAMAGE_OUT := "#e0a050"
-const LOG_COLOR_DAMAGE_IN := "#e0705a"
-const LOG_COLOR_HEAL := "#7fd18a"
-const LOG_COLOR_XP := "#8fb8e0"
-const LOG_COLOR_LOOT := "#d8c26a"
-const LOG_COLOR_DEFEAT := "#9a9488"
-const LOG_COLOR_PEACE := "#7fb0d1"
+## Couleur des gains (or/XP/loot) dans la fenêtre de journal système (voir _log/_log_chat et
+## la fenêtre %SystemLogPanel de Game.tscn, qui sépare désormais ces messages système du chat
+## entre joueurs affiché dans %ChatLogPanel) — tout le reste du journal système reste dans la
+## couleur par défaut (blanc/ivoire, voir UITheme.TEXT_IVORY), demande explicite du
+## 2026-09-06 pour ne garder qu'une seule couleur d'accent plutôt que la palette par catégorie
+## (dégâts/soin/mort/zone paisible) utilisée jusqu'ici.
+const LOG_COLOR_GAIN := "#f2e35a"
+
+## Transparence des fenêtres de discussion (%ChatLogPanel/%SystemLogPanel) — demande explicite
+## du 2026-09-06 : quasi invisibles tant que %ChatInput n'a pas le focus (pour ne pas gêner la
+## vue 3D et laisser le clic passer à travers, voir _set_chat_windows_interactive), légèrement
+## opaques quelques secondes à chaque nouveau message (_flash_chat_window), pleinement opaques
+## dès que l'on tape (focus gagné).
+const CHAT_WINDOW_IDLE_ALPHA := 0.0
+const CHAT_WINDOW_MESSAGE_ALPHA := 0.85
+const CHAT_WINDOW_FOCUSED_ALPHA := 1.0
+const CHAT_WINDOW_MESSAGE_HOLD_SEC := 4.0
+const CHAT_WINDOW_FADE_SEC := 1.5
 
 const PLAYER_KEY := "player"
 
@@ -282,7 +289,13 @@ const HEAL_TARGET_PARTICLE_AMOUNT := 30
 @onready var _camera: Camera3D = $CameraRig/Camera3D
 @onready var _minimap: Control = %Minimap
 @onready var _player_frame: Control = %PlayerFrame
-@onready var _log_label: RichTextLabel = %LogLabel
+## Journal système (arrivée/départ de carte, dégâts, XP, loot, incantations, erreurs...) —
+## voir _log — distinct du chat entre joueurs (_chat_log_label/_log_chat), demande explicite
+## du 2026-09-06 pour ne plus mélanger les deux dans une seule fenêtre.
+@onready var _system_log_label: RichTextLabel = %SystemLogLabel
+@onready var _system_log_background: PanelContainer = %SystemLogBackground
+@onready var _chat_log_label: RichTextLabel = %ChatLogLabel
+@onready var _chat_log_background: PanelContainer = %ChatLogBackground
 @onready var _chat_input: LineEdit = %ChatInput
 @onready var _target_status_bar: Control = %TargetStatusBar
 @onready var _npc_menu: PopupMenu = %NpcMenu
@@ -291,6 +304,11 @@ const HEAL_TARGET_PARTICLE_AMOUNT := 30
 @onready var _sun: DirectionalLight3D = $Sun
 @onready var _moon: DirectionalLight3D = $Moon
 @onready var _night_lights: Node3D = $World/NightLights
+
+## Tween de fondu en cours par fenêtre de discussion (PanelContainer -> Tween), voir
+## _fade_chat_window — permet d'annuler un fondu déjà lancé quand un nouvel évènement
+## (message ou focus) en redemande un autre avant la fin du précédent.
+var _chat_window_fade_tweens: Dictionary = {}
 
 var _player_node: Node3D
 var _current_map_name := ""
@@ -383,6 +401,9 @@ func _ready() -> void:
 	Net.message_received.connect(_on_message_received)
 	Net.disconnected.connect(_on_net_disconnected)
 	_chat_input.text_submitted.connect(_on_chat_submitted)
+	_chat_input.focus_entered.connect(_on_chat_input_focus_entered)
+	_chat_input.focus_exited.connect(_on_chat_input_focus_exited)
+	_set_chat_windows_interactive(false)
 
 	_npc_menu.add_item("Parler", 0)
 	_npc_menu.add_item("Boutique", 1)
@@ -397,7 +418,7 @@ func _ready() -> void:
 	_make_move_marker()
 	_make_selection_ring()
 	_update_celestial_lights()
-	_log("[color=#9a9488]Prototype 3D isométrique — connecté.[/color]")
+	_log("Prototype 3D isométrique — connecté.")
 
 	Net.send_command("stats")
 	Net.send_command("skills")
@@ -538,12 +559,12 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 				var node := _ensure_entity_node(key, joined_name, OTHER_PLAYER_COLOR)
 				node.position = Vector3(payload.get("x", 0.0), 0.0, payload.get("y", 0.0))
 				_register_entity_id(key, str(payload.get("characterId", "")))
-				_log("[color=#8fd1c9]%s rejoint la carte.[/color]" % _bbcode_escape(joined_name))
+				_log("%s rejoint la carte." % _bbcode_escape(joined_name))
 		"GamePlayerLeftMap", "GamePlayerDisconnected":
 			var left_name := str(payload.get("characterName", ""))
 			if not left_name.is_empty():
 				_remove_entity("character:%s" % left_name)
-				_log("[color=#9a9488]%s quitte la carte.[/color]" % _bbcode_escape(left_name))
+				_log("%s quitte la carte." % _bbcode_escape(left_name))
 		"MovementStarted":
 			_ensure_player_node()
 			var target := Vector3(payload.get("x", 0.0), 0.0, payload.get("y", 0.0))
@@ -599,18 +620,18 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 		"MonsterDefeated":
 			var defeated_name := str(payload.get("monsterName", ""))
 			_despawn_monster(defeated_name)
-			_log("[color=%s]%s est vaincu.[/color]" % [LOG_COLOR_DEFEAT, _bbcode_escape(defeated_name)])
+			_log("%s est vaincu." % _bbcode_escape(defeated_name))
 		"TargetSelected":
 			_apply_selection(str(payload.get("targetId", "")), str(payload.get("targetName", "")))
 		"TargetDeselected":
 			_clear_selection()
 		"NoTargetSelected":
 			_clear_selection()
-			_log("[i][color=#999999]Aucune cible sélectionnée.[/color][/i]")
+			_log("[i]Aucune cible sélectionnée.[/i]")
 		"TargetNotFound":
 			if str(payload.get("targetId", "")) == _selected_target_id:
 				_clear_selection()
-			_log("[i][color=#999999]Cible introuvable.[/color][/i]")
+			_log("[i]Cible introuvable.[/i]")
 		"AttackResult":
 			var attack_target_id := str(payload.get("targetId", ""))
 			_flash_entity_by_id(attack_target_id)
@@ -623,11 +644,11 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 			_apply_target_current_health(attack_target_id, int(payload.get("targetCurrentHealth", 0)))
 			_log_attack_result(payload)
 		"AttackOutOfRange":
-			_log("[i][color=#999999]%s est hors de portée.[/color][/i]" % _bbcode_escape(
+			_log("[i]%s est hors de portée.[/i]" % _bbcode_escape(
 				str(payload.get("targetName", "?"))
 			))
 		"SkillOutOfRange":
-			_log("[i][color=#999999]%s est hors de portée pour %s.[/color][/i]" % [
+			_log("[i]%s est hors de portée pour %s.[/i]" % [
 				_bbcode_escape(str(payload.get("targetName", "?"))),
 				_bbcode_escape(str(payload.get("skillName", ""))),
 			])
@@ -637,11 +658,11 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 			_clear_casting(_key_for_entity_id(str(payload.get("casterId", ""))))
 		"SkillFizzled":
 			_clear_casting(PLAYER_KEY)
-			_log("[i][color=#999999]Incantation ratée : %s[/color][/i]" % _bbcode_escape(
+			_log("[i]Incantation ratée : %s[/i]" % _bbcode_escape(
 				str(payload.get("reason", ""))
 			))
 		"AlreadyCasting":
-			_log("[i][color=#999999]Vous êtes déjà en train d'incanter un sort.[/color][/i]")
+			_log("[i]Vous êtes déjà en train d'incanter un sort.[/i]")
 		"SkillProjectileLaunched":
 			_on_skill_projectile_launched(payload)
 		"CastResult":
@@ -671,16 +692,16 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 			var sg_label := "Soulshot" if str(payload.get("shotType", "")) == "SOULSHOT" else "Spiritshot"
 			var sg_grade = payload.get("grade")
 			if sg_grade == null:
-				_log("[i][color=#999999]%s désactivé.[/color][/i]" % sg_label)
+				_log("[i]%s désactivé.[/i]" % sg_label)
 			else:
-				_log("[i][color=#999999]%s activé (%s).[/color][/i]" % [sg_label, str(sg_grade)])
+				_log("[i]%s activé (%s).[/i]" % [sg_label, str(sg_grade)])
 		"ShotOutOfStock":
 			var out_label := "Soulshots" if str(payload.get("shotType", "")) == "SOULSHOT" else "Spiritshots"
-			_log("[i][color=#999999]Plus de %s (%s) — auto-use désactivé.[/color][/i]" % [
+			_log("[i]Plus de %s (%s) — auto-use désactivé.[/i]" % [
 				out_label, str(payload.get("grade", "?")),
 			])
 		"InvalidShotGrade":
-			_log("[i][color=#999999]Grade de charge invalide : %s[/color][/i]" % _bbcode_escape(
+			_log("[i]Grade de charge invalide : %s[/i]" % _bbcode_escape(
 				str(payload.get("argument", ""))
 			))
 		"RegenTick":
@@ -694,12 +715,12 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 			}
 		"XpGained":
 			_log("[color=%s]Vous gagnez %s points d'expérience.[/color]" % [
-				LOG_COLOR_XP, str(payload.get("amount", 0)),
+				LOG_COLOR_GAIN, str(payload.get("amount", 0)),
 			])
 		"PlayerLeveledUp":
 			if str(payload.get("characterName", "")) == str(GameState.player_stats.get("name", "")):
 				_log("[color=%s]Vous passez au niveau %s ![/color]" % [
-					LOG_COLOR_XP, str(payload.get("newLevel", "?")),
+					LOG_COLOR_GAIN, str(payload.get("newLevel", "?")),
 				])
 				# XpGained (déjà reçu juste avant ce message, voir CharacterInstance.gainXp côté
 				# backend) reporte xpForCurrentLevel/xpForNextLevel du niveau D'AVANT cette montée
@@ -710,29 +731,29 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 				Net.send_command("stats")
 		"EquipmentLooted":
 			_log("[color=%s]Vous trouvez : %s[/color]" % [
-				LOG_COLOR_LOOT, _bbcode_escape(str(payload.get("itemName", "?"))),
+				LOG_COLOR_GAIN, _bbcode_escape(str(payload.get("itemName", "?"))),
 			])
 		"GoldLooted":
 			_log("[color=%s]Vous trouvez %s pièces d'or.[/color]" % [
-				LOG_COLOR_LOOT, str(payload.get("amount", 0)),
+				LOG_COLOR_GAIN, str(payload.get("amount", 0)),
 			])
 		"ItemBought":
 			# Réponse à "shop"/"buy" (voir %ShopWindow, qui réagit indépendamment au même
 			# message pour son propre panneau de confirmation — même principe que GameState/
 			# Game3D réagissant chacun à ShotGradeChanged sans se coordonner).
 			_log("[color=%s]Vous achetez : %s (%s or).[/color]" % [
-				LOG_COLOR_LOOT, _bbcode_escape(str(payload.get("itemName", "?"))), str(payload.get("price", 0)),
+				LOG_COLOR_GAIN, _bbcode_escape(str(payload.get("itemName", "?"))), str(payload.get("price", 0)),
 			])
 		"NotEnoughGold":
-			_log("[i][color=#999999]Pas assez d'or (%s requis).[/color][/i]" % str(payload.get("price", 0)))
+			_log("[i]Pas assez d'or (%s requis).[/i]" % str(payload.get("price", 0)))
 		"ShopItemNotFound":
-			_log("[i][color=#999999]Cet objet n'est plus disponible chez ce marchand.[/color][/i]")
+			_log("[i]Cet objet n'est plus disponible chez ce marchand.[/i]")
 		"GamePlayerDefeated":
 			_log_player_defeated(payload)
 			if str(payload.get("characterName", "")) == str(GameState.player_stats.get("name", "")):
 				_death_popup.open(str(payload.get("killerName", "")))
 		"PlayerRespawned":
-			_log("[color=%s]Vous revenez à la vie.[/color]" % LOG_COLOR_HEAL)
+			_log("Vous revenez à la vie.")
 			_death_popup.close()
 			var respawn_level := int(_entity_vitals_by_key.get(PLAYER_KEY, {}).get("level", 1))
 			_entity_vitals_by_key[PLAYER_KEY] = {
@@ -740,20 +761,20 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 				"level": respawn_level,
 			}
 		"CharacterIsDead":
-			_log("[i][color=#999999]Vous êtes mort — impossible tant que vous n'avez pas réapparu.[/color][/i]")
+			_log("[i]Vous êtes mort — impossible tant que vous n'avez pas réapparu.[/i]")
 		"CharacterNotDead":
-			_log("[i][color=#999999]Vous n'êtes pas mort.[/color][/i]")
+			_log("[i]Vous n'êtes pas mort.[/i]")
 		"NoPortalHere":
-			_log("[i][color=#999999]Vous n'êtes pas assez proche d'un portail.[/color][/i]")
+			_log("[i]Vous n'êtes pas assez proche d'un portail.[/i]")
 		"CombatForbiddenHere":
-			_log("[i][color=#999999]Combat impossible ici (%s).[/color][/i]" % _bbcode_escape(
+			_log("[i]Combat impossible ici (%s).[/i]" % _bbcode_escape(
 				str(payload.get("zoneName", "?"))
 			))
 		"Chat":
 			# Diffusé à toute la zone SAUF au locuteur (voir "YouSaid" ci-dessous) — comme
 			# SkillCastAnnounced/CastResult, le serveur sépare toujours l'écho à l'auteur du
 			# message diffusé aux autres.
-			_log("[b]%s[/b] : %s" % [
+			_log_chat("[b]%s[/b] : %s" % [
 				_bbcode_escape(str(payload.get("speakerName", "?"))),
 				_bbcode_escape(str(payload.get("text", ""))),
 			])
@@ -762,19 +783,16 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 			# ci-dessus) — absent jusqu'ici, ce qui faisait qu'aucun message tapé par
 			# soi-même n'apparaissait dans le chat (bug signalé le 2026-09-02, flagrant en
 			# session solo puisque "Chat" n'a alors personne d'autre à qui être diffusé).
-			_log("[b]Vous[/b] : %s" % _bbcode_escape(str(payload.get("text", ""))))
+			_log_chat("[b]Vous[/b] : %s" % _bbcode_escape(str(payload.get("text", ""))))
 		"PeaceZoneEntered":
-			_log("[color=%s]Zone paisible (%s) : %s[/color]" % [
-				LOG_COLOR_PEACE,
+			_log("Zone paisible (%s) : %s" % [
 				_bbcode_escape(str(payload.get("zoneName", "?"))),
 				_bbcode_escape(str(payload.get("description", ""))),
 			])
 		"PeaceZoneExited":
-			_log("[color=%s]Vous quittez la zone paisible : %s.[/color]" % [
-				LOG_COLOR_PEACE, _bbcode_escape(str(payload.get("zoneName", "?"))),
-			])
+			_log("Vous quittez la zone paisible : %s." % _bbcode_escape(str(payload.get("zoneName", "?"))))
 		"Error":
-			_log("[color=#9a9488]%s[/color]" % _bbcode_escape(str(payload.get("message", "Erreur."))))
+			_log(_bbcode_escape(str(payload.get("message", "Erreur."))))
 		"GameTimeSync":
 			# Resynchronisation ponctuelle (au login) : bascule immédiate, pas d'animation —
 			# voir _day_night_t_for_time/_apply_day_night_preset. Resynchronise aussi l'horloge
@@ -838,7 +856,7 @@ func _rebuild_map(payload: Dictionary) -> void:
 	_clear_portals()
 	_rebuild_night_lights()
 	_minimap.set_map(texture, _map_width, _map_height, _current_map_name)
-	_log("[color=#9a9488]Carte : %s (%dx%d)[/color]" % [_current_map_name, _map_width, _map_height])
+	_log("Carte : %s (%dx%d)" % [_current_map_name, _map_width, _map_height])
 
 
 func _rebuild_obstacles() -> void:
@@ -2689,19 +2707,15 @@ func _log_attack_result(payload: Dictionary) -> void:
 	if attacker_id == my_id:
 		var target_name := _bbcode_escape(str(payload.get("targetName", "?")))
 		if not hit:
-			_log("[color=%s]Vous manquez %s.[/color]" % [LOG_COLOR_DAMAGE_OUT, target_name])
+			_log("Vous manquez %s." % target_name)
 			return
-		_log("[color=%s]Vous infligez %s dégâts à %s%s.[/color]" % [
-			LOG_COLOR_DAMAGE_OUT, str(payload.get("damage", 0)), target_name, critical_suffix,
-		])
+		_log("Vous infligez %s dégâts à %s%s." % [str(payload.get("damage", 0)), target_name, critical_suffix])
 	elif target_id == my_id:
 		var attacker_name := _bbcode_escape(str(payload.get("attackerName", "?")))
 		if not hit:
-			_log("[color=%s]%s vous manque.[/color]" % [LOG_COLOR_DAMAGE_IN, attacker_name])
+			_log("%s vous manque." % attacker_name)
 			return
-		_log("[color=%s]%s vous inflige %s dégâts%s.[/color]" % [
-			LOG_COLOR_DAMAGE_IN, attacker_name, str(payload.get("damage", 0)), critical_suffix,
-		])
+		_log("%s vous inflige %s dégâts%s." % [attacker_name, str(payload.get("damage", 0)), critical_suffix])
 
 
 ## Ligne de journal pour notre propre CastResult (envoyé uniquement au lanceur) — porté de
@@ -2710,17 +2724,13 @@ func _log_attack_result(payload: Dictionary) -> void:
 func _log_cast_result(payload: Dictionary) -> void:
 	var skill_name := _bbcode_escape(str(payload.get("skillName", "?")))
 	if bool(payload.get("selfHeal", false)):
-		_log("[color=%s]Vous récupérez %s PV avec %s.[/color]" % [
-			LOG_COLOR_HEAL, str(payload.get("amount", 0)), skill_name,
-		])
+		_log("Vous récupérez %s PV avec %s." % [str(payload.get("amount", 0)), skill_name])
 		return
 	var target_name := _bbcode_escape(str(payload.get("targetName", "?")))
 	if not bool(payload.get("hit", false)):
-		_log("[color=%s]Vous manquez %s avec %s.[/color]" % [LOG_COLOR_DAMAGE_OUT, target_name, skill_name])
+		_log("Vous manquez %s avec %s." % [target_name, skill_name])
 		return
-	_log("[color=%s]Vous infligez %s dégâts à %s avec %s.[/color]" % [
-		LOG_COLOR_DAMAGE_OUT, str(payload.get("amount", 0)), target_name, skill_name,
-	])
+	_log("Vous infligez %s dégâts à %s avec %s." % [str(payload.get("amount", 0)), target_name, skill_name])
 
 
 ## Ligne de journal pour le sort d'un AUTRE lanceur (SkillCastAnnounced, diffusé à toute la
@@ -2734,11 +2744,9 @@ func _log_skill_cast_announced(payload: Dictionary) -> void:
 	var caster_name := _bbcode_escape(str(payload.get("casterName", "?")))
 	var skill_name := _bbcode_escape(str(payload.get("skillName", "?")))
 	if not bool(payload.get("hit", false)):
-		_log("[color=%s]%s vous manque avec %s.[/color]" % [LOG_COLOR_DAMAGE_IN, caster_name, skill_name])
+		_log("%s vous manque avec %s." % [caster_name, skill_name])
 		return
-	_log("[color=%s]%s vous inflige %s dégâts avec %s.[/color]" % [
-		LOG_COLOR_DAMAGE_IN, caster_name, str(payload.get("amount", 0)), skill_name,
-	])
+	_log("%s vous inflige %s dégâts avec %s." % [caster_name, str(payload.get("amount", 0)), skill_name])
 
 
 ## Un personnage meurt (GamePlayerDefeated, diffusé à toute la zone, pas d'UUID donc
@@ -2749,15 +2757,67 @@ func _log_skill_cast_announced(payload: Dictionary) -> void:
 func _log_player_defeated(payload: Dictionary) -> void:
 	var killer_name := _bbcode_escape(str(payload.get("killerName", "?")))
 	if str(payload.get("characterName", "")) == str(GameState.player_stats.get("name", "")):
-		_log("[color=%s]Vous êtes mort, tué par %s.[/color]" % [LOG_COLOR_DEFEAT, killer_name])
+		_log("Vous êtes mort, tué par %s." % killer_name)
 	else:
-		_log("[color=%s]%s est mort, tué par %s.[/color]" % [
-			LOG_COLOR_DEFEAT, _bbcode_escape(str(payload.get("characterName", "?"))), killer_name,
-		])
+		_log("%s est mort, tué par %s." % [_bbcode_escape(str(payload.get("characterName", "?"))), killer_name])
 
 
+## Journal système (voir _system_log_label) : tout sauf le chat entre joueurs (_log_chat).
 func _log(text: String) -> void:
-	_log_label.append_text(text + "\n")
+	_system_log_label.append_text(text + "\n")
+	_flash_chat_window(_system_log_background)
+
+
+## Journal du chat entre joueurs (voir _chat_log_label), distinct du journal système ci-dessus
+## depuis la demande explicite du 2026-09-06 de séparer les deux flux en deux fenêtres.
+func _log_chat(text: String) -> void:
+	_chat_log_label.append_text(text + "\n")
+	_flash_chat_window(_chat_log_background)
+
+
+## Fait clignoter légèrement une fenêtre de discussion à l'arrivée d'un nouveau message (voir
+## _log/_log_chat) : passe à CHAT_WINDOW_MESSAGE_ALPHA puis retombe en fondu vers
+## CHAT_WINDOW_IDLE_ALPHA après CHAT_WINDOW_MESSAGE_HOLD_SEC — sans effet tant que %ChatInput a
+## le focus (la fenêtre reste alors pleinement opaque, voir _set_chat_windows_interactive).
+func _flash_chat_window(background: PanelContainer) -> void:
+	if _chat_input.has_focus():
+		return
+	_kill_chat_window_fade(background)
+	background.modulate.a = CHAT_WINDOW_MESSAGE_ALPHA
+	var tween := create_tween()
+	tween.tween_interval(CHAT_WINDOW_MESSAGE_HOLD_SEC)
+	tween.tween_property(background, "modulate:a", CHAT_WINDOW_IDLE_ALPHA, CHAT_WINDOW_FADE_SEC)
+	_chat_window_fade_tweens[background] = tween
+
+
+func _kill_chat_window_fade(background: PanelContainer) -> void:
+	var tween := _chat_window_fade_tweens.get(background) as Tween
+	if tween != null and tween.is_valid():
+		tween.kill()
+	_chat_window_fade_tweens.erase(background)
+
+
+## Bascule les 2 fenêtres de discussion entre interactives/opaques (focus sur %ChatInput) et
+## transparentes/traversables au clic (focus perdu) — demande explicite du 2026-09-06 pour ne
+## pas gêner le clic sur la scène 3D tant qu'on ne discute pas. Le clic continue de fonctionner
+## sur les poignées de redimensionnement dans les deux cas : un enfant garde son propre
+## mouse_filter quel que soit celui de son parent (voir ChatWindowResizeHandle.gd).
+func _set_chat_windows_interactive(focused: bool) -> void:
+	var filter := Control.MOUSE_FILTER_STOP if focused else Control.MOUSE_FILTER_IGNORE
+	for control in [_chat_log_background, _chat_log_label, _system_log_background, _system_log_label]:
+		control.mouse_filter = filter
+	var target_alpha := CHAT_WINDOW_FOCUSED_ALPHA if focused else CHAT_WINDOW_IDLE_ALPHA
+	for background in [_chat_log_background, _system_log_background]:
+		_kill_chat_window_fade(background)
+		background.modulate.a = target_alpha
+
+
+func _on_chat_input_focus_entered() -> void:
+	_set_chat_windows_interactive(true)
+
+
+func _on_chat_input_focus_exited() -> void:
+	_set_chat_windows_interactive(false)
 
 
 ## Dérive un facteur jour/nuit (0.0 nuit, 1.0 jour) directement de l'heure in-game plutôt

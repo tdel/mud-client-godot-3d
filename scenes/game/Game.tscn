@@ -14,6 +14,7 @@
 [ext_resource type="PackedScene" path="res://scenes/game/hud/Minimap.tscn" id="12"]
 [ext_resource type="PackedScene" path="res://scenes/game/hud/ShopWindow.tscn" id="13"]
 [ext_resource type="PackedScene" path="res://scenes/game/hud/DialogueWindow.tscn" id="14"]
+[ext_resource type="Script" path="res://scenes/game/hud/ChatWindowResizeHandle.gd" id="15"]
 
 [sub_resource type="Environment" id="Environment_1"]
 background_mode = 1
@@ -83,27 +84,71 @@ Clic droit sur un portail/PNJ sélectionné : menu (Parler/Boutique) — clic dr
 Molette : zoom — Échap : fermer une fenêtre/désélectionner — Tab : cibler
 K : sorts — I : sac — P : personnage — O : équipement — Entrée : discuter"
 
-[node name="LogPanel" type="PanelContainer" parent="HUD"]
+[node name="ChatLogPanel" type="Control" parent="HUD"]
 anchor_top = 1.0
 anchor_bottom = 1.0
 offset_left = 16.0
-offset_top = -294.0
-offset_right = 620.0
-offset_bottom = -120.0
+offset_top = -222.0
+offset_right = 316.0
+offset_bottom = -52.0
+mouse_filter = 2
 
-[node name="LogLabel" type="RichTextLabel" parent="HUD/LogPanel"]
+[node name="ChatLogBackground" type="PanelContainer" parent="HUD/ChatLogPanel"]
+unique_name_in_owner = true
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="ChatLogLabel" type="RichTextLabel" parent="HUD/ChatLogPanel/ChatLogBackground"]
 unique_name_in_owner = true
 bbcode_enabled = true
 scroll_active = true
 scroll_following = true
 
+[node name="ResizeHandle" type="Control" parent="HUD/ChatLogPanel"]
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -16.0
+offset_top = 0.0
+offset_right = 0.0
+offset_bottom = 16.0
+script = ExtResource("15")
+
+[node name="SystemLogPanel" type="Control" parent="HUD"]
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 324.0
+offset_top = -222.0
+offset_right = 624.0
+offset_bottom = -52.0
+mouse_filter = 2
+
+[node name="SystemLogBackground" type="PanelContainer" parent="HUD/SystemLogPanel"]
+unique_name_in_owner = true
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="SystemLogLabel" type="RichTextLabel" parent="HUD/SystemLogPanel/SystemLogBackground"]
+unique_name_in_owner = true
+bbcode_enabled = true
+scroll_active = true
+scroll_following = true
+
+[node name="ResizeHandle" type="Control" parent="HUD/SystemLogPanel"]
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -16.0
+offset_top = 0.0
+offset_right = 0.0
+offset_bottom = 16.0
+script = ExtResource("15")
+
 [node name="ChatBar" type="HBoxContainer" parent="HUD"]
 anchor_top = 1.0
 anchor_bottom = 1.0
 offset_left = 16.0
-offset_top = -112.0
-offset_right = 620.0
-offset_bottom = -76.0
+offset_top = -44.0
+offset_right = 624.0
+offset_bottom = -12.0
 
 [node name="ChatInput" type="LineEdit" parent="HUD/ChatBar"]
 unique_name_in_owner = true
