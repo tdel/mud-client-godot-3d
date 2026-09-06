@@ -143,6 +143,18 @@ const LANDMARK_LIGHTS := {
 ## (dégâts/soin/mort/zone paisible) utilisée jusqu'ici.
 const LOG_COLOR_GAIN := "#f2e35a"
 
+## Couleurs du chat entre joueurs (%ChatLogLabel/%ChatPartyLogLabel) — demande explicite du
+## 2026-09-06 ("système d'onglet... all, tous les messages en blanc + party en vert + whisper
+## en violet") : un "say" normal (Chat/YouSaid) reste en blanc pur plutôt que l'ivoire par
+## défaut du thème (UITheme.TEXT_IVORY, trop proche du gris pour bien se distinguer des deux
+## autres canaux), un message de groupe (PartyChat) en vert, un chuchotement (Whisper) en
+## violet — ces deux derniers apparaissent aussi bien dans l'onglet "Tous" que dans l'onglet
+## "#Groupe" (voir _log_chat/_on_chat_tab_changed), contrairement au "say" qui ne va que dans
+## "Tous".
+const LOG_COLOR_SAY := "#ffffff"
+const LOG_COLOR_PARTY := "#4fd67a"
+const LOG_COLOR_WHISPER := "#c586f5"
+
 ## Transparence des fenêtres de discussion (%ChatLogPanel/%SystemLogPanel) — demande explicite
 ## du 2026-09-06 : quasi invisibles tant que %ChatInput n'a pas le focus (pour ne pas gêner la
 ## vue 3D et laisser le clic passer à travers, voir _set_chat_windows_interactive), légèrement
@@ -298,6 +310,18 @@ const HEAL_TARGET_PARTICLE_AMOUNT := 30
 @onready var _chat_log_label: RichTextLabel = %ChatLogLabel
 @onready var _chat_log_background: PanelContainer = %ChatLogBackground
 @onready var _chat_log_resize_handle: Control = %ChatLogResizeHandle
+## Onglets "Tous"/"#Groupe" du chat entre joueurs (voir Game.tscn/%ChatLogContent) — %ChatLogLabel
+## (onglet "Tous") reçoit tout le chat, %ChatPartyLogLabel (onglet "#Groupe") seulement le
+## groupe/chuchotement (voir _log_chat) ; %ChatScrollBar/%ChatPartyScrollBar sont des
+## VScrollBar posées à GAUCHE de chaque RichTextLabel (demande explicite du 2026-09-06) qui
+## pilotent la scrollbar interne du RichTextLabel (masquée, voir _wire_left_scrollbar) plutôt
+## que d'en réafficher une deuxième à droite.
+@onready var _chat_tab_bar: TabBar = %ChatTabBar
+@onready var _chat_all_row: Control = %AllRow
+@onready var _chat_party_row: Control = %PartyRow
+@onready var _chat_scroll_bar: VScrollBar = %ChatScrollBar
+@onready var _chat_party_log_label: RichTextLabel = %ChatPartyLogLabel
+@onready var _chat_party_scroll_bar: VScrollBar = %ChatPartyScrollBar
 @onready var _chat_input: LineEdit = %ChatInput
 @onready var _chat_bar: Control = %ChatBar
 @onready var _target_status_bar: Control = %TargetStatusBar
@@ -418,6 +442,12 @@ func _ready() -> void:
 	_chat_log_resize_handle.panel_resized.connect(_on_chat_log_panel_resized)
 	_on_chat_log_panel_resized()
 	_set_chat_windows_interactive(false)
+
+	_chat_tab_bar.add_tab("Tous")
+	_chat_tab_bar.add_tab("#Groupe")
+	_chat_tab_bar.tab_changed.connect(_on_chat_tab_changed)
+	_wire_left_scrollbar(_chat_scroll_bar, _chat_log_label)
+	_wire_left_scrollbar(_chat_party_scroll_bar, _chat_party_log_label)
 
 	_npc_menu.add_item("Parler", 0)
 	_npc_menu.add_item("Boutique", 1)
@@ -788,7 +818,8 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 			# Diffusé à toute la zone SAUF au locuteur (voir "YouSaid" ci-dessous) — comme
 			# SkillCastAnnounced/CastResult, le serveur sépare toujours l'écho à l'auteur du
 			# message diffusé aux autres.
-			_log_chat("[b]%s[/b] : %s" % [
+			_log_chat("[color=%s][b]%s[/b] : %s[/color]" % [
+				LOG_COLOR_SAY,
 				_bbcode_escape(str(payload.get("speakerName", "?"))),
 				_bbcode_escape(str(payload.get("text", ""))),
 			])
@@ -797,7 +828,9 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 			# ci-dessus) — absent jusqu'ici, ce qui faisait qu'aucun message tapé par
 			# soi-même n'apparaissait dans le chat (bug signalé le 2026-09-02, flagrant en
 			# session solo puisque "Chat" n'a alors personne d'autre à qui être diffusé).
-			_log_chat("[b]Vous[/b] : %s" % _bbcode_escape(str(payload.get("text", ""))))
+			_log_chat("[color=%s][b]Vous[/b] : %s[/color]" % [
+				LOG_COLOR_SAY, _bbcode_escape(str(payload.get("text", ""))),
+			])
 		"Whisper":
 			# "say #nom message" (voir Say.java, 2026-09-06) : le serveur renvoie le même
 			# message aux deux participants, donc c'est au client de distinguer émetteur et
@@ -806,16 +839,21 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 			var whisper_to := str(payload.get("toName", "?"))
 			var whisper_text := _bbcode_escape(str(payload.get("text", "")))
 			if whisper_from == str(GameState.player_stats.get("name", "")):
-				_log_chat("[i]Vous chuchotez à %s[/i] : %s" % [_bbcode_escape(whisper_to), whisper_text])
+				_log_chat("[color=%s][i]Vous chuchotez à %s[/i] : %s[/color]" % [
+					LOG_COLOR_WHISPER, _bbcode_escape(whisper_to), whisper_text,
+				], "whisper")
 			else:
-				_log_chat("[i]%s vous chuchote[/i] : %s" % [_bbcode_escape(whisper_from), whisper_text])
+				_log_chat("[color=%s][i]%s vous chuchote[/i] : %s[/color]" % [
+					LOG_COLOR_WHISPER, _bbcode_escape(whisper_from), whisper_text,
+				], "whisper")
 		"PartyChat":
 			# "say %message" (voir Say.java, 2026-09-06) : diffusé à tout le groupe, l'auteur
 			# compris (contrairement à Chat/YouSaid, pas d'écho séparé à distinguer ici).
-			_log_chat("[i][Groupe][/i] [b]%s[/b] : %s" % [
+			_log_chat("[color=%s][i][Groupe][/i] [b]%s[/b] : %s[/color]" % [
+				LOG_COLOR_PARTY,
 				_bbcode_escape(str(payload.get("speakerName", "?"))),
 				_bbcode_escape(str(payload.get("text", ""))),
-			])
+			], "party")
 		"CannotWhisperSelf":
 			_log("[i]Vous ne pouvez pas vous chuchoter à vous-même.[/i]")
 		"WhisperTargetNotFound":
@@ -2808,8 +2846,13 @@ func _log(text: String) -> void:
 
 ## Journal du chat entre joueurs (voir _chat_log_label), distinct du journal système ci-dessus
 ## depuis la demande explicite du 2026-09-06 de séparer les deux flux en deux fenêtres.
-func _log_chat(text: String) -> void:
+## `channel` ("say"/"party"/"whisper") détermine si `text` va aussi dans %ChatPartyLogLabel
+## (onglet "#Groupe", voir Game.tscn) — seuls "party"/"whisper" y apparaissent, un "say" normal
+## reste réservé à l'onglet "Tous" (%ChatLogLabel, qui reçoit lui TOUJOURS tous les canaux).
+func _log_chat(text: String, channel: String = "say") -> void:
 	_chat_log_label.append_text(text + "\n")
+	if channel != "say":
+		_chat_party_log_label.append_text(text + "\n")
 	_flash_chat_window(_chat_log_background)
 
 
@@ -2850,7 +2893,10 @@ func _kill_chat_window_fade(background: PanelContainer) -> void:
 ## quel que soit celui de son parent (voir ChatWindowResizeHandle.gd) — seul leur alpha change ici.
 func _set_chat_windows_interactive(focused: bool) -> void:
 	var filter := Control.MOUSE_FILTER_STOP if focused else Control.MOUSE_FILTER_IGNORE
-	for control in [_chat_log_background, _chat_log_label, _system_log_background, _system_log_label]:
+	for control in [
+		_chat_log_background, _chat_log_label, _chat_party_log_label,
+		_system_log_background, _system_log_label,
+	]:
 		control.mouse_filter = filter
 	var target_alpha := CHAT_WINDOW_FOCUSED_ALPHA if focused else CHAT_WINDOW_IDLE_ALPHA
 	for background in [_chat_log_background, _system_log_background]:
@@ -2879,6 +2925,37 @@ func _on_chat_input_focus_exited() -> void:
 func _on_chat_log_panel_resized() -> void:
 	var chat_log_panel := _chat_log_resize_handle.get_parent() as Control
 	_chat_bar.offset_right = chat_log_panel.offset_right
+
+
+## Bascule l'onglet "Tous"/"#Groupe" du chat (voir %ChatTabBar, Game.tscn) : les deux onglets
+## sont peuplés en continu par _log_chat (jamais reconstruits à la volée) — changer d'onglet ne
+## fait donc que montrer la rangée (RichTextLabel + scrollbar gauche) correspondante.
+func _on_chat_tab_changed(tab: int) -> void:
+	_chat_all_row.visible = tab == 0
+	_chat_party_row.visible = tab == 1
+
+
+## Pose une VScrollBar à gauche d'un RichTextLabel (voir %ChatScrollBar/%ChatPartyScrollBar,
+## Game.tscn) — demande explicite du 2026-09-06 ("une scrollbar sur la gauche"). RichTextLabel
+## ne permet pas nativement de déplacer sa propre scrollbar interne (get_v_scroll_bar(), à
+## droite, repositionnée par le moteur lui-même à chaque reflow) : on la masque plutôt que
+## d'essayer de la déplacer, et on pilote son `value` depuis cette scrollbar de gauche — qui
+## elle-même se resynchronise (min/max/page/value) sur l'interne à chaque changement de
+## contenu (Range.changed/value_changed), donc reflète toujours le vrai scroll du texte,
+## molette comprise (gérée par le RichTextLabel lui-même, indépendamment de sa scrollbar).
+func _wire_left_scrollbar(bar: VScrollBar, label: RichTextLabel) -> void:
+	var internal := label.get_v_scroll_bar()
+	internal.modulate.a = 0.0
+	internal.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var sync := func() -> void:
+		bar.min_value = internal.min_value
+		bar.max_value = internal.max_value
+		bar.page = internal.page
+		bar.value = internal.value
+	internal.changed.connect(func() -> void: sync.call())
+	internal.value_changed.connect(func(_v: float) -> void: sync.call())
+	bar.value_changed.connect(func(v: float) -> void: internal.value = v)
+	sync.call()
 
 
 ## Dérive un facteur jour/nuit (0.0 nuit, 1.0 jour) directement de l'heure in-game plutôt

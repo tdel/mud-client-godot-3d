@@ -140,6 +140,21 @@ func _build_theme() -> Theme:
 		t.set_stylebox("grabber_highlight", scrollbar_type, _panel_style(BORDER_GOLD_BRIGHT, BORDER_GOLD_BRIGHT, 1, 1))
 		t.set_stylebox("grabber_pressed", scrollbar_type, _panel_style(BORDER_GOLD_BRIGHT, BORDER_GOLD_BRIGHT, 1, 1))
 
+	# Onglets du chat entre joueurs (%ChatTabBar, voir Game.tscn/Game3D.gd, "Tous"/"#Groupe")
+	# — seul TabBar de tout le HUD à ce jour, sans quoi il garderait le thème gris par défaut
+	# du moteur au lieu de la palette dorée/antique du reste des fenêtres.
+	t.set_font("font", "TabBar", font)
+	t.set_font_size("font_size", "TabBar", 14)
+	t.set_stylebox("tab_selected", "TabBar", _button_style(BG_PANEL_LIGHT, BORDER_GOLD_BRIGHT))
+	t.set_stylebox("tab_unselected", "TabBar", _button_style(BG_PANEL.darkened(0.15), BORDER_DARK))
+	t.set_stylebox("tab_hovered", "TabBar", _button_style(BG_PANEL_LIGHT, BORDER_GOLD))
+	t.set_stylebox("tab_disabled", "TabBar", _button_style(BG_PANEL.darkened(0.25), BORDER_DARK))
+	t.set_stylebox("tab_focus", "TabBar", _button_style(BG_PANEL_LIGHT, BORDER_GOLD_BRIGHT))
+	t.set_color("font_selected_color", "TabBar", TEXT_GOLD)
+	t.set_color("font_unselected_color", "TabBar", TEXT_DIM)
+	t.set_color("font_hovered_color", "TabBar", TEXT_IVORY)
+	t.set_color("drop_mark_color", "TabBar", BORDER_GOLD_BRIGHT)
+
 	t.set_font("font", "SpinBox", font)
 	t.set_stylebox("up_background", "SpinBox", _button_style(BG_PANEL_LIGHT, BORDER_GOLD))
 	t.set_stylebox("down_background", "SpinBox", _button_style(BG_PANEL_LIGHT, BORDER_GOLD))

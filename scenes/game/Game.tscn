@@ -98,8 +98,54 @@ unique_name_in_owner = true
 anchor_right = 1.0
 anchor_bottom = 1.0
 
-[node name="ChatLogLabel" type="RichTextLabel" parent="HUD/ChatLogPanel/ChatLogBackground"]
+[node name="ChatLogContent" type="VBoxContainer" parent="HUD/ChatLogPanel/ChatLogBackground"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="ChatTabBar" type="TabBar" parent="HUD/ChatLogPanel/ChatLogBackground/ChatLogContent"]
 unique_name_in_owner = true
+layout_mode = 2
+tab_close_display_policy = 0
+
+[node name="AllRow" type="HBoxContainer" parent="HUD/ChatLogPanel/ChatLogBackground/ChatLogContent"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 4
+
+[node name="ChatScrollBar" type="VScrollBar" parent="HUD/ChatLogPanel/ChatLogBackground/ChatLogContent/AllRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(10, 0)
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="ChatLogLabel" type="RichTextLabel" parent="HUD/ChatLogPanel/ChatLogBackground/ChatLogContent/AllRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+bbcode_enabled = true
+scroll_active = true
+scroll_following = true
+
+[node name="PartyRow" type="HBoxContainer" parent="HUD/ChatLogPanel/ChatLogBackground/ChatLogContent"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 4
+
+[node name="ChatPartyScrollBar" type="VScrollBar" parent="HUD/ChatLogPanel/ChatLogBackground/ChatLogContent/PartyRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(10, 0)
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="ChatPartyLogLabel" type="RichTextLabel" parent="HUD/ChatLogPanel/ChatLogBackground/ChatLogContent/PartyRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
 bbcode_enabled = true
 scroll_active = true
 scroll_following = true
