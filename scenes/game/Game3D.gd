@@ -1,15 +1,16 @@
 extends Node3D
-## Prototype 3D isométrique du client mud-godot (voir mud-godot/CLAUDE.md pour le
-## protocole réseau complet, inchangé ici — ce fichier ne fait que du rendu/déplacement).
+## Prototype 3D isométrique du client mud-godot (protocole réseau documenté en commentaires
+## dans autoload/Net.gd — voir son en-tête pour le format stateless actuel).
 ##
 ## Caméra isométrique fixe, sol/obstacles générés depuis les mêmes .tmx que le client 2D,
 ## déplacement au clic (un clic = une demande de déplacement), entités (joueurs/PNJ/monstres) visibles et
 ## animées en position/orientation, chat de zone, sélection de cible, attaque, sorts
 ## (incantation/projectile/impact), hotbar/inventaire/équipement/fiche de personnage (voir
-## scenes/game/hud/), portails, mort/respawn (%DeathPopup).
+## scenes/game/hud/), portails, dialogue PNJ (%DialogueWindow), cycle jour/nuit
+## (_apply_day_night_preset/_animate_day_night), mort/respawn (%DeathPopup).
 ##
-## PAS dans ce prototype (voir CLAUDE.md) : groupe, sous-classe. Les entités restent de
-## simples capsules colorées — pas de rig/squelette/attach points d'équipement.
+## PAS dans ce prototype : groupe, sous-classe. Les entités restent de simples capsules
+## colorées — pas de rig/squelette/attach points d'équipement.
 
 const WORLD_UP := Vector3.UP
 const DEFAULT_SPEED_TILES_PER_SEC := 2.4
@@ -59,6 +60,24 @@ const SOULSHOT_GLOW_COLOR := Color(1.0, 0.55, 0.15)
 const SPIRITSHOT_GLOW_COLOR := Color(0.3, 0.85, 1.0)
 const SHOT_GLOW_UP_DURATION := 0.1
 const SHOT_GLOW_DOWN_DURATION := 0.35
+
+## Cycle jour/nuit (voir TimeEngine côté backend, commit "Ajoute un cycle jour/nuit
+## in-game" du 2026-09-05) : 24h in-game = 8h réelles, aube 7h-8h, crépuscule 21h-22h
+## (GameClock). Le serveur ne pousse pas de tick régulier — seulement GameTimeSync au
+## login (resynchronisation immédiate, voir _day_night_t_for_time) et Sunrise/Sunset aux
+## deux transitions (animées sur transitionDurationMs, voir _animate_day_night). Les
+## valeurs DAY_* reprennent telles quelles le sub_resource Environment/Sun par défaut de
+## Game.tscn (c'était jusqu'ici la seule ambiance possible).
+const NIGHT_BACKGROUND_COLOR := Color(0.04, 0.05, 0.11, 1.0)
+const NIGHT_AMBIENT_COLOR := Color(0.16, 0.18, 0.30, 1.0)
+const NIGHT_AMBIENT_ENERGY := 0.22
+const NIGHT_SUN_ENERGY := 0.05
+const NIGHT_SUN_COLOR := Color(0.55, 0.60, 0.85, 1.0)
+const DAY_BACKGROUND_COLOR := Color(0.29, 0.33, 0.40, 1.0)
+const DAY_AMBIENT_COLOR := Color(0.55, 0.58, 0.65, 1.0)
+const DAY_AMBIENT_ENERGY := 0.7
+const DAY_SUN_ENERGY := 1.15
+const DAY_SUN_COLOR := Color(1.0, 0.96, 0.88, 1.0)
 
 ## Couleurs des lignes de journal de combat/progression (voir les _log_* plus bas), reprises
 ## telles quelles de mud-godot/scenes/game/hud/ChatOverlay.gd pour un rendu identique — la
@@ -199,6 +218,8 @@ const WIND_WISP_SIZE := Vector2(0.24, 0.5)
 @onready var _portal_menu: PopupMenu = %PortalMenu
 @onready var _npc_menu: PopupMenu = %NpcMenu
 @onready var _death_popup: Control = %DeathPopup
+@onready var _world_environment: WorldEnvironment = $WorldEnvironment
+@onready var _sun: DirectionalLight3D = $Sun
 
 var _player_node: Node3D
 var _current_map_name := ""
@@ -266,6 +287,12 @@ var _camera_yaw := 0.0
 var _camera_yaw_target := 0.0
 var _right_click_press_screen_pos := Vector2.ZERO
 
+## 0.0 = nuit pleine, 1.0 = jour plein — voir _apply_day_night_preset/_animate_day_night.
+## Initialisé au jour pour matcher le sub_resource Environment par défaut de Game.tscn tant
+## qu'aucun GameTimeSync n'est encore arrivé (juste après la connexion).
+var _day_night_t := 1.0
+var _day_night_tween: Tween
+
 
 
 func _ready() -> void:
@@ -278,7 +305,8 @@ func _ready() -> void:
 
 	_portal_menu.add_item("Se téléporter", 0)
 	_portal_menu.id_pressed.connect(_on_portal_menu_id_pressed)
-	_npc_menu.add_item("Boutique", 0)
+	_npc_menu.add_item("Parler", 0)
+	_npc_menu.add_item("Boutique", 1)
 	_npc_menu.id_pressed.connect(_on_npc_menu_id_pressed)
 	_player_frame.self_clicked.connect(_on_player_frame_self_clicked)
 
@@ -654,6 +682,14 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 			])
 		"Error":
 			_log("[color=#9a9488]%s[/color]" % _bbcode_escape(str(payload.get("message", "Erreur."))))
+		"GameTimeSync":
+			# Resynchronisation ponctuelle (au login) : bascule immédiate, pas d'animation —
+			# voir _day_night_t_for_time/_apply_day_night_preset.
+			_apply_day_night_preset(_day_night_t_for_time(int(payload.get("hour", 12)), int(payload.get("minute", 0))))
+		"Sunrise":
+			_animate_day_night(1.0, int(payload.get("transitionDurationMs", 0)))
+		"Sunset":
+			_animate_day_night(0.0, int(payload.get("transitionDurationMs", 0)))
 		_:
 			pass
 
@@ -885,14 +921,14 @@ func _handle_right_click() -> void:
 		if pick.get("type", "") == "portal" and int(pick["index"]) == _selected_portal_index:
 			_open_portal_menu()
 			return
-	# PNJ marchand déjà sélectionné (voir _apply_selection/EntityView.hasShop) : contrairement
-	# aux portails (test au sol ci-dessus), on relit simplement la cible courante — inutile de
+	# PNJ déjà sélectionné (voir _apply_selection/EntityView.kind) : contrairement aux
+	# portails (test au sol ci-dessus), on relit simplement la cible courante — inutile de
 	# re-tester un rayon physique sous la souris, un clic droit ne fait sens ici que sur la
 	# cible déjà sélectionnée (même logique que le portail, "déjà sélectionné").
 	if not _selected_target_id.is_empty():
 		var target_node := _entity_node_by_id(_selected_target_id)
-		if target_node != null and bool(target_node.get_meta("has_shop", false)):
-			_open_npc_menu()
+		if target_node != null and str(target_node.get_meta("kind", "")) == "npc":
+			_open_npc_menu(bool(target_node.get_meta("has_shop", false)))
 
 
 ## Début d'un appui du bouton droit : ne fait encore rien de visible, voir _process pour la
@@ -948,15 +984,24 @@ func _on_portal_menu_id_pressed(_id: int) -> void:
 	Net.send_command("portal")
 
 
-func _open_npc_menu() -> void:
+## has_shop : EntityView.hasShop côté backend — désactive "Boutique" pour un PNJ qui ne
+## vend rien (voir _apply_appeared_entity), "Parler" reste toujours disponible.
+func _open_npc_menu(has_shop: bool) -> void:
+	_npc_menu.set_item_disabled(1, not has_shop)
 	_npc_menu.popup(Rect2i(get_viewport().get_mouse_position(), Vector2i.ZERO))
 
 
-## "Boutique" choisie dans le menu contextuel : envoie "shop <npcId>", le PNJ ciblé étant la
-## sélection courante (voir _handle_right_click) — le serveur répond par ShopCatalog, que
-## %ShopWindow s'ouvre elle-même en réagissant à ce message (voir ShopWindow.gd).
-func _on_npc_menu_id_pressed(_id: int) -> void:
-	Net.send_command("shop", _selected_target_id)
+## "Parler" envoie "talk <npcId>" — le serveur répond par DialogueOptions (arbre de dialogue
+## complet en un seul message, voir Talk.java), que %DialogueWindow s'ouvre elle-même en
+## réagissant à ce message (voir DialogueWindow.gd). "Boutique" envoie "shop <npcId>", le PNJ
+## ciblé étant la sélection courante (voir _handle_right_click) — le serveur répond par
+## ShopCatalog, que %ShopWindow s'ouvre elle-même en réagissant à ce message.
+func _on_npc_menu_id_pressed(id: int) -> void:
+	match id:
+		0:
+			Net.send_command("talk", _selected_target_id)
+		1:
+			Net.send_command("shop", _selected_target_id)
 
 
 func _select_portal(index: int) -> void:
@@ -1160,6 +1205,9 @@ func _apply_appeared_entity(entry: Dictionary) -> void:
 	# EntityView.hasShop côté backend (2026-09-04, "Shop PNJ") : détermine si le clic droit sur
 	# ce PNJ, une fois sélectionné, propose "Boutique" (voir _handle_right_click/_open_npc_menu).
 	node.set_meta("has_shop", bool(entry.get("hasShop", false)))
+	# Détermine si le clic droit propose le menu PNJ ("Parler"/"Boutique") du tout, voir
+	# _handle_right_click.
+	node.set_meta("kind", kind)
 	_register_entity_id(key, entity_id)
 	if entry.has("currentHealth") or entry.has("maxHealth"):
 		_entity_vitals_by_key[key] = {
@@ -2115,6 +2163,51 @@ func _log_player_defeated(payload: Dictionary) -> void:
 
 func _log(text: String) -> void:
 	_log_label.append_text(text + "\n")
+
+
+## Dérive un facteur jour/nuit (0.0 nuit, 1.0 jour) directement de l'heure in-game plutôt
+## que du seul DayPhase transmis (NIGHT/DAWN/DAY/DUSK) : donne une resynchronisation exacte
+## même si le client se connecte en plein milieu d'une transition d'aube/crépuscule, sans
+## dépendre d'un champ de progression que le backend ne transmet pas. Fenêtres identiques à
+## GameClock côté serveur (aube 7h-8h, crépuscule 21h-22h in-game).
+func _day_night_t_for_time(hour: int, minute: int) -> float:
+	var minutes := hour * 60 + minute
+	var dawn_start := 7 * 60
+	var dawn_end := 8 * 60
+	var dusk_start := 21 * 60
+	var dusk_end := 22 * 60
+	if minutes >= dawn_end and minutes < dusk_start:
+		return 1.0
+	if minutes >= dawn_start and minutes < dawn_end:
+		return float(minutes - dawn_start) / float(dawn_end - dawn_start)
+	if minutes >= dusk_start and minutes < dusk_end:
+		return 1.0 - float(minutes - dusk_start) / float(dusk_end - dusk_start)
+	return 0.0
+
+
+## Applique directement (sans transition) l'ambiance correspondant à t (0.0 nuit, 1.0 jour)
+## sur le WorldEnvironment/Sun de la scène — utilisé aussi bien pour une resynchronisation
+## immédiate (GameTimeSync) que comme callback de tween à chaque pas d'une transition animée
+## (voir _animate_day_night).
+func _apply_day_night_preset(t: float) -> void:
+	_day_night_t = t
+	var env := _world_environment.environment
+	env.background_color = NIGHT_BACKGROUND_COLOR.lerp(DAY_BACKGROUND_COLOR, t)
+	env.ambient_light_color = NIGHT_AMBIENT_COLOR.lerp(DAY_AMBIENT_COLOR, t)
+	env.ambient_light_energy = lerp(NIGHT_AMBIENT_ENERGY, DAY_AMBIENT_ENERGY, t)
+	_sun.light_energy = lerp(NIGHT_SUN_ENERGY, DAY_SUN_ENERGY, t)
+	_sun.light_color = NIGHT_SUN_COLOR.lerp(DAY_SUN_COLOR, t)
+
+
+## Anime une transition Sunrise (target_t=1.0)/Sunset (target_t=0.0) depuis l'ambiance
+## courante sur duration_ms (voir Sunrise.java/Sunset.java, transitionDurationMs) — annule
+## toute transition encore en cours (ex. reconnexion pendant un crépuscule déjà entamé).
+func _animate_day_night(target_t: float, duration_ms: int) -> void:
+	if _day_night_tween != null and _day_night_tween.is_valid():
+		_day_night_tween.kill()
+	var duration_sec: float = max(duration_ms / 1000.0, 0.01)
+	_day_night_tween = create_tween()
+	_day_night_tween.tween_method(_apply_day_night_preset, _day_night_t, target_t, duration_sec)
 
 
 func _bbcode_escape(text: String) -> String:

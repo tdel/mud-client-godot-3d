@@ -1,6 +1,15 @@
 extends Node
 ## Couche réseau : une ligne = un message JSON sur socket TCP brute (port 4002).
-## Protocole complet documenté dans /CLAUDE.md.
+##
+## Protocole stateless depuis le commit backend "Simplifie le protocole réseau pour un
+## client GUI (Godot)" (c884a48, 2026-09-05) : le serveur ne bloque plus jamais en
+## attente d'une réponse (`Connection.requestBlocking`/`TcpJsonReply` supprimés). Chaque
+## commande porte tous ses arguments d'un coup, séparés par "|" quand il y en a plusieurs
+## (ex. "login" -> "<name>|<password>", "character-create" -> "<name>|<gender>|<classe>"),
+## et chaque échange serveur tient en un seul message entrant. Les fenêtres qui portaient
+## un dialogue en plusieurs étapes (mot de passe, genre/classe, dialogue PNJ, boutique)
+## reçoivent désormais tout d'un coup (voir Login.gd, CharacterCreate.gd, DialogueWindow.gd,
+## ShopWindow.gd) : plus de notion de "réponse" côté client.
 
 signal connected_to_server
 signal connection_failed
@@ -11,19 +20,6 @@ signal message_received(type: String, payload: Dictionary)
 const HOST := "::1"
 const PORT := 4002
 
-## Types de message qui attendent une réponse `{"reply": "..."}` sur la ligne suivante
-## plutôt qu'une commande `{"verb": ...}` normale (voir Connection.requestBlocking côté
-## serveur : login/register (mot de passe), création de perso (genre/classe — plus de
-## race depuis le commit backend "Refond le système race/classe..." 48049de,
-## 2026-08-30, une seule race Human choisie en dur côté serveur), dialogue et boutique
-## PNJ).
-const PROMPT_TYPES := [
-	"RequestPassword", "ConfirmPassword",
-	"ChooseGender", "ChooseClass",
-	"DialogueOptions", "ShopCatalog",
-]
-
-var awaiting_reply := false
 var is_connected_to_host := false
 
 var _peer: StreamPeerTCP
@@ -35,7 +31,6 @@ func connect_to_server() -> void:
 		_peer.disconnect_from_host()
 	_peer = StreamPeerTCP.new()
 	_buffer = PackedByteArray()
-	awaiting_reply = false
 	is_connected_to_host = false
 	var err := _peer.connect_to_host(HOST, PORT)
 	if err != OK:
@@ -51,7 +46,6 @@ func close() -> void:
 		_peer.disconnect_from_host()
 	_peer = null
 	_buffer = PackedByteArray()
-	awaiting_reply = false
 	if is_connected_to_host:
 		is_connected_to_host = false
 		disconnected.emit()
@@ -60,10 +54,6 @@ func close() -> void:
 
 func send_command(verb: String, argument: String = "") -> void:
 	_send_line({"verb": verb, "argument": argument})
-
-
-func send_reply(value: String) -> void:
-	_send_line({"reply": value})
 
 
 func _send_line(obj: Dictionary) -> void:
@@ -125,5 +115,4 @@ func _handle_line(line: String) -> void:
 	var payload = data.get("payload", {})
 	if typeof(payload) != TYPE_DICTIONARY:
 		payload = {}
-	awaiting_reply = PROMPT_TYPES.has(type)
 	message_received.emit(type, payload)

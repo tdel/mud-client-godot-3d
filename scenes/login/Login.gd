@@ -1,7 +1,11 @@
 extends Control
 ## Écran d'authentification : connexion et création de compte, dans un même formulaire
-## à deux modes. La choréographie de mot de passe (RequestPassword/ConfirmPassword) est
-## gérée en interne, l'utilisateur ne voit qu'un seul formulaire à remplir.
+## à deux modes.
+##
+## Protocole stateless depuis le commit backend "Simplifie le protocole réseau pour un
+## client GUI (Godot)" (c884a48, 2026-09-05) : "login"/"register" portent tout leur
+## argument (nom + mot de passe [+ confirmation]) en un seul envoi séparé par "|", plus de
+## choréographie RequestPassword/ConfirmPassword côté serveur.
 
 @onready var _backdrop: TextureRect = %Backdrop
 @onready var _title_label: Label = %TitleLabel
@@ -20,10 +24,11 @@ var _busy := false
 ## (connected_to_server/connection_failed) — évite de relancer une connexion par-dessus
 ## une déjà en cours si l'utilisateur reclique entre-temps (voir _ensure_connected).
 var _connect_in_progress := false
-## Identifiant à envoyer avec le verbe _mode une fois la connexion établie, quand le
-## clic sur "Se connecter"/"Créer le compte" a dû déclencher lui-même la connexion (voir
-## _on_submit_pressed/_on_connected_to_server). Vide = rien en attente.
-var _pending_login_argument := ""
+## Argument complet ("login|password[|confirmation]") à envoyer avec le verbe _mode une
+## fois la connexion établie, quand le clic sur "Se connecter"/"Créer le compte" a dû
+## déclencher lui-même la connexion (voir _on_submit_pressed/_on_connected_to_server).
+## Vide = rien en attente.
+var _pending_argument := ""
 
 
 func _ready() -> void:
@@ -92,28 +97,26 @@ func _on_submit_pressed() -> void:
 		_show_error("Les mots de passe ne correspondent pas.")
 		return
 
+	var argument := "%s|%s" % [login_text, password_text]
+	if _mode == "register":
+		argument = "%s|%s" % [argument, _confirm_password_field.text]
+
 	_busy = true
 	_set_controls_enabled(false)
 	_clear_error()
 	if Net.is_connected_to_host:
-		Net.send_command(_mode, login_text)
+		Net.send_command(_mode, argument)
 	else:
 		# En mode connexion (le mode inscription se connecte déjà au clic sur l'onglet,
 		# voir _on_register_tab_pressed), c'est ce clic qui déclenche la connexion — le
 		# verbe login/register n'est envoyé qu'une fois connected_to_server reçu, voir
 		# _on_connected_to_server.
-		_pending_login_argument = login_text
+		_pending_argument = argument
 		_ensure_connected()
 
 
 func _on_message_received(type: String, payload: Dictionary) -> void:
 	match type:
-		"RequestPassword":
-			if _busy:
-				Net.send_reply(_password_field.text)
-		"ConfirmPassword":
-			if _busy:
-				Net.send_reply(_confirm_password_field.text)
 		"AccountNotFound":
 			_fail("Aucun compte avec cet identifiant.")
 		"IncorrectPassword":
@@ -132,6 +135,8 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 		"NoCharacters", "CharacterList":
 			_busy = false
 			_go_to_char_select()
+		"Usage":
+			_fail(str(payload.get("usage", "Commande invalide.")))
 		"Error":
 			_fail(str(payload.get("message", "Erreur inconnue.")))
 		"ActionNotFound":
@@ -143,7 +148,7 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 func _fail(message: String) -> void:
 	_busy = false
 	_connect_in_progress = false
-	_pending_login_argument = ""
+	_pending_argument = ""
 	_set_controls_enabled(true)
 	_show_error(message)
 
@@ -171,9 +176,9 @@ func _set_controls_enabled(enabled: bool) -> void:
 
 func _on_connected_to_server() -> void:
 	_connect_in_progress = false
-	if _busy and not _pending_login_argument.is_empty():
-		var argument := _pending_login_argument
-		_pending_login_argument = ""
+	if _busy and not _pending_argument.is_empty():
+		var argument := _pending_argument
+		_pending_argument = ""
 		Net.send_command(_mode, argument)
 
 

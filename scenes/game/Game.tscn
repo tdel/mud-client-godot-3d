@@ -1,4 +1,4 @@
-[gd_scene load_steps=13 format=3]
+[gd_scene load_steps=14 format=3]
 
 [ext_resource type="Script" path="res://scenes/game/Game3D.gd" id="1"]
 [ext_resource type="PackedScene" path="res://scenes/game/hud/TargetStatusBar.tscn" id="2"]
@@ -13,6 +13,7 @@
 [ext_resource type="PackedScene" path="res://scenes/game/hud/DeathPopup.tscn" id="11"]
 [ext_resource type="PackedScene" path="res://scenes/game/hud/Minimap.tscn" id="12"]
 [ext_resource type="PackedScene" path="res://scenes/game/hud/ShopWindow.tscn" id="13"]
+[ext_resource type="PackedScene" path="res://scenes/game/hud/DialogueWindow.tscn" id="14"]
 
 [sub_resource type="Environment" id="Environment_1"]
 background_mode = 1
@@ -70,7 +71,7 @@ offset_bottom = 368.0
 horizontal_alignment = 2
 autowrap_mode = 3
 text = "Clic gauche : se déplacer / sélectionner
-Clic droit sur un portail/PNJ marchand sélectionné : menu — clic droit maintenu : tourner la caméra
+Clic droit sur un portail/PNJ sélectionné : menu (Parler/Boutique) — clic droit maintenu : tourner la caméra
 Molette : zoom — Échap : fermer une fenêtre/désélectionner — Tab : cibler
 K : sorts — I : sac — P : personnage — O : équipement — Entrée : discuter"
 
@@ -125,5 +126,7 @@ unique_name_in_owner = true
 unique_name_in_owner = true
 
 [node name="ShopWindow" parent="HUD" instance=ExtResource("13")]
+
+[node name="DialogueWindow" parent="HUD" instance=ExtResource("14")]
 
 [node name="DeathPopup" parent="HUD" instance=ExtResource("11")]

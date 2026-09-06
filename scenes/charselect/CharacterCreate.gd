@@ -1,10 +1,13 @@
 extends Control
-## Création de personnage : un seul formulaire (nom + genre/classe), la choréographie
-## serveur (ChooseGender/ChooseClass) est enchaînée en interne. Depuis le commit backend
-## "Refond le système race/classe : Human unique, Fighter/Mystic, sous-classes niveaux
-## 20/40" (48049de, 2026-08-30), il n'y a plus qu'une seule race (Race.HUMAN, choisie en
-## dur côté serveur dans CharacterCreate.java) : plus de prompt ChooseRace, donc plus de
-## champ Race dans ce formulaire.
+## Création de personnage : un seul formulaire (nom + genre/classe). Depuis le commit
+## backend "Refond le système race/classe : Human unique, Fighter/Mystic, sous-classes
+## niveaux 20/40" (48049de, 2026-08-30), il n'y a plus qu'une seule race (Race.HUMAN,
+## choisie en dur côté serveur dans CharacterCreate.java) : pas de champ Race ici.
+##
+## Protocole stateless depuis le commit backend "Simplifie le protocole réseau pour un
+## client GUI (Godot)" (c884a48, 2026-09-05) : "character-create" porte nom + genre +
+## classe en un seul envoi séparé par "|" ("<name>|<gender>|<classe>"), plus de
+## choréographie ChooseGender/ChooseClass côté serveur.
 
 @onready var _backdrop: TextureRect = %Backdrop
 @onready var _name_field: LineEdit = %NameField
@@ -50,17 +53,21 @@ func _on_create_pressed() -> void:
 	_busy = true
 	_set_controls_enabled(false)
 	_clear_error()
-	Net.send_command("character-create", name_text)
+	var gender: String = GENDERS[_gender_option.selected][0]
+	var classe: String = CLASSES[_class_option.selected][0]
+	Net.send_command("character-create", "%s|%s|%s" % [name_text, gender, classe])
 
 
 func _on_message_received(type: String, payload: Dictionary) -> void:
 	match type:
 		"CharacterNameTaken":
 			_fail("Ce nom est déjà utilisé.")
-		"ChooseGender", "InvalidGender":
-			Net.send_reply(GENDERS[_gender_option.selected][0])
-		"ChooseClass", "InvalidClass":
-			Net.send_reply(CLASSES[_class_option.selected][0])
+		"InvalidGender":
+			_fail("Genre invalide : %s" % str(payload.get("input", "")))
+		"InvalidClass":
+			_fail("Classe invalide : %s" % str(payload.get("input", "")))
+		"Usage":
+			_fail(str(payload.get("usage", "Commande invalide.")))
 		"NowPlaying":
 			_busy = false
 			get_tree().change_scene_to_file("res://scenes/game/Game.tscn")
