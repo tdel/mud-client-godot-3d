@@ -2189,6 +2189,35 @@ func _make_selection_ring() -> void:
 func _update_minimap() -> void:
 	if _player_node != null:
 		_minimap.set_player_tile_position(_player_node.position.x, _player_node.position.z)
+	var selected_key: String = _key_by_entity_id.get(_selected_target_id, "")
+	var party_member_ids: Dictionary = GameState.party.get("members", {})
+	var monster_tile_positions: Array[Vector2] = []
+	var npc_tile_positions: Array[Vector2] = []
+	var other_player_tile_positions: Array[Vector2] = []
+	var party_member_tile_positions: Array[Vector2] = []
+	var selected_monster_tile_pos = null
+	for key in _entities_by_key.keys():
+		if key == PLAYER_KEY:
+			continue
+		var node: Node3D = _entities_by_key[key]
+		var tile_pos := Vector2(node.position.x, node.position.z)
+		match str(node.get_meta("kind", "")):
+			"monster":
+				monster_tile_positions.append(tile_pos)
+				if key == selected_key:
+					selected_monster_tile_pos = tile_pos
+			"npc":
+				npc_tile_positions.append(tile_pos)
+			"character":
+				if party_member_ids.has(str(node.get_meta("entity_id", ""))):
+					party_member_tile_positions.append(tile_pos)
+				else:
+					other_player_tile_positions.append(tile_pos)
+	_minimap.set_known_entities(
+		monster_tile_positions, npc_tile_positions,
+		other_player_tile_positions, party_member_tile_positions,
+		selected_monster_tile_pos
+	)
 
 
 ## Nom/niveau/PV/mana/XP déménagés ici depuis l'ancien %InfoLabel le 2026-09-03 (demande

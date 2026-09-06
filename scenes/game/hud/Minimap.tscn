@@ -59,6 +59,12 @@ color = Color(0.07, 0.06, 0.05, 1.0)
 unique_name_in_owner = true
 mouse_filter = 2
 
+[node name="EntityDots" type="Control" parent="VBox/CircleCenter/CircleViewportContainer/CircleViewport"]
+unique_name_in_owner = true
+offset_right = 168.0
+offset_bottom = 168.0
+mouse_filter = 2
+
 [node name="PlayerDot" type="Panel" parent="VBox/CircleCenter/CircleViewportContainer/CircleViewport"]
 offset_left = 78.0
 offset_top = 78.0

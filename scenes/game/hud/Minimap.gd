@@ -37,6 +37,22 @@ const PIXELS_PER_TILE := CIRCLE_SIZE / VISIBLE_TILES_DIAMETER
 
 const RING_COLOR := Color(0.72, 0.58, 0.28, 1.0)
 
+## Points de connaissance (%EntityDots, voir set_known_entities) — monstres/PNJ/autres
+## joueurs de la KnownList affichés sur le disque, le joueur restant lui le point bleu
+## central fixe (%PlayerDot, voir PlayerDot dans Minimap.tscn).
+const MONSTER_DOT_RADIUS := 2.5
+const NPC_DOT_RADIUS := 2.5
+const PLAYER_DOT_RADIUS := 2.5
+const MONSTER_DOT_COLOR := Color(0.9, 0.15, 0.1, 1.0)
+const NPC_DOT_COLOR := Color(0.05, 0.05, 0.05, 1.0)
+## Joueur hors groupe : blanc. Membre du groupe (party) : jaune, pour le repérer d'un
+## coup d'œil pendant un combat de groupe.
+const OTHER_PLAYER_DOT_COLOR := Color(0.95, 0.95, 0.95, 1.0)
+const PARTY_MEMBER_DOT_COLOR := Color(0.95, 0.85, 0.25, 1.0)
+const SELECTION_RING_RADIUS := 5.0
+const SELECTION_RING_WIDTH := 1.2
+const SELECTION_RING_COLOR := Color(1.0, 1.0, 1.0, 1.0)
+
 const CIRCLE_MASK_SHADER_CODE := """
 shader_type canvas_item;
 
@@ -56,8 +72,18 @@ void fragment() {
 
 @onready var _circle_container: SubViewportContainer = %CircleViewportContainer
 @onready var _map_layer: TextureRect = %MapLayer
+@onready var _entity_dots: Control = %EntityDots
 @onready var _map_name_label: Label = %MapNameLabel
 @onready var _coords_label: Label = %CoordsLabel
+
+var _player_tile_pos := Vector2.ZERO
+var _monster_tile_positions: Array[Vector2] = []
+var _npc_tile_positions: Array[Vector2] = []
+var _other_player_tile_positions: Array[Vector2] = []
+var _party_member_tile_positions: Array[Vector2] = []
+## Position tuile du monstre sélectionné, null si aucun monstre n'est sélectionné (voir
+## set_known_entities, appelé depuis Game3D._update_minimap).
+var _selected_monster_tile_pos = null
 
 
 func _ready() -> void:
@@ -76,6 +102,8 @@ func _ready() -> void:
 	_map_layer.stretch_mode = TextureRect.STRETCH_SCALE
 	_map_layer.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 
+	_entity_dots.draw.connect(_on_entity_dots_draw)
+
 
 ## Appelé par Game3D._rebuild_map à chaque nouvelle carte/changement de carte.
 func set_map(ground_texture: Texture2D, map_width: int, map_height: int, map_name: String) -> void:
@@ -90,3 +118,48 @@ func set_map(ground_texture: Texture2D, map_width: int, map_height: int, map_nam
 func set_player_tile_position(x: float, z: float) -> void:
 	_map_layer.position = Vector2(CIRCLE_SIZE, CIRCLE_SIZE) / 2.0 - Vector2(x, z) * PIXELS_PER_TILE
 	_coords_label.text = "%.1f, %.1f" % [x, z]
+	_player_tile_pos = Vector2(x, z)
+	_entity_dots.queue_redraw()
+
+
+## Appelé par Game3D._update_minimap à chaque frame avec les monstres/PNJ/autres joueurs
+## actuellement dans la KnownList (voir Game3D._entities_by_key/EntityAppeared) — monstre en
+## point rouge, PNJ en point noir, autre joueur en point blanc (jaune s'il est dans notre
+## groupe, voir GameState.party), selected_monster_tile_pos (null si aucun monstre sélectionné)
+## entoure le point rouge correspondant d'un petit trait.
+func set_known_entities(
+	monster_tile_positions: Array[Vector2],
+	npc_tile_positions: Array[Vector2],
+	other_player_tile_positions: Array[Vector2],
+	party_member_tile_positions: Array[Vector2],
+	selected_monster_tile_pos
+) -> void:
+	_monster_tile_positions = monster_tile_positions
+	_npc_tile_positions = npc_tile_positions
+	_other_player_tile_positions = other_player_tile_positions
+	_party_member_tile_positions = party_member_tile_positions
+	_selected_monster_tile_pos = selected_monster_tile_pos
+	_entity_dots.queue_redraw()
+
+
+func _on_entity_dots_draw() -> void:
+	var center := Vector2(CIRCLE_SIZE, CIRCLE_SIZE) / 2.0
+	for tile_pos in _npc_tile_positions:
+		var screen_pos := center + (tile_pos - _player_tile_pos) * PIXELS_PER_TILE
+		_entity_dots.draw_circle(screen_pos, NPC_DOT_RADIUS, NPC_DOT_COLOR)
+	for tile_pos in _other_player_tile_positions:
+		var screen_pos := center + (tile_pos - _player_tile_pos) * PIXELS_PER_TILE
+		_entity_dots.draw_circle(screen_pos, PLAYER_DOT_RADIUS, OTHER_PLAYER_DOT_COLOR)
+	for tile_pos in _party_member_tile_positions:
+		var screen_pos := center + (tile_pos - _player_tile_pos) * PIXELS_PER_TILE
+		_entity_dots.draw_circle(screen_pos, PLAYER_DOT_RADIUS, PARTY_MEMBER_DOT_COLOR)
+	for tile_pos in _monster_tile_positions:
+		var screen_pos := center + (tile_pos - _player_tile_pos) * PIXELS_PER_TILE
+		_entity_dots.draw_circle(screen_pos, MONSTER_DOT_RADIUS, MONSTER_DOT_COLOR)
+	if _selected_monster_tile_pos != null:
+		var selected_screen_pos: Vector2 = center \
+				+ (_selected_monster_tile_pos - _player_tile_pos) * PIXELS_PER_TILE
+		_entity_dots.draw_arc(
+			selected_screen_pos, SELECTION_RING_RADIUS, 0.0, TAU, 24,
+			SELECTION_RING_COLOR, SELECTION_RING_WIDTH, true
+		)
