@@ -127,9 +127,6 @@ placeholder_text = "Entrée pour parler..."
 
 [node name="BottomRightIcons" parent="HUD" instance=ExtResource("10")]
 
-[node name="PortalMenu" type="PopupMenu" parent="HUD"]
-unique_name_in_owner = true
-
 [node name="NpcMenu" type="PopupMenu" parent="HUD"]
 unique_name_in_owner = true
 

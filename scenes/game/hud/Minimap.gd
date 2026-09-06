@@ -28,12 +28,23 @@ extends Control
 ## Diamètre à l'écran du disque de minimap, en pixels.
 const CIRCLE_SIZE := 168.0
 
-## Nombre de tuiles visibles sur le diamètre du disque — choisi égal à la portée de
-## perception serveur (AWARENESS_RANGE, voir CLAUDE.md, session EntityAppeared/
-## EntityDisappeared du 2026-09-03) : la minimap montre ainsi exactement la zone dans
-## laquelle une entité peut nous être signalée, plutôt qu'un rayon de zoom arbitraire.
-const VISIBLE_TILES_DIAMETER := 40.0
-const PIXELS_PER_TILE := CIRCLE_SIZE / VISIBLE_TILES_DIAMETER
+## Nombre de tuiles visibles sur le diamètre du disque à la taille de caméra par défaut —
+## choisi égal à la portée de perception serveur (AWARENESS_RANGE, voir CLAUDE.md, session
+## EntityAppeared/EntityDisappeared du 2026-09-03) : la minimap montre ainsi exactement la
+## zone dans laquelle une entité peut nous être signalée à ce zoom-là, plutôt qu'un rayon de
+## zoom arbitraire.
+const DEFAULT_VISIBLE_TILES_DIAMETER := 40.0
+## Taille de caméra (Camera3D.size, orthogonale) à laquelle DEFAULT_VISIBLE_TILES_DIAMETER
+## s'applique — doit correspondre à Game3D._camera_size par défaut (voir set_camera_zoom,
+## appelé par Game3D._zoom_camera pour garder les deux zooms synchronisés).
+const DEFAULT_CAMERA_SIZE := 16.0
+
+## Recalculé par set_camera_zoom à chaque zoom/dézoom de la caméra principale (voir
+## Game3D._zoom_camera) plutôt que const : le disque doit zoomer/dézoomer avec la vue 3D.
+var _pixels_per_tile := CIRCLE_SIZE / DEFAULT_VISIBLE_TILES_DIAMETER
+
+var _map_width := 1
+var _map_height := 1
 
 const RING_COLOR := Color(0.72, 0.58, 0.28, 1.0)
 
@@ -109,14 +120,28 @@ func _ready() -> void:
 func set_map(ground_texture: Texture2D, map_width: int, map_height: int, map_name: String) -> void:
 	_map_name_label.text = map_name
 	_map_layer.texture = ground_texture
-	_map_layer.size = Vector2(maxi(map_width, 1), maxi(map_height, 1)) * PIXELS_PER_TILE
+	_map_width = maxi(map_width, 1)
+	_map_height = maxi(map_height, 1)
+	_map_layer.size = Vector2(_map_width, _map_height) * _pixels_per_tile
+
+
+## Appelé par Game3D._zoom_camera à chaque molette de zoom sur la vue 3D (et une fois au
+## départ) avec la taille courante de la caméra orthogonale (Game3D._camera_size) : la
+## minimap zoome/dézoome dans les mêmes proportions plutôt que de garder un rayon de
+## perception fixe (VISIBLE_TILES_DIAMETER const, avant ce changement).
+func set_camera_zoom(camera_size: float) -> void:
+	var visible_tiles_diameter := \
+			camera_size * (DEFAULT_VISIBLE_TILES_DIAMETER / DEFAULT_CAMERA_SIZE)
+	_pixels_per_tile = CIRCLE_SIZE / visible_tiles_diameter
+	_map_layer.size = Vector2(_map_width, _map_height) * _pixels_per_tile
+	set_player_tile_position(_player_tile_pos.x, _player_tile_pos.y)
 
 
 ## Appelé par Game3D._process à chaque frame avec la position tuile courante du joueur —
 ## recentre la carte sous le disque fixe plutôt que de déplacer un point sur une carte fixe
 ## (voir en-tête de fichier : le joueur reste toujours au centre du disque).
 func set_player_tile_position(x: float, z: float) -> void:
-	_map_layer.position = Vector2(CIRCLE_SIZE, CIRCLE_SIZE) / 2.0 - Vector2(x, z) * PIXELS_PER_TILE
+	_map_layer.position = Vector2(CIRCLE_SIZE, CIRCLE_SIZE) / 2.0 - Vector2(x, z) * _pixels_per_tile
 	_coords_label.text = "%.1f, %.1f" % [x, z]
 	_player_tile_pos = Vector2(x, z)
 	_entity_dots.queue_redraw()
@@ -145,20 +170,20 @@ func set_known_entities(
 func _on_entity_dots_draw() -> void:
 	var center := Vector2(CIRCLE_SIZE, CIRCLE_SIZE) / 2.0
 	for tile_pos in _npc_tile_positions:
-		var screen_pos := center + (tile_pos - _player_tile_pos) * PIXELS_PER_TILE
+		var screen_pos := center + (tile_pos - _player_tile_pos) * _pixels_per_tile
 		_entity_dots.draw_circle(screen_pos, NPC_DOT_RADIUS, NPC_DOT_COLOR)
 	for tile_pos in _other_player_tile_positions:
-		var screen_pos := center + (tile_pos - _player_tile_pos) * PIXELS_PER_TILE
+		var screen_pos := center + (tile_pos - _player_tile_pos) * _pixels_per_tile
 		_entity_dots.draw_circle(screen_pos, PLAYER_DOT_RADIUS, OTHER_PLAYER_DOT_COLOR)
 	for tile_pos in _party_member_tile_positions:
-		var screen_pos := center + (tile_pos - _player_tile_pos) * PIXELS_PER_TILE
+		var screen_pos := center + (tile_pos - _player_tile_pos) * _pixels_per_tile
 		_entity_dots.draw_circle(screen_pos, PLAYER_DOT_RADIUS, PARTY_MEMBER_DOT_COLOR)
 	for tile_pos in _monster_tile_positions:
-		var screen_pos := center + (tile_pos - _player_tile_pos) * PIXELS_PER_TILE
+		var screen_pos := center + (tile_pos - _player_tile_pos) * _pixels_per_tile
 		_entity_dots.draw_circle(screen_pos, MONSTER_DOT_RADIUS, MONSTER_DOT_COLOR)
 	if _selected_monster_tile_pos != null:
 		var selected_screen_pos: Vector2 = center \
-				+ (_selected_monster_tile_pos - _player_tile_pos) * PIXELS_PER_TILE
+				+ (_selected_monster_tile_pos - _player_tile_pos) * _pixels_per_tile
 		_entity_dots.draw_arc(
 			selected_screen_pos, SELECTION_RING_RADIUS, 0.0, TAU, 24,
 			SELECTION_RING_COLOR, SELECTION_RING_WIDTH, true

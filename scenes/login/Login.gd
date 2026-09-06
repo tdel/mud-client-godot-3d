@@ -52,6 +52,7 @@ func _ready() -> void:
 	if not GameState.pending_disconnect_message.is_empty():
 		_show_error(GameState.pending_disconnect_message)
 		GameState.pending_disconnect_message = ""
+	_login_field.grab_focus()
 
 	# Pas de connexion automatique ici : elle n'a lieu qu'au clic sur "Créer un compte"
 	# (_on_register_tab_pressed) ou à la validation du formulaire de connexion

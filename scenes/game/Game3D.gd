@@ -43,7 +43,20 @@ const PLAYER_COLOR := Color(0.35, 0.65, 0.95)
 const OTHER_PLAYER_COLOR := Color(0.30, 0.80, 0.55)
 const MONSTER_COLOR := Color(0.85, 0.30, 0.28)
 const NPC_COLOR := Color(0.85, 0.75, 0.30)
-const PORTAL_COLOR := Color(0.65, 0.35, 0.85)
+## Bleu façon "portail d'énergie" (au lieu du violet précédent) — voir _make_portal_node,
+## qui recouvre désormais l'ancien disque plat au sol d'un anneau vertical + tourbillon
+## animé, demande explicite du 2026-09-06 pour se rapprocher d'un portail bleu tourbillonnant
+## façon jeu vidéo plutôt qu'un simple disque plat coloré.
+const PORTAL_COLOR := Color(0.25, 0.55, 0.95)
+## Cœur clair et bord profond du tourbillon (voir PORTAL_VORTEX_SHADER_CODE) — dégradé
+## indépendant de PORTAL_COLOR (qui reste la teinte de l'anneau/halo/étiquette) pour un effet
+## plus riche qu'une simple couleur unie.
+const PORTAL_CORE_COLOR := Color(0.78, 0.95, 1.0)
+const PORTAL_EDGE_COLOR := Color(0.05, 0.18, 0.65)
+## Hauteur du centre de l'anneau vertical au-dessus du sol.
+const PORTAL_RING_HEIGHT_Y := 1.05
+const PORTAL_RING_INNER_RADIUS := 0.68
+const PORTAL_RING_OUTER_RADIUS := 0.88
 ## Titre optionnel (EntityView.title / GamePlayerStats.Payload.title côté backend, ex. fonction
 ## d'un PNJ comme "Blacksmith") affiché au-dessus du nom, voir TITLE_LABEL_OFFSET_Y. Vert saturé
 ## volontairement plus soutenu que OTHER_PLAYER_COLOR (0.30, 0.80, 0.55, très clair une fois
@@ -136,22 +149,25 @@ const LOG_COLOR_PEACE := "#7fb0d1"
 
 const PLAYER_KEY := "player"
 
-## Rayon de détection (tuiles) pour le clic droit/gauche sur un portail, projeté sur le
-## plan y=0 — même logique que _closest_portal_index du client 2D, mais en coordonnées
-## monde plutôt qu'écran (voir _pick_at_point). Un portail est un disque plat au ras du
-## sol : cette approximation lui convient (contrairement aux entités, voir ci-dessous).
+## Rayon du halo au sol marquant la zone d'activation du portail (voir _make_portal_node) —
+## sert uniquement de repère visuel désormais : la sélection au clic passe par un vrai rayon
+## physique 3D sur tout l'objet (voir PORTAL_PICK_COLLISION_LAYER/_pick_portal_index_at_mouse),
+## comme pour les entités, depuis la demande explicite du 2026-09-06 ("je veux que l'objet
+## entier soit sélectionnable, pas juste la base").
 const PORTAL_PICK_RADIUS := 0.7
 
-## Sélectionner une entité se fait par un vrai rayon physique caméra→souris contre sa
-## capsule 3D (voir _pick_entity_id_at_mouse/_make_entity_node), pas par une projection au
-## sol comme les portails : une capsule mesure 1.6 unité de haut, et la caméra isométrique
-## la voit depuis un angle — cliquer sur le haut visible d'un personnage projette, sur le
-## plan y=0, un point bien au-delà de sa base, donc hors de portée de tout rayon centré sur
-## sa position au sol (bug signalé le 2026-09-02 : le clic "passait à travers" le sprite).
-## Couche physique dédiée (aucune autre collision 3D dans ce prototype, voir CLAUDE.md :
-## "pas de physique 3D" pour le déplacement) pour que la requête n'accroche jamais autre
-## chose que ces capsules.
+## Sélectionner une entité ou un portail se fait par un vrai rayon physique caméra→souris
+## contre sa zone de collision (voir _pick_entity_id_at_mouse/_make_entity_node pour les
+## entités, _pick_portal_index_at_mouse/_make_portal_node pour les portails), pas par une
+## projection au sol : une capsule mesure 1.6 unité de haut et un portail se dresse jusqu'à
+## ~2 unités, tous deux vus depuis un angle par la caméra isométrique — cliquer sur leur haut
+## visible projetterait, sur le plan y=0, un point bien au-delà de leur base (bug signalé le
+## 2026-09-02 pour les entités : le clic "passait à travers" le sprite). Deux couches
+## physiques dédiées (aucune autre collision 3D dans ce prototype, voir CLAUDE.md : "pas de
+## physique 3D" pour le déplacement) pour que chaque requête n'accroche jamais que le type de
+## cible voulu.
 const ENTITY_PICK_COLLISION_LAYER := 1 << 5
+const PORTAL_PICK_COLLISION_LAYER := 1 << 6
 const ENTITY_PICK_RAY_LENGTH := 1000.0
 
 ## Barres flottantes génériques (vie/incantation), voir _make_floating_bar. Toutes deux
@@ -258,7 +274,6 @@ const WIND_WISP_SIZE := Vector2(0.24, 0.5)
 @onready var _log_label: RichTextLabel = %LogLabel
 @onready var _chat_input: LineEdit = %ChatInput
 @onready var _target_status_bar: Control = %TargetStatusBar
-@onready var _portal_menu: PopupMenu = %PortalMenu
 @onready var _npc_menu: PopupMenu = %NpcMenu
 @onready var _death_popup: Control = %DeathPopup
 @onready var _world_environment: WorldEnvironment = $WorldEnvironment
@@ -355,14 +370,14 @@ func _ready() -> void:
 	Net.disconnected.connect(_on_net_disconnected)
 	_chat_input.text_submitted.connect(_on_chat_submitted)
 
-	_portal_menu.add_item("Se téléporter", 0)
-	_portal_menu.id_pressed.connect(_on_portal_menu_id_pressed)
 	_npc_menu.add_item("Parler", 0)
 	_npc_menu.add_item("Boutique", 1)
 	_npc_menu.id_pressed.connect(_on_npc_menu_id_pressed)
 	_player_frame.self_clicked.connect(_on_player_frame_self_clicked)
+	_target_status_bar.teleport_requested.connect(_on_teleport_button_pressed)
 
 	_camera.size = _camera_size
+	_minimap.set_camera_zoom(_camera_size)
 	_apply_camera_orbit()
 
 	_make_move_marker()
@@ -927,8 +942,9 @@ func _rebuild_portals(portals_payload: Array) -> void:
 		if node != null:
 			node.queue_free()
 	_portals.clear()
+	if _selected_portal_index != -1:
+		_target_status_bar.hide_target()
 	_selected_portal_index = -1
-	_portal_menu.hide()
 
 	for portal in portals_payload:
 		var target_map_name := str(portal.get("targetMapName", "Portail"))
@@ -937,31 +953,135 @@ func _rebuild_portals(portals_payload: Array) -> void:
 		portal_node.position = Vector3(pos.x, 0.0, pos.y)
 		_world.add_child(portal_node)
 		_portals.append({"position": pos, "target_map_name": target_map_name, "node": portal_node})
+		portal_node.set_meta("portal_index", _portals.size() - 1)
+		_orient_portal_to_camera(portal_node)
 
 
+## Shader du "voile" d'énergie tourbillonnant à l'intérieur de l'anneau (voir
+## _make_portal_node) — motif spiralé + anneaux concentriques générés uniquement à partir de
+## TIME et de la distance au centre (pas de texture externe : aucun asset image n'est
+## disponible/généré pour ce projet, voir échange avec l'utilisateur du 2026-09-06).
+## cull_disabled : le voile reste visible quel que soit le côté d'où on le regarde, ce qui
+## dispense _orient_portal_to_camera d'un calcul d'orientation exact (voir cette fonction).
+const PORTAL_VORTEX_SHADER_CODE := """
+shader_type spatial;
+render_mode unshaded, cull_disabled, blend_mix, depth_draw_opaque, shadows_disabled, specular_disabled;
+
+uniform vec4 core_color : source_color = vec4(0.78, 0.95, 1.0, 1.0);
+uniform vec4 edge_color : source_color = vec4(0.05, 0.18, 0.65, 1.0);
+uniform float highlight : hint_range(0.0, 1.0) = 0.0;
+
+void fragment() {
+	vec2 centered = (UV - vec2(0.5)) * 2.0;
+	float radius = length(centered);
+	if (radius > 1.0) {
+		discard;
+	}
+	float angle = atan(centered.y, centered.x);
+	float swirl = angle * 3.0 + radius * 6.0 - TIME * 2.2;
+	float bands = sin(swirl) * 0.5 + 0.5;
+	float rings = sin(radius * 16.0 - TIME * 3.4) * 0.5 + 0.5;
+	float pattern = mix(bands, rings, 0.35);
+	vec4 base_color = mix(core_color, edge_color, smoothstep(0.0, 1.0, radius));
+	vec3 glow = base_color.rgb * (0.55 + 0.45 * pattern) * (1.0 + highlight * 0.9);
+	ALBEDO = glow;
+	EMISSION = glow * (1.3 + highlight);
+	ALPHA = smoothstep(1.0, 0.55, radius);
+}
+"""
+
+
+## Anneau vertical + voile tourbillonnant (au lieu de l'ancien simple disque plat au sol) —
+## un halo au sol subsiste pour repérer la zone d'activation (voir PORTAL_PICK_RADIUS), le
+## reste ("Facing", voir _orient_portal_to_camera) se dresse verticalement façon "portail
+## d'énergie".
 func _make_portal_node(target_map_name: String) -> Node3D:
 	var root := Node3D.new()
 	root.name = "Portal"
 
-	var disc := MeshInstance3D.new()
-	var cylinder := CylinderMesh.new()
-	cylinder.top_radius = 0.55
-	cylinder.bottom_radius = 0.55
-	cylinder.height = 0.08
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = PORTAL_COLOR
-	mat.emission_enabled = true
-	mat.emission = PORTAL_COLOR
-	mat.emission_energy_multiplier = 1.0
-	cylinder.material = mat
-	disc.mesh = cylinder
-	disc.position = Vector3(0.0, 0.05, 0.0)
-	root.add_child(disc)
-	root.set_meta("disc_material", mat)
+	var ground_glow := MeshInstance3D.new()
+	var ground_disc := CylinderMesh.new()
+	ground_disc.top_radius = PORTAL_PICK_RADIUS
+	ground_disc.bottom_radius = PORTAL_PICK_RADIUS
+	ground_disc.height = 0.02
+	var ground_mat := StandardMaterial3D.new()
+	ground_mat.albedo_color = Color(PORTAL_COLOR.r, PORTAL_COLOR.g, PORTAL_COLOR.b, 0.35)
+	ground_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	ground_mat.emission_enabled = true
+	ground_mat.emission = PORTAL_COLOR
+	ground_mat.emission_energy_multiplier = 0.8
+	ground_disc.material = ground_mat
+	ground_glow.mesh = ground_disc
+	ground_glow.position = Vector3(0.0, 0.02, 0.0)
+	root.add_child(ground_glow)
+
+	# Zone de collision englobant tout l'objet (halo au sol + anneau + voile), pas juste la
+	# "base" — voir _pick_portal_index_at_mouse, même mécanisme que PickArea dans
+	# _make_entity_node (couche physique dédiée PORTAL_PICK_COLLISION_LAYER). Un cylindre
+	# suffit et reste correct quel que soit l'angle de caméra (contrairement à "Facing", il
+	# n'a pas besoin d'être réorienté) : il est symétrique par rotation autour de Y, comme
+	# l'ancien test au sol qu'il remplace.
+	var pick_area := Area3D.new()
+	pick_area.name = "PickArea"
+	pick_area.collision_layer = PORTAL_PICK_COLLISION_LAYER
+	pick_area.collision_mask = 0
+	var pick_shape := CollisionShape3D.new()
+	var pick_cylinder := CylinderShape3D.new()
+	pick_cylinder.radius = PORTAL_RING_OUTER_RADIUS + 0.05
+	pick_cylinder.height = PORTAL_RING_HEIGHT_Y + PORTAL_RING_OUTER_RADIUS + 0.1
+	pick_shape.shape = pick_cylinder
+	pick_area.position = Vector3(0.0, pick_cylinder.height / 2.0, 0.0)
+	pick_area.add_child(pick_shape)
+	root.add_child(pick_area)
+
+	# "Facing" ne tourne qu'autour de Y (voir _orient_portal_to_camera) : contrairement au
+	# halo au sol ci-dessus (un disque à plat, donc symétrique quel que soit l'angle de vue),
+	# un anneau dressé verticalement présenterait sa tranche (quasi invisible) sous certains
+	# angles de caméra s'il restait figé — d'où ce "billboard" limité à l'axe Y, qui garde le
+	# portail toujours bien droit (jamais penché) tout en le gardant face à la caméra.
+	var facing := Node3D.new()
+	facing.name = "Facing"
+	facing.position = Vector3(0.0, PORTAL_RING_HEIGHT_Y, 0.0)
+	root.add_child(facing)
+
+	var ring := MeshInstance3D.new()
+	var torus := TorusMesh.new()
+	torus.inner_radius = PORTAL_RING_INNER_RADIUS
+	torus.outer_radius = PORTAL_RING_OUTER_RADIUS
+	var ring_mat := StandardMaterial3D.new()
+	ring_mat.albedo_color = PORTAL_COLOR
+	ring_mat.emission_enabled = true
+	ring_mat.emission = PORTAL_COLOR
+	ring_mat.emission_energy_multiplier = 1.4
+	torus.material = ring_mat
+	ring.mesh = torus
+	# TorusMesh est par défaut un anneau À PLAT (axe du trou = Y, comme l'ancien halo au sol) ;
+	# cette rotation de 90° autour de X redresse son axe sur Z (celui vers lequel "Facing"
+	# regarde), pour un anneau dressé façon "porte" plutôt que posé au sol.
+	ring.rotation.x = PI / 2.0
+	facing.add_child(ring)
+	root.set_meta("ring_material", ring_mat)
+
+	var vortex := MeshInstance3D.new()
+	var quad := QuadMesh.new()
+	quad.size = Vector2.ONE * PORTAL_RING_INNER_RADIUS * 2.0
+	var vortex_shader := Shader.new()
+	vortex_shader.code = PORTAL_VORTEX_SHADER_CODE
+	var vortex_mat := ShaderMaterial.new()
+	vortex_mat.shader = vortex_shader
+	vortex_mat.set_shader_parameter("core_color", PORTAL_CORE_COLOR)
+	vortex_mat.set_shader_parameter("edge_color", PORTAL_EDGE_COLOR)
+	quad.material = vortex_mat
+	vortex.mesh = quad
+	facing.add_child(vortex)
+	root.set_meta("vortex_material", vortex_mat)
+
+	root.add_child(_make_portal_particles())
+	root.set_meta("facing", facing)
 
 	var label := Label3D.new()
 	label.text = target_map_name
-	label.position = Vector3(0.0, 1.1, 0.0)
+	label.position = Vector3(0.0, PORTAL_RING_HEIGHT_Y + PORTAL_RING_OUTER_RADIUS + 0.35, 0.0)
 	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	label.no_depth_test = true
 	label.font_size = 28
@@ -972,33 +1092,106 @@ func _make_portal_node(target_map_name: String) -> Node3D:
 	return root
 
 
+## Petites étincelles d'énergie flottant près de l'anneau — rattachées à root (pas à
+## "Facing") pour ne jamais suivre son "billboard" en Y : une sphère de particules est
+## indifférente à l'angle de vue de toute façon, autant éviter le moindre à-coup au moment où
+## la caméra s'oriente (voir _orient_portal_to_camera).
+func _make_portal_particles() -> GPUParticles3D:
+	var particles := GPUParticles3D.new()
+	particles.position = Vector3(0.0, PORTAL_RING_HEIGHT_Y, 0.0)
+	particles.amount = 20
+	particles.lifetime = 2.2
+	particles.local_coords = false
+
+	var quad := QuadMesh.new()
+	quad.size = Vector2.ONE * 0.08
+	var particle_mat := StandardMaterial3D.new()
+	particle_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	particle_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	particle_mat.emission_enabled = true
+	particle_mat.emission = PORTAL_CORE_COLOR
+	particle_mat.emission_energy_multiplier = 2.0
+	particle_mat.albedo_color = Color(PORTAL_CORE_COLOR.r, PORTAL_CORE_COLOR.g, PORTAL_CORE_COLOR.b, 0.85)
+	particle_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	quad.material = particle_mat
+	particles.draw_pass_1 = quad
+
+	var process_mat := ParticleProcessMaterial.new()
+	process_mat.direction = Vector3(0.0, 1.0, 0.0)
+	process_mat.spread = 180.0
+	process_mat.initial_velocity_min = 0.05
+	process_mat.initial_velocity_max = 0.18
+	process_mat.gravity = Vector3(0.0, 0.05, 0.0)
+	process_mat.damping_min = 0.05
+	process_mat.damping_max = 0.15
+	process_mat.angular_velocity_min = -90.0
+	process_mat.angular_velocity_max = 90.0
+	process_mat.scale_min = 0.6
+	process_mat.scale_max = 1.4
+	process_mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE_SURFACE
+	process_mat.emission_sphere_radius = PORTAL_RING_INNER_RADIUS
+	process_mat.color = PORTAL_CORE_COLOR
+	particles.process_material = process_mat
+
+	return particles
+
+
+## Rappelée par _apply_camera_orbit à chaque changement d'angle (et une fois à la création du
+## portail, voir _rebuild_portals) : ne tourne "Facing" qu'autour de Y, à partir de la
+## direction horizontale vers la caméra — jamais de tangage, pour que l'anneau reste toujours
+## vertical peu importe l'angle de vue.
+func _orient_portal_to_camera(root: Node3D) -> void:
+	var facing = root.get_meta("facing", null)
+	if facing == null:
+		return
+	var to_camera: Vector3 = _camera.global_position - facing.global_position
+	to_camera.y = 0.0
+	if to_camera.length_squared() < 0.0001:
+		return
+	facing.look_at(facing.global_position + to_camera, WORLD_UP)
+
+
+func _orient_all_portals() -> void:
+	for entry in _portals:
+		_orient_portal_to_camera(entry.node)
+
+
 func _set_portal_highlight(index: int, on: bool) -> void:
 	if index < 0 or index >= _portals.size():
 		return
 	var node: Node3D = _portals[index].node
-	var mat: StandardMaterial3D = node.get_meta("disc_material")
-	mat.emission_energy_multiplier = 2.4 if on else 1.0
+	var ring_mat: StandardMaterial3D = node.get_meta("ring_material")
+	ring_mat.emission_energy_multiplier = 2.6 if on else 1.4
+	var vortex_mat: ShaderMaterial = node.get_meta("vortex_material")
+	vortex_mat.set_shader_parameter("highlight", 1.0 if on else 0.0)
 
 
 # ---------------------------------------------------------------------------
 # Sélection de cible, attaque, sorts, portails — clic/pick
 # ---------------------------------------------------------------------------
 
-## Teste les portails au sol (plan y=0, voir PORTAL_PICK_RADIUS) — les entités sont testées
-## séparément par un vrai rayon physique 3D, voir _pick_entity_id_at_mouse, appelé avant
-## celle-ci dans _handle_left_click.
-func _pick_at_point(point: Vector2) -> Dictionary:
-	var best_portal := -1
-	var best_dist := INF
-	for i in _portals.size():
-		var dist := point.distance_to(_portals[i].position)
-		if dist <= PORTAL_PICK_RADIUS and dist < best_dist:
-			best_dist = dist
-			best_portal = i
-	if best_portal != -1:
-		return {"type": "portal", "index": best_portal}
-
-	return {"type": "none"}
+## Même principe que _pick_entity_id_at_mouse ci-dessous, mais contre la zone de collision du
+## portail (voir PickArea/PORTAL_PICK_COLLISION_LAYER dans _make_portal_node) — tout l'objet
+## est désormais cliquable (anneau/voile compris), pas seulement le halo au sol comme avant
+## le 2026-09-06 (l'ancien test comparait juste la distance au sol au centre du portail).
+## Renvoie l'index dans _portals, ou -1 si aucun portail touché.
+func _pick_portal_index_at_mouse() -> int:
+	var mouse_pos := get_viewport().get_mouse_position()
+	var from := _camera.project_ray_origin(mouse_pos)
+	var to := from + _camera.project_ray_normal(mouse_pos) * ENTITY_PICK_RAY_LENGTH
+	var query := PhysicsRayQueryParameters3D.create(from, to)
+	query.collision_mask = PORTAL_PICK_COLLISION_LAYER
+	query.collide_with_areas = true
+	query.collide_with_bodies = false
+	var result := get_world_3d().direct_space_state.intersect_ray(query)
+	if result.is_empty():
+		return -1
+	var collider = result.get("collider")
+	if collider is Node:
+		var portal_root := (collider as Node).get_parent()
+		if portal_root != null:
+			return int(portal_root.get_meta("portal_index", -1))
+	return -1
 
 
 ## Rayon caméra→souris testé contre les capsules de collision des entités (voir
@@ -1033,29 +1226,20 @@ func _handle_left_click() -> void:
 		_clear_portal_selection()
 		return
 
-	var point = _ground_point_at_mouse()
-	if point == null:
+	var portal_index := _pick_portal_index_at_mouse()
+	if portal_index != -1:
+		_select_portal(portal_index)
 		return
-	var pick := _pick_at_point(Vector2(point.x, point.z))
-	match pick.get("type", "none"):
-		"portal":
-			_select_portal(int(pick["index"]))
-		_:
-			if not is_player_casting() and not GameState.is_dead:
-				_try_send_goto_at_mouse()
+
+	if not is_player_casting() and not GameState.is_dead:
+		_try_send_goto_at_mouse()
 
 
+## Le clic droit ne concerne plus que le PNJ déjà sélectionné (voir _apply_selection/
+## EntityView.kind) — le portail se sélectionne et se déclenche désormais uniquement via
+## %TargetStatusBar (bouton "Téléporter", voir _select_portal/_on_teleport_button_pressed),
+## demande explicite du 2026-09-06 pour ne plus dépendre du clic droit sur le téléporteur.
 func _handle_right_click() -> void:
-	var point = _ground_point_at_mouse()
-	if point != null:
-		var pick := _pick_at_point(Vector2(point.x, point.z))
-		if pick.get("type", "") == "portal" and int(pick["index"]) == _selected_portal_index:
-			_open_portal_menu()
-			return
-	# PNJ déjà sélectionné (voir _apply_selection/EntityView.kind) : contrairement aux
-	# portails (test au sol ci-dessus), on relit simplement la cible courante — inutile de
-	# re-tester un rayon physique sous la souris, un clic droit ne fait sens ici que sur la
-	# cible déjà sélectionnée (même logique que le portail, "déjà sélectionné").
 	if not _selected_target_id.is_empty():
 		var target_node := _entity_node_by_id(_selected_target_id)
 		if target_node != null and str(target_node.get_meta("kind", "")) == "npc":
@@ -1064,7 +1248,7 @@ func _handle_right_click() -> void:
 
 ## Début d'un appui du bouton droit : ne fait encore rien de visible, voir _process pour la
 ## bascule en rotation caméra après CAMERA_ROTATE_HOLD_THRESHOLD_MS, et _end_right_click_hold
-## pour le clic bref (menu de téléportation).
+## pour le clic bref (menu PNJ).
 func _start_right_click_hold() -> void:
 	_right_click_active = true
 	_camera_orbiting = false
@@ -1074,9 +1258,9 @@ func _start_right_click_hold() -> void:
 
 ## Relâchement du bouton droit : si le maintien n'a jamais atteint le seuil de rotation
 ## (_camera_orbiting toujours faux), c'est un clic bref classique — comportement inchangé
-## (menu de téléportation sur un portail déjà sélectionné). Sinon, sort du mode rotation et
-## replace le curseur là où le clic droit avait commencé (souris capturée/invisible pendant
-## la rotation, voir Input.mouse_mode dans _process).
+## (menu PNJ sur une cible déjà sélectionnée). Sinon, sort du mode rotation et replace le
+## curseur là où le clic droit avait commencé (souris capturée/invisible pendant la rotation,
+## voir Input.mouse_mode dans _process).
 func _end_right_click_hold() -> void:
 	var was_orbiting := _camera_orbiting
 	_right_click_active = false
@@ -1102,17 +1286,7 @@ func _apply_camera_orbit() -> void:
 	var angle := atan2(base.z, base.x) + _camera_yaw
 	_camera.position = Vector3(horizontal_radius * cos(angle), base.y, horizontal_radius * sin(angle))
 	_camera.look_at(_camera_rig.global_position, WORLD_UP)
-
-
-func _open_portal_menu() -> void:
-	_portal_menu.popup(Rect2i(get_viewport().get_mouse_position(), Vector2i.ZERO))
-
-
-## "Se téléporter" choisi dans le menu contextuel : envoie "portal" tel quel — le serveur
-## se base uniquement sur la position courante du joueur, pas sur un identifiant de portail
-## transmis par le client.
-func _on_portal_menu_id_pressed(_id: int) -> void:
-	Net.send_command("portal")
+	_orient_all_portals()
 
 
 ## has_shop : EntityView.hasShop côté backend — désactive "Boutique" pour un PNJ qui ne
@@ -1144,6 +1318,7 @@ func _select_portal(index: int) -> void:
 		_clear_selection()
 	_selected_portal_index = index
 	_set_portal_highlight(index, true)
+	_target_status_bar.show_portal(str(_portals[index].target_map_name))
 
 
 func _clear_portal_selection() -> void:
@@ -1151,7 +1326,15 @@ func _clear_portal_selection() -> void:
 		return
 	_set_portal_highlight(_selected_portal_index, false)
 	_selected_portal_index = -1
-	_portal_menu.hide()
+	_target_status_bar.hide_target()
+
+
+## Bouton "Téléporter" de %TargetStatusBar (voir _select_portal/TargetStatusBar.gd) — envoie
+## "portal" tel quel, comme l'ancien menu contextuel du même nom : le serveur se base
+## uniquement sur la position courante du joueur, pas sur un identifiant de portail transmis
+## par le client.
+func _on_teleport_button_pressed() -> void:
+	Net.send_command("portal")
 
 
 ## Clic sur le cadre de vitaux (PlayerFrame, haut-gauche) — voir PlayerFrame.gd/self_clicked.
@@ -1373,8 +1556,8 @@ func _ensure_player_node() -> void:
 	if _player_node != null:
 		return
 	var player_name := str(GameState.player_stats.get("name", "Vous"))
-	# pickable = false : on ne se sélectionne pas soi-même (même règle que l'ancien
-	# `if key == PLAYER_KEY: continue` de _pick_at_point).
+	# pickable = false : on ne se sélectionne pas soi-même (voir _make_entity_node/
+	# _pick_entity_id_at_mouse — aucune PickArea créée pour cette capsule).
 	_player_node = _make_entity_node(player_name, PLAYER_COLOR, false)
 	_set_entity_title(_player_node, _extract_title(GameState.player_stats))
 	_entities_root.add_child(_player_node)
@@ -2112,6 +2295,7 @@ func _set_node_transparency(node: Node3D, t: float) -> void:
 func _zoom_camera(delta: float) -> void:
 	_camera_size = clampf(_camera_size + delta, CAMERA_SIZE_MIN, CAMERA_SIZE_MAX)
 	_camera.size = _camera_size
+	_minimap.set_camera_zoom(_camera_size)
 
 
 func _ground_point_at_mouse():

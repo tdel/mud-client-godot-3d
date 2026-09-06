@@ -58,6 +58,7 @@ theme_override_font_sizes/font_size = 14
 horizontal_alignment = 1
 
 [node name="HealthBarBox" type="Control" parent="Panel/VBox"]
+unique_name_in_owner = true
 custom_minimum_size = Vector2(200, 14)
 layout_mode = 2
 mouse_filter = 2
@@ -82,3 +83,11 @@ theme_override_constants/outline_size = 3
 theme_override_font_sizes/font_size = 11
 horizontal_alignment = 1
 vertical_alignment = 1
+
+[node name="TeleportButton" type="Button" parent="Panel/VBox"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+size_flags_horizontal = 4
+theme_override_font_sizes/font_size = 14
+text = "Téléporter"
