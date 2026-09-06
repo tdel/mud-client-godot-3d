@@ -294,9 +294,12 @@ const HEAL_TARGET_PARTICLE_AMOUNT := 30
 ## du 2026-09-06 pour ne plus mélanger les deux dans une seule fenêtre.
 @onready var _system_log_label: RichTextLabel = %SystemLogLabel
 @onready var _system_log_background: PanelContainer = %SystemLogBackground
+@onready var _system_log_resize_handle: Control = %SystemLogResizeHandle
 @onready var _chat_log_label: RichTextLabel = %ChatLogLabel
 @onready var _chat_log_background: PanelContainer = %ChatLogBackground
+@onready var _chat_log_resize_handle: Control = %ChatLogResizeHandle
 @onready var _chat_input: LineEdit = %ChatInput
+@onready var _chat_bar: Control = %ChatBar
 @onready var _target_status_bar: Control = %TargetStatusBar
 @onready var _npc_menu: PopupMenu = %NpcMenu
 @onready var _death_popup: Control = %DeathPopup
@@ -309,6 +312,13 @@ const HEAL_TARGET_PARTICLE_AMOUNT := 30
 ## _fade_chat_window — permet d'annuler un fondu déjà lancé quand un nouvel évènement
 ## (message ou focus) en redemande un autre avant la fin du précédent.
 var _chat_window_fade_tweens: Dictionary = {}
+
+## Poignée de redimensionnement associée à chaque fond de fenêtre de discussion
+## (PanelContainer -> Control), peuplé dans _ready — la poignée n'est pas un enfant du fond
+## (voir Game.tscn) donc son alpha ne suit pas automatiquement celui du fond via `modulate`
+## et doit être piloté explicitement à côté (_flash_chat_window/_set_chat_windows_interactive),
+## demande explicite du 2026-09-06 pour qu'elle se fonde comme le reste de la fenêtre.
+var _chat_window_handles: Dictionary = {}
 
 var _player_node: Node3D
 var _current_map_name := ""
@@ -403,6 +413,10 @@ func _ready() -> void:
 	_chat_input.text_submitted.connect(_on_chat_submitted)
 	_chat_input.focus_entered.connect(_on_chat_input_focus_entered)
 	_chat_input.focus_exited.connect(_on_chat_input_focus_exited)
+	_chat_window_handles[_chat_log_background] = _chat_log_resize_handle
+	_chat_window_handles[_system_log_background] = _system_log_resize_handle
+	_chat_log_resize_handle.panel_resized.connect(_on_chat_log_panel_resized)
+	_on_chat_log_panel_resized()
 	_set_chat_windows_interactive(false)
 
 	_npc_menu.add_item("Parler", 0)
@@ -784,6 +798,30 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 			# soi-même n'apparaissait dans le chat (bug signalé le 2026-09-02, flagrant en
 			# session solo puisque "Chat" n'a alors personne d'autre à qui être diffusé).
 			_log_chat("[b]Vous[/b] : %s" % _bbcode_escape(str(payload.get("text", ""))))
+		"Whisper":
+			# "say #nom message" (voir Say.java, 2026-09-06) : le serveur renvoie le même
+			# message aux deux participants, donc c'est au client de distinguer émetteur et
+			# destinataire par leur nom pour choisir le bon libellé.
+			var whisper_from := str(payload.get("fromName", "?"))
+			var whisper_to := str(payload.get("toName", "?"))
+			var whisper_text := _bbcode_escape(str(payload.get("text", "")))
+			if whisper_from == str(GameState.player_stats.get("name", "")):
+				_log_chat("[i]Vous chuchotez à %s[/i] : %s" % [_bbcode_escape(whisper_to), whisper_text])
+			else:
+				_log_chat("[i]%s vous chuchote[/i] : %s" % [_bbcode_escape(whisper_from), whisper_text])
+		"PartyChat":
+			# "say %message" (voir Say.java, 2026-09-06) : diffusé à tout le groupe, l'auteur
+			# compris (contrairement à Chat/YouSaid, pas d'écho séparé à distinguer ici).
+			_log_chat("[i][Groupe][/i] [b]%s[/b] : %s" % [
+				_bbcode_escape(str(payload.get("speakerName", "?"))),
+				_bbcode_escape(str(payload.get("text", ""))),
+			])
+		"CannotWhisperSelf":
+			_log("[i]Vous ne pouvez pas vous chuchoter à vous-même.[/i]")
+		"WhisperTargetNotFound":
+			_log("[i]%s n'est pas connecté.[/i]" % _bbcode_escape(str(payload.get("name", "?"))))
+		"NotInParty":
+			_log("[i]Vous n'êtes dans aucun groupe.[/i]")
 		"PeaceZoneEntered":
 			_log("Zone paisible (%s) : %s" % [
 				_bbcode_escape(str(payload.get("zoneName", "?"))),
@@ -2783,10 +2821,16 @@ func _flash_chat_window(background: PanelContainer) -> void:
 	if _chat_input.has_focus():
 		return
 	_kill_chat_window_fade(background)
+	var handle := _chat_window_handles.get(background) as Control
 	background.modulate.a = CHAT_WINDOW_MESSAGE_ALPHA
+	if handle != null:
+		handle.modulate.a = CHAT_WINDOW_MESSAGE_ALPHA
 	var tween := create_tween()
 	tween.tween_interval(CHAT_WINDOW_MESSAGE_HOLD_SEC)
+	tween.set_parallel(true)
 	tween.tween_property(background, "modulate:a", CHAT_WINDOW_IDLE_ALPHA, CHAT_WINDOW_FADE_SEC)
+	if handle != null:
+		tween.tween_property(handle, "modulate:a", CHAT_WINDOW_IDLE_ALPHA, CHAT_WINDOW_FADE_SEC)
 	_chat_window_fade_tweens[background] = tween
 
 
@@ -2797,11 +2841,13 @@ func _kill_chat_window_fade(background: PanelContainer) -> void:
 	_chat_window_fade_tweens.erase(background)
 
 
-## Bascule les 2 fenêtres de discussion entre interactives/opaques (focus sur %ChatInput) et
-## transparentes/traversables au clic (focus perdu) — demande explicite du 2026-09-06 pour ne
-## pas gêner le clic sur la scène 3D tant qu'on ne discute pas. Le clic continue de fonctionner
-## sur les poignées de redimensionnement dans les deux cas : un enfant garde son propre
-## mouse_filter quel que soit celui de son parent (voir ChatWindowResizeHandle.gd).
+## Bascule les 2 fenêtres de discussion (+ %ChatInput) entre interactives/opaques (focus sur
+## %ChatInput) et transparentes/traversables au clic (focus perdu) — demande explicite du
+## 2026-09-06 pour ne pas gêner le clic sur la scène 3D tant qu'on ne discute pas, étendue le
+## même jour aux poignées de redimensionnement (leur alpha ne suit pas celui du fond puisqu'elles
+## ne sont pas ses enfants, voir _chat_window_handles) et à %ChatInput lui-même. Le clic continue
+## de fonctionner sur les poignées dans les deux cas : un enfant garde son propre mouse_filter
+## quel que soit celui de son parent (voir ChatWindowResizeHandle.gd) — seul leur alpha change ici.
 func _set_chat_windows_interactive(focused: bool) -> void:
 	var filter := Control.MOUSE_FILTER_STOP if focused else Control.MOUSE_FILTER_IGNORE
 	for control in [_chat_log_background, _chat_log_label, _system_log_background, _system_log_label]:
@@ -2810,6 +2856,10 @@ func _set_chat_windows_interactive(focused: bool) -> void:
 	for background in [_chat_log_background, _system_log_background]:
 		_kill_chat_window_fade(background)
 		background.modulate.a = target_alpha
+		var handle := _chat_window_handles.get(background) as Control
+		if handle != null:
+			handle.modulate.a = target_alpha
+	_chat_input.modulate.a = target_alpha
 
 
 func _on_chat_input_focus_entered() -> void:
@@ -2818,6 +2868,17 @@ func _on_chat_input_focus_entered() -> void:
 
 func _on_chat_input_focus_exited() -> void:
 	_set_chat_windows_interactive(false)
+
+
+## Fait suivre la largeur de %ChatBar à celle de %ChatLogPanel (redimensionnée via
+## %ChatLogResizeHandle, voir son signal "panel_resized") — les deux commencent alignées dans
+## Game.tscn mais %ChatLogPanel peut être élargie/rétrécie indépendamment, demande explicite
+## du 2026-09-06 pour que la barre de saisie ne se retrouve pas plus étroite/large que la
+## fenêtre de chat juste au-dessus d'elle. Ne touche jamais %SystemLogPanel (pas de barre en
+## dessous d'elle à faire suivre).
+func _on_chat_log_panel_resized() -> void:
+	var chat_log_panel := _chat_log_resize_handle.get_parent() as Control
+	_chat_bar.offset_right = chat_log_panel.offset_right
 
 
 ## Dérive un facteur jour/nuit (0.0 nuit, 1.0 jour) directement de l'heure in-game plutôt

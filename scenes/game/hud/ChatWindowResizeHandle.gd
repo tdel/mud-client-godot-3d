@@ -7,6 +7,12 @@ extends Control
 ## passe en MOUSE_FILTER_IGNORE (fenêtre non focalisée) — un enfant garde son propre filtre
 ## quel que soit celui de son parent.
 
+## Émis à chaque ajustement de la largeur/hauteur du panneau parent pendant un glissé — permet
+## à Game3D.gd de faire suivre %ChatBar à la largeur de %ChatLogPanel (demande explicite du
+## 2026-09-06) sans que cette poignée générique (partagée avec %SystemLogResizeHandle) n'ait
+## à connaître %ChatBar elle-même.
+signal panel_resized
+
 const MIN_WIDTH := 180.0
 const MAX_WIDTH := 900.0
 const MIN_HEIGHT := 90.0
@@ -40,3 +46,4 @@ func _gui_input(event: InputEvent) -> void:
 		var max_right := panel.offset_left + MAX_WIDTH
 		panel.offset_right = clampf(panel.offset_right + event.relative.x, min_right, max_right)
 		get_viewport().set_input_as_handled()
+		panel_resized.emit()

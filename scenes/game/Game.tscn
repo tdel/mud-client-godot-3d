@@ -89,7 +89,7 @@ anchor_top = 1.0
 anchor_bottom = 1.0
 offset_left = 16.0
 offset_top = -222.0
-offset_right = 316.0
+offset_right = 436.0
 offset_bottom = -52.0
 mouse_filter = 2
 
@@ -104,7 +104,8 @@ bbcode_enabled = true
 scroll_active = true
 scroll_following = true
 
-[node name="ResizeHandle" type="Control" parent="HUD/ChatLogPanel"]
+[node name="ChatLogResizeHandle" type="Control" parent="HUD/ChatLogPanel"]
+unique_name_in_owner = true
 anchor_left = 1.0
 anchor_right = 1.0
 offset_left = -16.0
@@ -116,10 +117,10 @@ script = ExtResource("15")
 [node name="SystemLogPanel" type="Control" parent="HUD"]
 anchor_top = 1.0
 anchor_bottom = 1.0
-offset_left = 324.0
-offset_top = -222.0
-offset_right = 624.0
-offset_bottom = -52.0
+offset_left = 16.0
+offset_top = -400.0
+offset_right = 436.0
+offset_bottom = -230.0
 mouse_filter = 2
 
 [node name="SystemLogBackground" type="PanelContainer" parent="HUD/SystemLogPanel"]
@@ -133,7 +134,8 @@ bbcode_enabled = true
 scroll_active = true
 scroll_following = true
 
-[node name="ResizeHandle" type="Control" parent="HUD/SystemLogPanel"]
+[node name="SystemLogResizeHandle" type="Control" parent="HUD/SystemLogPanel"]
+unique_name_in_owner = true
 anchor_left = 1.0
 anchor_right = 1.0
 offset_left = -16.0
@@ -143,18 +145,19 @@ offset_bottom = 16.0
 script = ExtResource("15")
 
 [node name="ChatBar" type="HBoxContainer" parent="HUD"]
+unique_name_in_owner = true
 anchor_top = 1.0
 anchor_bottom = 1.0
 offset_left = 16.0
 offset_top = -44.0
-offset_right = 624.0
+offset_right = 436.0
 offset_bottom = -12.0
 
 [node name="ChatInput" type="LineEdit" parent="HUD/ChatBar"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(600, 0)
+custom_minimum_size = Vector2(420, 0)
 size_flags_horizontal = 3
-placeholder_text = "Entrée pour parler..."
+placeholder_text = "Entrée pour parler... (#nom pour chuchoter, % pour le groupe)"
 
 [node name="TargetStatusBar" parent="HUD" instance=ExtResource("2")]
 
