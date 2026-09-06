@@ -19,6 +19,7 @@ signal teleport_requested
 @onready var _health_bar_box: Control = %HealthBarBox
 @onready var _health_bar: ProgressBar = %HealthBar
 @onready var _health_label: Label = %HealthLabel
+@onready var _destination_label: Label = %DestinationLabel
 @onready var _teleport_button: Button = %TeleportButton
 
 var _entity_name := ""
@@ -33,6 +34,7 @@ func _ready() -> void:
 
 func show_target(entity_name: String, level: int, current_health: int, max_health: int) -> void:
 	_health_bar_box.visible = true
+	_destination_label.visible = false
 	_teleport_button.visible = false
 	_entity_name = entity_name
 	set_level(level)
@@ -51,15 +53,26 @@ func set_health(current_health: int, max_health: int) -> void:
 	_health_label.text = "%s/%s" % [current_health, max_health]
 
 
-## Portail sélectionné (voir Game3D._select_portal) : ni niveau ni vie, juste le nom de la
-## carte cible et un bouton "Téléporter" à la place de la barre de vie (voir teleport_requested,
-## connecté par Game3D._on_teleport_button_pressed).
-func show_portal(target_map_name: String) -> void:
-	_entity_name = target_map_name
-	_name_label.text = target_map_name
+## Portail sélectionné (voir Game3D._select_portal) : ni niveau ni vie, un nom/titre façon
+## personnage ("Clairière"/"Téléporteur", voir Game3D._make_portal_node), la carte de
+## destination en rappel, et un bouton "Téléporter" à la place de la barre de vie (voir
+## teleport_requested, connecté par Game3D._on_teleport_button_pressed, et set_teleport_enabled
+## pour le griser hors de portée).
+func show_portal(portal_name: String, target_map_name: String) -> void:
+	_entity_name = portal_name
+	_name_label.text = portal_name
 	_health_bar_box.visible = false
+	_destination_label.text = "Vers : %s" % target_map_name
+	_destination_label.visible = true
 	_teleport_button.visible = true
 	visible = true
+
+
+## Reflète la portée calculée côté client (voir Game3D._update_portal_teleport_range) — le
+## serveur reste la seule vérité (message d'erreur NoPortalHere s'il refuse quand même), ceci
+## n'évite qu'un aller-retour réseau inutile en désactivant le bouton par avance.
+func set_teleport_enabled(enabled: bool) -> void:
+	_teleport_button.disabled = not enabled
 
 
 func hide_target() -> void:

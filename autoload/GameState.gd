@@ -48,6 +48,14 @@ var map_enter: Dictionary = {}
 ## EntityView} plutôt qu'un array pour dédupliquer une même entité annoncée deux fois.
 var appeared_entities: Dictionary = {}
 
+## Derniers portails connus (à portée de KnownList), indexés par UUID — même raison de cache
+## qu'appeared_entities ci-dessus : KnownList côté backend pousse désormais PortalAppeared/
+## PortalDisappeared (commit backend "Fait de la KnownList l'unique canal de présence des
+## MapPortal", voir CLAUDE.md) au lieu de la liste MapView.portals d'un bloc — un
+## PortalAppeared peut donc arriver avant que Game3D n'existe pour s'y abonner directement,
+## exactement comme EntityAppeared. Dictionnaire {id: payload PortalView}.
+var appeared_portals: Dictionary = {}
+
 ## Groupe (party) courant, {} si on n'est dans aucun groupe. Sinon :
 ## {leader_id: String, members: {id: {name, current_health, max_health, current_mana,
 ## max_mana}}, loot_mode: String ("RANDOM"/"ROUND_ROBIN")}. `members` exclut volontairement
@@ -165,6 +173,14 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 		"EntityDisappeared":
 			for entity_id in payload.get("entityIds", []):
 				appeared_entities.erase(str(entity_id))
+		"PortalAppeared":
+			for entry in payload.get("portals", []):
+				var portal_id := str(entry.get("id", ""))
+				if not portal_id.is_empty():
+					appeared_portals[portal_id] = entry
+		"PortalDisappeared":
+			for portal_id in payload.get("portalIds", []):
+				appeared_portals.erase(str(portal_id))
 		"Inventory":
 			inventory = payload
 		"KnownSkills":
@@ -295,6 +311,7 @@ func clear_session() -> void:
 	map_view = {}
 	map_enter = {}
 	appeared_entities = {}
+	appeared_portals = {}
 	inventory = {}
 	known_skills = {}
 	current_mana = 0

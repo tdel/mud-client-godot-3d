@@ -151,14 +151,22 @@ const PLAYER_KEY := "player"
 
 ## Rayon du halo au sol marquant la zone d'activation du portail (voir _make_portal_node) —
 ## sert uniquement de repère visuel désormais : la sélection au clic passe par un vrai rayon
-## physique 3D sur tout l'objet (voir PORTAL_PICK_COLLISION_LAYER/_pick_portal_index_at_mouse),
+## physique 3D sur tout l'objet (voir PORTAL_PICK_COLLISION_LAYER/_pick_portal_id_at_mouse),
 ## comme pour les entités, depuis la demande explicite du 2026-09-06 ("je veux que l'objet
 ## entier soit sélectionnable, pas juste la base").
 const PORTAL_PICK_RADIUS := 0.7
 
+## Nom/titre par défaut si le serveur ne les transmet pas encore (PortalView.name/title, voir
+## _apply_appeared_portal) — même dégradation gracieuse que targetMapName ci-dessous.
+const PORTAL_NAME_DEFAULT := "Clairière"
+const PORTAL_TITLE_DEFAULT := "Téléporteur"
+## Portée de téléportation si le serveur ne transmet pas triggerRadius — reprend PORTAL_PICK_RADIUS
+## (même rayon que le halo au sol, cohérent avec l'ancienne zone d'activation).
+const PORTAL_RANGE_DEFAULT := PORTAL_PICK_RADIUS
+
 ## Sélectionner une entité ou un portail se fait par un vrai rayon physique caméra→souris
 ## contre sa zone de collision (voir _pick_entity_id_at_mouse/_make_entity_node pour les
-## entités, _pick_portal_index_at_mouse/_make_portal_node pour les portails), pas par une
+## entités, _pick_portal_id_at_mouse/_make_portal_node pour les portails), pas par une
 ## projection au sol : une capsule mesure 1.6 unité de haut et un portail se dresse jusqu'à
 ## ~2 unités, tous deux vus depuis un angle par la caméra isométrique — cliquer sur leur haut
 ## visible projetterait, sur le plan y=0, un point bien au-delà de leur base (bug signalé le
@@ -311,13 +319,16 @@ var _casting_by_key: Dictionary = {}
 var _selected_target_id := ""
 var _selection_ring: MeshInstance3D
 
-## Portails de la carte courante (voir _rebuild_map) : {position: Vector2, target_map_name,
-## node}. Contrairement aux autres entités, ils ne sont pas mélangés dans _entities_by_key
-## : un portail se sélectionne au clic gauche mais ne se cible jamais côté serveur (pas
-## d'UUID, "portal" ne prend aucun argument — le serveur se base sur la position courante
-## du joueur).
-var _portals: Array = []
-var _selected_portal_index := -1
+## Portails actuellement à portée de perception (KnownList côté backend, voir CLAUDE.md),
+## indexés par UUID de portail — poussés séparément de MapView par PortalAppeared/
+## PortalDisappeared, exactement comme _entities_by_key l'est par EntityAppeared/
+## EntityDisappeared (voir _apply_appeared_portal/_on_portal_disappeared). Contrairement aux
+## autres entités, ils ne sont pas mélangés dans _entities_by_key : un portail se sélectionne
+## au clic gauche mais ne se cible jamais côté serveur (pas d'UUID transmis, "portal" ne prend
+## aucun argument — le serveur se base sur la position courante du joueur). Dictionnaire
+## {id: {position: Vector2, target_map_name, portal_name, portal_title, range, node}}.
+var _portals: Dictionary = {}
+var _selected_portal_id := ""
 
 ## Cercle de portée affiché autour du joueur au survol d'un sort en hotbar (voir
 ## show_skill_range/hide_skill_range, appelés par Hotbar.gd).
@@ -400,6 +411,8 @@ func _ready() -> void:
 		_refresh_entities(GameState.map_enter)
 	for entry in GameState.appeared_entities.values():
 		_apply_appeared_entity(entry)
+	for entry in GameState.appeared_portals.values():
+		_apply_appeared_portal(entry)
 	# Cas de reconnexion pendant qu'on est déjà mort (GamePlayerDefeated manqué, voir
 	# GameState.is_dead, alimenté aussi par GamePlayerStats) : rouvre la fenêtre de respawn
 	# sans nom de tueur (perdu, ce message n'est jamais rejoué), même geste que
@@ -426,6 +439,8 @@ func _process(delta: float) -> void:
 		_camera_rig.position = _player_node.position
 		if _range_indicator != null and _range_indicator.visible:
 			_range_indicator.position = Vector3(_player_node.position.x, 0.06, _player_node.position.z)
+		if not _selected_portal_id.is_empty():
+			_update_portal_teleport_range()
 	if _moving.has(PLAYER_KEY):
 		_position_query_timer += delta
 		if _position_query_timer >= POSITION_QUERY_INTERVAL_SEC:
@@ -454,7 +469,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			if WindowFrame.close_topmost():
 				get_viewport().set_input_as_handled()
 				return
-			if not _selected_target_id.is_empty() or _selected_portal_index != -1:
+			if not _selected_target_id.is_empty() or not _selected_portal_id.is_empty():
 				Net.send_command("select", "")
 				_clear_selection()
 				_clear_portal_selection()
@@ -572,6 +587,12 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 		"EntityDisappeared":
 			for id in payload.get("entityIds", []):
 				_on_entity_disappeared(str(id))
+		"PortalAppeared":
+			for entry in payload.get("portals", []):
+				_apply_appeared_portal(entry)
+		"PortalDisappeared":
+			for id in payload.get("portalIds", []):
+				_on_portal_disappeared(str(id))
 		"MonsterDefeated":
 			var defeated_name := str(payload.get("monsterName", ""))
 			_despawn_monster(defeated_name)
@@ -811,7 +832,7 @@ func _rebuild_map(payload: Dictionary) -> void:
 	_ground.position = Vector3(_map_width / 2.0, 0.0, _map_height / 2.0)
 
 	_rebuild_obstacles()
-	_rebuild_portals(payload.get("portals", []))
+	_clear_portals()
 	_rebuild_night_lights()
 	_minimap.set_map(texture, _map_width, _map_height, _current_map_name)
 	_log("[color=#9a9488]Carte : %s (%dx%d)[/color]" % [_current_map_name, _map_width, _map_height])
@@ -854,7 +875,7 @@ func _rebuild_obstacles() -> void:
 ## OmniLight3D par groupe de cases contigües de chaque terrain remarquable (fontaine,
 ## auberge, forge), posé au centre du groupe plutôt qu'un par case (évite une nappe de
 ## lumières redondantes sur une place pavée large de plusieurs cases). Reconstruit à chaque
-## _rebuild_map (changement de carte) comme _rebuild_obstacles/_rebuild_portals ci-dessus.
+## _rebuild_map (changement de carte) comme _rebuild_obstacles/_clear_portals ci-dessus.
 func _rebuild_night_lights() -> void:
 	for child in _night_lights.get_children():
 		child.queue_free()
@@ -933,28 +954,57 @@ func _is_walkable(target: Vector2) -> bool:
 	return row[cx] == "1"
 
 
-## Reconstruit les marqueurs de portail depuis MapView.portals ({x, y, targetMapName}, en
-## tuiles) — un changement de carte rend les anciennes coordonnées obsolètes, donc appelé
-## à chaque _rebuild_map plutôt qu'une seule fois.
-func _rebuild_portals(portals_payload: Array) -> void:
-	for entry in _portals:
+## Vide tous les portails actuellement affichés (voir _portals) — appelé à chaque _rebuild_map
+## (changement de carte, coordonnées de l'ancienne carte devenues obsolètes), comme
+## _clear_entities ci-dessus : PortalDisappeared pour l'ancienne carte n'est pas garanti
+## d'arriver avant que le nouveau MapView ne soit traité.
+func _clear_portals() -> void:
+	for entry in _portals.values():
 		var node: Node3D = entry.get("node")
 		if node != null:
 			node.queue_free()
 	_portals.clear()
-	if _selected_portal_index != -1:
-		_target_status_bar.hide_target()
-	_selected_portal_index = -1
+	_clear_portal_selection()
 
-	for portal in portals_payload:
-		var target_map_name := str(portal.get("targetMapName", "Portail"))
-		var pos := Vector2(portal.get("x", 0.0), portal.get("y", 0.0))
-		var portal_node := _make_portal_node(target_map_name)
-		portal_node.position = Vector3(pos.x, 0.0, pos.y)
-		_world.add_child(portal_node)
-		_portals.append({"position": pos, "target_map_name": target_map_name, "node": portal_node})
-		portal_node.set_meta("portal_index", _portals.size() - 1)
-		_orient_portal_to_camera(portal_node)
+
+## Portail entrant dans notre KnownList (portée de perception) — au spawn/changement de carte
+## ou en cours de partie après un déplacement, voir CLAUDE.md : PortalAppeared, poussé par
+## KnownList côté backend exactement comme EntityAppeared (voir _apply_appeared_entity), a
+## remplacé l'ancien champ MapView.portals (retiré côté backend) où tous les portails de la
+## carte arrivaient d'un bloc plutôt qu'un par un à portée.
+func _apply_appeared_portal(entry: Dictionary) -> void:
+	var portal_id := str(entry.get("id", ""))
+	if portal_id.is_empty() or _portals.has(portal_id):
+		return
+	var target_map_name := str(entry.get("targetMapName", "Portail"))
+	var portal_name := str(entry.get("name", PORTAL_NAME_DEFAULT))
+	var portal_title := str(entry.get("title", PORTAL_TITLE_DEFAULT))
+	var portal_range: float = entry.get("triggerRadius", PORTAL_RANGE_DEFAULT)
+	var pos := Vector2(entry.get("x", 0.0), entry.get("y", 0.0))
+	var portal_node := _make_portal_node(portal_name, portal_title)
+	portal_node.position = Vector3(pos.x, 0.0, pos.y)
+	_world.add_child(portal_node)
+	portal_node.set_meta("portal_id", portal_id)
+	_portals[portal_id] = {
+		"position": pos, "target_map_name": target_map_name, "portal_name": portal_name,
+		"portal_title": portal_title, "range": portal_range, "node": portal_node,
+	}
+	_orient_portal_to_camera(portal_node)
+
+
+## Portail sortant de notre KnownList — hors de portée après un déplacement, ou retiré de la
+## carte, voir CLAUDE.md/_on_entity_disappeared (même mécanisme, PortalDisappeared plutôt
+## qu'EntityDisappeared). Désélectionne au passage si c'était le portail actuellement ciblé par
+## %TargetStatusBar.
+func _on_portal_disappeared(portal_id: String) -> void:
+	if not _portals.has(portal_id):
+		return
+	if _selected_portal_id == portal_id:
+		_clear_portal_selection()
+	var node: Node3D = _portals[portal_id].node
+	if node != null:
+		node.queue_free()
+	_portals.erase(portal_id)
 
 
 ## Shader du "voile" d'énergie tourbillonnant à l'intérieur de l'anneau (voir
@@ -995,7 +1045,7 @@ void fragment() {
 ## un halo au sol subsiste pour repérer la zone d'activation (voir PORTAL_PICK_RADIUS), le
 ## reste ("Facing", voir _orient_portal_to_camera) se dresse verticalement façon "portail
 ## d'énergie".
-func _make_portal_node(target_map_name: String) -> Node3D:
+func _make_portal_node(portal_name: String, portal_title: String) -> Node3D:
 	var root := Node3D.new()
 	root.name = "Portal"
 
@@ -1016,7 +1066,7 @@ func _make_portal_node(target_map_name: String) -> Node3D:
 	root.add_child(ground_glow)
 
 	# Zone de collision englobant tout l'objet (halo au sol + anneau + voile), pas juste la
-	# "base" — voir _pick_portal_index_at_mouse, même mécanisme que PickArea dans
+	# "base" — voir _pick_portal_id_at_mouse, même mécanisme que PickArea dans
 	# _make_entity_node (couche physique dédiée PORTAL_PICK_COLLISION_LAYER). Un cylindre
 	# suffit et reste correct quel que soit l'angle de caméra (contrairement à "Facing", il
 	# n'a pas besoin d'être réorienté) : il est symétrique par rotation autour de Y, comme
@@ -1079,8 +1129,12 @@ func _make_portal_node(target_map_name: String) -> Node3D:
 	root.add_child(_make_portal_particles())
 	root.set_meta("facing", facing)
 
+	# Nom/titre façon personnage (voir _make_entity_node/TITLE_LABEL_COLOR) plutôt que l'ancien
+	# libellé unique affichant la carte cible : "Clairière"/"Téléporteur" identifient l'objet
+	# lui-même, la destination reste affichée dans %TargetStatusBar (voir _select_portal).
 	var label := Label3D.new()
-	label.text = target_map_name
+	label.name = "NameLabel"
+	label.text = portal_name
 	label.position = Vector3(0.0, PORTAL_RING_HEIGHT_Y + PORTAL_RING_OUTER_RADIUS + 0.35, 0.0)
 	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	label.no_depth_test = true
@@ -1088,6 +1142,17 @@ func _make_portal_node(target_map_name: String) -> Node3D:
 	label.outline_size = 6
 	label.modulate = PORTAL_COLOR.lightened(0.4)
 	root.add_child(label)
+
+	var title_label := Label3D.new()
+	title_label.name = "TitleLabel"
+	title_label.text = portal_title
+	title_label.position = Vector3(0.0, PORTAL_RING_HEIGHT_Y + PORTAL_RING_OUTER_RADIUS + 0.68, 0.0)
+	title_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	title_label.no_depth_test = true
+	title_label.font_size = 20
+	title_label.outline_size = 5
+	title_label.modulate = TITLE_LABEL_COLOR
+	root.add_child(title_label)
 
 	return root
 
@@ -1137,7 +1202,7 @@ func _make_portal_particles() -> GPUParticles3D:
 
 
 ## Rappelée par _apply_camera_orbit à chaque changement d'angle (et une fois à la création du
-## portail, voir _rebuild_portals) : ne tourne "Facing" qu'autour de Y, à partir de la
+## portail, voir _apply_appeared_portal) : ne tourne "Facing" qu'autour de Y, à partir de la
 ## direction horizontale vers la caméra — jamais de tangage, pour que l'anneau reste toujours
 ## vertical peu importe l'angle de vue.
 func _orient_portal_to_camera(root: Node3D) -> void:
@@ -1152,14 +1217,14 @@ func _orient_portal_to_camera(root: Node3D) -> void:
 
 
 func _orient_all_portals() -> void:
-	for entry in _portals:
+	for entry in _portals.values():
 		_orient_portal_to_camera(entry.node)
 
 
-func _set_portal_highlight(index: int, on: bool) -> void:
-	if index < 0 or index >= _portals.size():
+func _set_portal_highlight(portal_id: String, on: bool) -> void:
+	if not _portals.has(portal_id):
 		return
-	var node: Node3D = _portals[index].node
+	var node: Node3D = _portals[portal_id].node
 	var ring_mat: StandardMaterial3D = node.get_meta("ring_material")
 	ring_mat.emission_energy_multiplier = 2.6 if on else 1.4
 	var vortex_mat: ShaderMaterial = node.get_meta("vortex_material")
@@ -1174,8 +1239,8 @@ func _set_portal_highlight(index: int, on: bool) -> void:
 ## portail (voir PickArea/PORTAL_PICK_COLLISION_LAYER dans _make_portal_node) — tout l'objet
 ## est désormais cliquable (anneau/voile compris), pas seulement le halo au sol comme avant
 ## le 2026-09-06 (l'ancien test comparait juste la distance au sol au centre du portail).
-## Renvoie l'index dans _portals, ou -1 si aucun portail touché.
-func _pick_portal_index_at_mouse() -> int:
+## Renvoie l'id (UUID) dans _portals, ou "" si aucun portail touché.
+func _pick_portal_id_at_mouse() -> String:
 	var mouse_pos := get_viewport().get_mouse_position()
 	var from := _camera.project_ray_origin(mouse_pos)
 	var to := from + _camera.project_ray_normal(mouse_pos) * ENTITY_PICK_RAY_LENGTH
@@ -1185,13 +1250,13 @@ func _pick_portal_index_at_mouse() -> int:
 	query.collide_with_bodies = false
 	var result := get_world_3d().direct_space_state.intersect_ray(query)
 	if result.is_empty():
-		return -1
+		return ""
 	var collider = result.get("collider")
 	if collider is Node:
 		var portal_root := (collider as Node).get_parent()
 		if portal_root != null:
-			return int(portal_root.get_meta("portal_index", -1))
-	return -1
+			return str(portal_root.get_meta("portal_id", ""))
+	return ""
 
 
 ## Rayon caméra→souris testé contre les capsules de collision des entités (voir
@@ -1226,9 +1291,9 @@ func _handle_left_click() -> void:
 		_clear_portal_selection()
 		return
 
-	var portal_index := _pick_portal_index_at_mouse()
-	if portal_index != -1:
-		_select_portal(portal_index)
+	var portal_id := _pick_portal_id_at_mouse()
+	if not portal_id.is_empty():
+		_select_portal(portal_id)
 		return
 
 	if not is_player_casting() and not GameState.is_dead:
@@ -1309,24 +1374,49 @@ func _on_npc_menu_id_pressed(id: int) -> void:
 			Net.send_command("shop", _selected_target_id)
 
 
-func _select_portal(index: int) -> void:
-	if index == _selected_portal_index:
+func _select_portal(portal_id: String) -> void:
+	if portal_id == _selected_portal_id:
 		return
 	_clear_portal_selection()
 	if not _selected_target_id.is_empty():
 		Net.send_command("select", "")
 		_clear_selection()
-	_selected_portal_index = index
-	_set_portal_highlight(index, true)
-	_target_status_bar.show_portal(str(_portals[index].target_map_name))
+	_selected_portal_id = portal_id
+	_set_portal_highlight(portal_id, true)
+	var entry: Dictionary = _portals[portal_id]
+	_target_status_bar.show_portal(str(entry.portal_name), str(entry.target_map_name))
+	_update_portal_teleport_range()
 
 
 func _clear_portal_selection() -> void:
-	if _selected_portal_index == -1:
+	if _selected_portal_id.is_empty():
 		return
-	_set_portal_highlight(_selected_portal_index, false)
-	_selected_portal_index = -1
+	_set_portal_highlight(_selected_portal_id, false)
+	_selected_portal_id = ""
 	_target_status_bar.hide_target()
+
+
+## Distance joueur -> portail sélectionné, dans le même plan XZ/units que la position serveur
+## (voir _apply_appeared_portal, portal.position déjà en coordonnées monde comme
+## _player_node.position).
+func _selected_portal_distance() -> float:
+	if _selected_portal_id.is_empty() or _player_node == null:
+		return INF
+	var entry: Dictionary = _portals[_selected_portal_id]
+	var pos: Vector2 = entry.position
+	return Vector2(_player_node.position.x, _player_node.position.z).distance_to(pos)
+
+
+## Reflète côté client, à chaque frame où un portail est sélectionné (voir _process), la même
+## règle de portée que le serveur (voir MapInstance.findPortalAt, triggerRadius) : le bouton
+## "Téléporter" se grise tant que le joueur reste hors de portée, sans attendre un aller-retour
+## réseau/le message d'erreur NoPortalHere.
+func _update_portal_teleport_range() -> void:
+	if _selected_portal_id.is_empty():
+		return
+	var entry: Dictionary = _portals[_selected_portal_id]
+	var in_range := _selected_portal_distance() <= float(entry.range)
+	_target_status_bar.set_teleport_enabled(in_range)
 
 
 ## Bouton "Téléporter" de %TargetStatusBar (voir _select_portal/TargetStatusBar.gd) — envoie
@@ -2379,7 +2469,10 @@ func _update_minimap() -> void:
 	var npc_tile_positions: Array[Vector2] = []
 	var other_player_tile_positions: Array[Vector2] = []
 	var party_member_tile_positions: Array[Vector2] = []
+	var portal_tile_positions: Array[Vector2] = []
 	var selected_monster_tile_pos = null
+	for entry in _portals.values():
+		portal_tile_positions.append(entry.position)
 	for key in _entities_by_key.keys():
 		if key == PLAYER_KEY:
 			continue
@@ -2400,7 +2493,7 @@ func _update_minimap() -> void:
 	_minimap.set_known_entities(
 		monster_tile_positions, npc_tile_positions,
 		other_player_tile_positions, party_member_tile_positions,
-		selected_monster_tile_pos
+		portal_tile_positions, selected_monster_tile_pos
 	)
 
 

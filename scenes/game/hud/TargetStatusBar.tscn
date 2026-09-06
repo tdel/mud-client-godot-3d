@@ -34,7 +34,7 @@ anchor_bottom = 0.0
 offset_left = -110.0
 offset_top = 16.0
 offset_right = 110.0
-offset_bottom = 82.0
+offset_bottom = 100.0
 mouse_filter = 2
 script = ExtResource("1")
 
@@ -83,6 +83,15 @@ theme_override_constants/outline_size = 3
 theme_override_font_sizes/font_size = 11
 horizontal_alignment = 1
 vertical_alignment = 1
+
+[node name="DestinationLabel" type="Label" parent="Panel/VBox"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+mouse_filter = 2
+theme_override_colors/font_color = Color(0.7, 0.7, 0.7, 1)
+theme_override_font_sizes/font_size = 12
+horizontal_alignment = 1
 
 [node name="TeleportButton" type="Button" parent="Panel/VBox"]
 unique_name_in_owner = true

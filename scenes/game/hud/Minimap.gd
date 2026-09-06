@@ -60,6 +60,11 @@ const NPC_DOT_COLOR := Color(0.05, 0.05, 0.05, 1.0)
 ## coup d'œil pendant un combat de groupe.
 const OTHER_PLAYER_DOT_COLOR := Color(0.95, 0.95, 0.95, 1.0)
 const PARTY_MEMBER_DOT_COLOR := Color(0.95, 0.85, 0.25, 1.0)
+## Portails (voir Game3D._portals, alimenté par PortalAppeared/PortalDisappeared) : même bleu
+## que PORTAL_COLOR côté 3D (Game3D.gd), rayon un peu plus large que les autres points pour
+## rester repérable malgré sa forme ronde identique.
+const PORTAL_DOT_RADIUS := 3.5
+const PORTAL_DOT_COLOR := Color(0.25, 0.55, 0.95, 1.0)
 const SELECTION_RING_RADIUS := 5.0
 const SELECTION_RING_WIDTH := 1.2
 const SELECTION_RING_COLOR := Color(1.0, 1.0, 1.0, 1.0)
@@ -92,6 +97,7 @@ var _monster_tile_positions: Array[Vector2] = []
 var _npc_tile_positions: Array[Vector2] = []
 var _other_player_tile_positions: Array[Vector2] = []
 var _party_member_tile_positions: Array[Vector2] = []
+var _portal_tile_positions: Array[Vector2] = []
 ## Position tuile du monstre sélectionné, null si aucun monstre n'est sélectionné (voir
 ## set_known_entities, appelé depuis Game3D._update_minimap).
 var _selected_monster_tile_pos = null
@@ -151,24 +157,31 @@ func set_player_tile_position(x: float, z: float) -> void:
 ## actuellement dans la KnownList (voir Game3D._entities_by_key/EntityAppeared) — monstre en
 ## point rouge, PNJ en point noir, autre joueur en point blanc (jaune s'il est dans notre
 ## groupe, voir GameState.party), selected_monster_tile_pos (null si aucun monstre sélectionné)
-## entoure le point rouge correspondant d'un petit trait.
+## entoure le point rouge correspondant d'un petit trait. portal_tile_positions (voir
+## Game3D._portals, alimenté par PortalAppeared/PortalDisappeared comme les autres entités
+## ci-dessus) affiche un point bleu par portail actuellement à portée de perception.
 func set_known_entities(
 	monster_tile_positions: Array[Vector2],
 	npc_tile_positions: Array[Vector2],
 	other_player_tile_positions: Array[Vector2],
 	party_member_tile_positions: Array[Vector2],
+	portal_tile_positions: Array[Vector2],
 	selected_monster_tile_pos
 ) -> void:
 	_monster_tile_positions = monster_tile_positions
 	_npc_tile_positions = npc_tile_positions
 	_other_player_tile_positions = other_player_tile_positions
 	_party_member_tile_positions = party_member_tile_positions
+	_portal_tile_positions = portal_tile_positions
 	_selected_monster_tile_pos = selected_monster_tile_pos
 	_entity_dots.queue_redraw()
 
 
 func _on_entity_dots_draw() -> void:
 	var center := Vector2(CIRCLE_SIZE, CIRCLE_SIZE) / 2.0
+	for tile_pos in _portal_tile_positions:
+		var screen_pos := center + (tile_pos - _player_tile_pos) * _pixels_per_tile
+		_entity_dots.draw_circle(screen_pos, PORTAL_DOT_RADIUS, PORTAL_DOT_COLOR)
 	for tile_pos in _npc_tile_positions:
 		var screen_pos := center + (tile_pos - _player_tile_pos) * _pixels_per_tile
 		_entity_dots.draw_circle(screen_pos, NPC_DOT_RADIUS, NPC_DOT_COLOR)
