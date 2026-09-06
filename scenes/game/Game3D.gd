@@ -237,9 +237,8 @@ const SKILL_VISUAL_COLOR_BY_KIND := {
 	SkillVisualKind.HOLY: Color(1.0, 0.97, 0.80),
 	SkillVisualKind.DARK: Color(0.45, 0.15, 0.55),
 	SkillVisualKind.ARCANE: Color(0.65, 0.55, 1.0),
-	# Jaune (demande explicite du 2026-09-03) — même teinte que SkillVisualKind.STORM (Wind
-	# Strike), dont Heal réutilise aussi l'animation d'incantation, voir WIND_CAST_ANIMATION_
-	# SKILLS/WIND_WISP_COLOR_BY_SKILL plus bas.
+	# Jaune chaud (demande explicite du 2026-09-03, confirmée le 2026-09-06 pour les nouveaux
+	# effets dédiés — voir _play_heal_cast_effect/_play_heal_target_effect plus bas).
 	SkillVisualKind.HEAL: Color(1.0, 0.92, 0.35),
 	SkillVisualKind.BUFF: Color(1.0, 0.88, 0.45),
 	SkillVisualKind.DEBUFF: Color(0.55, 0.25, 0.75),
@@ -250,26 +249,30 @@ const NON_PROJECTILE_DAMAGE_SKILLS := ["Twister", "Prominence"]
 
 ## Sorts affichant une petite animation pendant l'incantation elle-même (pas seulement à
 ## l'impact, voir _play_skill_animation/_play_skill_projectile) — voir _spawn_wind_wisp,
-## déclenché depuis _advance_casting tant que le sort est dans _casting_by_key. Heal ajouté
-## le 2026-09-03 (demande explicite : "utilise l'animation du wind strike mais en jaune" pour
-## le cast de Heal) — même souffle tournoyant, juste recoloré via WIND_WISP_COLOR_BY_SKILL.
-const WIND_CAST_ANIMATION_SKILLS := ["Wind Strike", "Heal"]
+## déclenché depuis _advance_casting tant que le sort est dans _casting_by_key. Heal utilisait
+## ce même souffle tourbillonnant (recoloré en jaune) jusqu'au 2026-09-06, remplacé depuis par
+## un effet au sol dédié à l'entrée en incantation, voir _on_skill_cast_started/
+## _play_heal_cast_effect — Wind Strike reste seul ici.
+const WIND_CAST_ANIMATION_SKILLS := ["Wind Strike"]
 const WIND_WISP_SPAWN_INTERVAL_MS := 110.0
 const WIND_WISP_RISE_HEIGHT := 1.5
 const WIND_WISP_DURATION := 0.55
 const WIND_WISP_COLOR := Color(0.75, 0.95, 0.85, 0.65)
-## Couleur de souffle par sort, en override de WIND_WISP_COLOR (voir _spawn_wind_wisp) — Heal
-## en jaune (même teinte que SkillVisualKind.HEAL/STORM ci-dessus), Wind Strike garde sa
-## couleur blanc-vert d'origine (non demandé).
-const WIND_WISP_COLOR_BY_SKILL := {
-	"Heal": Color(1.0, 0.92, 0.35, 0.65),
-}
 ## Rayon d'apparition des souffles autour du lanceur : au-delà du rayon de la capsule
 ## (0.35, voir _make_entity_node) pour qu'ils l'entourent visiblement plutôt que de partir
 ## de son centre (donc de sembler "passer à travers" le corps).
 const WIND_WISP_RADIUS_MIN := 0.45
 const WIND_WISP_RADIUS_MAX := 0.75
 const WIND_WISP_SIZE := Vector2(0.24, 0.5)
+
+## Effet de soin dédié (demande du 2026-09-06) — voir _play_heal_cast_effect (au sol, au début
+## de l'incantation) et _play_heal_target_effect (autour de la cible, à l'impact).
+const HEAL_CAST_BURST_LIFETIME := 0.9
+const HEAL_CAST_BURST_AMOUNT := 26
+const HEAL_CAST_FLARE_HEIGHT := 1.6
+const HEAL_CAST_FLARE_DURATION := 0.7
+const HEAL_TARGET_EFFECT_DURATION := 2.6
+const HEAL_TARGET_PARTICLE_AMOUNT := 30
 
 @onready var _world: Node3D = $World
 @onready var _ground: MeshInstance3D = $World/Ground
@@ -2144,6 +2147,10 @@ func _on_skill_cast_started(payload: Dictionary) -> void:
 		state["wind_timer_ms"] = 0.0
 		state["skill_name"] = skill_name
 	_casting_by_key[key] = state
+	if _skill_visual_kind(skill_name) == SkillVisualKind.HEAL:
+		var caster_node: Node3D = _entities_by_key.get(key)
+		if caster_node != null:
+			_play_heal_cast_effect(caster_node)
 
 
 func _clear_casting(key: String) -> void:
@@ -2169,7 +2176,9 @@ func _play_skill_animation(target_id: String, skill_name: String) -> void:
 	if target_node == null:
 		return
 	var kind := _skill_visual_kind(skill_name)
-	if kind == SkillVisualKind.HEAL or kind == SkillVisualKind.BUFF or kind == SkillVisualKind.DEBUFF:
+	if kind == SkillVisualKind.HEAL:
+		_play_heal_target_effect(target_node)
+	elif kind == SkillVisualKind.BUFF or kind == SkillVisualKind.DEBUFF:
 		_play_skill_pulse(target_node, kind)
 	elif skill_name in NON_PROJECTILE_DAMAGE_SKILLS:
 		_flash_entity(target_node)
@@ -2233,6 +2242,157 @@ func _play_skill_pulse(target_node: Node3D, kind: int) -> void:
 	tween.chain().tween_callback(ring.queue_free)
 
 
+## Dégradé alpha 1 → 0 (avec un palier intermédiaire pour éviter une extinction trop linéaire)
+## appliqué au color_ramp d'un ParticleProcessMaterial, pour que les particules d'un effet en
+## one-shot s'estompent progressivement plutôt que de disparaître d'un coup en fin de vie —
+## voir _play_heal_cast_effect/_play_heal_target_effect.
+func _fade_out_color_ramp(color: Color) -> GradientTexture1D:
+	var gradient := Gradient.new()
+	gradient.set_color(0, Color(color.r, color.g, color.b, 1.0))
+	gradient.set_color(1, Color(color.r, color.g, color.b, 0.0))
+	gradient.add_point(0.65, Color(color.r, color.g, color.b, 0.7))
+	var texture := GradientTexture1D.new()
+	texture.gradient = gradient
+	return texture
+
+
+## Effet de sol joué une seule fois au tout début de l'incantation d'un sort de soin (voir
+## _on_skill_cast_started) : un burst sphérique de particules jaunes qui jaillissent du sol
+## (le "pop" initial) accompagné d'une flare verticale lumineuse qui jaillit puis s'estompe —
+## demande du 2026-09-06 ("animation sur le sol, jaune... burst de particules sphérique avec
+## une flare verticale et des textures qui brillent doucement"). Remplace l'ancien souffle
+## tourbillonnant partagé avec Wind Strike (voir WIND_CAST_ANIMATION_SKILLS ci-dessus).
+func _play_heal_cast_effect(caster_node: Node3D) -> void:
+	var color: Color = SKILL_VISUAL_COLOR_BY_KIND[SkillVisualKind.HEAL]
+	var base_pos := caster_node.position + Vector3(0, 0.03, 0)
+
+	var particles := GPUParticles3D.new()
+	particles.position = base_pos
+	particles.amount = HEAL_CAST_BURST_AMOUNT
+	particles.lifetime = HEAL_CAST_BURST_LIFETIME
+	particles.one_shot = true
+	particles.local_coords = false
+
+	var quad := QuadMesh.new()
+	quad.size = Vector2.ONE * 0.12
+	var particle_mat := StandardMaterial3D.new()
+	particle_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	particle_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	particle_mat.emission_enabled = true
+	particle_mat.emission = color
+	particle_mat.emission_energy_multiplier = 2.5
+	particle_mat.albedo_color = Color(color.r, color.g, color.b, 0.9)
+	particle_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	quad.material = particle_mat
+	particles.draw_pass_1 = quad
+
+	var process_mat := ParticleProcessMaterial.new()
+	process_mat.direction = Vector3(0.0, 1.0, 0.0)
+	process_mat.spread = 60.0
+	process_mat.initial_velocity_min = 0.8
+	process_mat.initial_velocity_max = 1.6
+	process_mat.gravity = Vector3(0.0, -1.4, 0.0)
+	process_mat.scale_min = 0.5
+	process_mat.scale_max = 1.1
+	process_mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE_SURFACE
+	process_mat.emission_sphere_radius = 0.25
+	process_mat.color = color
+	process_mat.color_ramp = _fade_out_color_ramp(color)
+	particles.process_material = process_mat
+
+	_world.add_child(particles)
+	particles.emitting = true
+	particles.finished.connect(particles.queue_free)
+
+	# Flare verticale : un cône fin qui jaillit du sol puis s'estompe, pour la "vertical flare"
+	# demandée en plus du burst de particules.
+	var flare := MeshInstance3D.new()
+	var cone := CylinderMesh.new()
+	cone.top_radius = 0.03
+	cone.bottom_radius = 0.16
+	cone.height = 1.0
+	var flare_mat := StandardMaterial3D.new()
+	flare_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	flare_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	flare_mat.emission_enabled = true
+	flare_mat.emission = Color(1.0, 0.95, 0.6)
+	flare_mat.emission_energy_multiplier = 3.0
+	flare_mat.albedo_color = Color(1.0, 0.95, 0.6, 0.75)
+	cone.material = flare_mat
+	flare.mesh = cone
+	flare.position = base_pos
+	flare.scale = Vector3(0.25, 0.01, 0.25)
+	_world.add_child(flare)
+
+	var flare_tween := create_tween()
+	flare_tween.set_parallel(true)
+	flare_tween.tween_property(
+		flare, "scale", Vector3(1.0, HEAL_CAST_FLARE_HEIGHT, 1.0), HEAL_CAST_FLARE_DURATION * 0.4
+	).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	flare_tween.tween_property(
+		flare_mat, "albedo_color:a", 0.0, HEAL_CAST_FLARE_DURATION
+	).set_delay(HEAL_CAST_FLARE_DURATION * 0.3)
+	flare_tween.chain().tween_callback(flare.queue_free)
+
+
+## Effet joué à l'impact d'un soin sur sa cible (voir _play_skill_animation) : un anneau
+## lumineux immédiat (même pulsation que _play_skill_pulse) puis une volée de particules
+## jaunes qui montent en tourbillonnant autour du personnage pendant HEAL_TARGET_EFFECT_
+## DURATION (2 à 3 secondes, demande du 2026-09-06) — bien plus long que l'ancienne pulsation
+## de 0.45s, réservée depuis à BUFF/DEBUFF.
+func _play_heal_target_effect(target_node: Node3D) -> void:
+	var color: Color = SKILL_VISUAL_COLOR_BY_KIND[SkillVisualKind.HEAL]
+	_play_skill_pulse(target_node, SkillVisualKind.HEAL)
+
+	var particles := GPUParticles3D.new()
+	particles.position = target_node.position + Vector3(0, 0.05, 0)
+	particles.amount = HEAL_TARGET_PARTICLE_AMOUNT
+	particles.lifetime = HEAL_TARGET_EFFECT_DURATION
+	particles.one_shot = true
+	particles.explosiveness = 0.15
+	particles.local_coords = false
+
+	var quad := QuadMesh.new()
+	quad.size = Vector2.ONE * 0.16
+	var particle_mat := StandardMaterial3D.new()
+	particle_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	particle_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	particle_mat.emission_enabled = true
+	particle_mat.emission = color
+	particle_mat.emission_energy_multiplier = 2.0
+	particle_mat.albedo_color = Color(color.r, color.g, color.b, 0.85)
+	particle_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	quad.material = particle_mat
+	particles.draw_pass_1 = quad
+
+	var process_mat := ParticleProcessMaterial.new()
+	process_mat.direction = Vector3(0.0, 1.0, 0.0)
+	process_mat.spread = 10.0
+	process_mat.initial_velocity_min = 0.6
+	process_mat.initial_velocity_max = 1.0
+	process_mat.gravity = Vector3.ZERO
+	process_mat.damping_min = 0.25
+	process_mat.damping_max = 0.55
+	process_mat.scale_min = 0.5
+	process_mat.scale_max = 1.0
+	process_mat.angular_velocity_min = -60.0
+	process_mat.angular_velocity_max = 60.0
+	process_mat.orbit_velocity_min = 0.15
+	process_mat.orbit_velocity_max = 0.3
+	process_mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_RING
+	process_mat.emission_ring_radius = 0.45
+	process_mat.emission_ring_inner_radius = 0.35
+	process_mat.emission_ring_height = 0.1
+	process_mat.emission_ring_axis = Vector3(0, 1, 0)
+	process_mat.color = color
+	process_mat.color_ramp = _fade_out_color_ramp(color)
+	particles.process_material = process_mat
+
+	_world.add_child(particles)
+	particles.emitting = true
+	particles.finished.connect(particles.queue_free)
+
+
 ## Un souffle léger qui part du bas du lanceur (au ras du sol) vers le haut, répété toutes
 ## les WIND_WISP_SPAWN_INTERVAL_MS pendant l'incantation d'un sort de WIND_CAST_ANIMATION_
 ## SKILLS (voir _advance_casting) — purement cosmétique, distinct de l'impact sur la cible
@@ -2241,13 +2401,11 @@ func _spawn_wind_wisp(key: String) -> void:
 	var caster_node: Node3D = _entities_by_key.get(key)
 	if caster_node == null:
 		return
-	var skill_name := str(_casting_by_key.get(key, {}).get("skill_name", ""))
-	var color: Color = WIND_WISP_COLOR_BY_SKILL.get(skill_name, WIND_WISP_COLOR)
 	# Deux souffles de part et d'autre (angle et angle+PI) pour que l'effet encercle bien le
 	# lanceur au lieu de n'apparaître que d'un seul côté.
 	var angle := randf() * TAU
-	_spawn_wind_wisp_at(caster_node, angle, color)
-	_spawn_wind_wisp_at(caster_node, angle + PI, color)
+	_spawn_wind_wisp_at(caster_node, angle, WIND_WISP_COLOR)
+	_spawn_wind_wisp_at(caster_node, angle + PI, WIND_WISP_COLOR)
 
 
 func _spawn_wind_wisp_at(caster_node: Node3D, angle: float, color: Color) -> void:
