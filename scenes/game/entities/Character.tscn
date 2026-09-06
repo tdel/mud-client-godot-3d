@@ -1,0 +1,18 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://scenes/game/entities/Character.gd" id="1"]
+[ext_resource type="PackedScene" uid="uid://m5ln1h6ie5s2" path="res://assets/characters/human/human_base.fbx" id="2"]
+[ext_resource type="PackedScene" uid="uid://bg3qmgxggldke" path="res://assets/characters/human/anim_run.fbx" id="3"]
+[ext_resource type="PackedScene" uid="uid://dtdvtljshisy4" path="res://assets/characters/human/anim_attack.fbx" id="4"]
+[ext_resource type="PackedScene" uid="uid://bp257q3iifirb" path="res://assets/characters/human/anim_cast.fbx" id="5"]
+
+[node name="Character" type="Node3D"]
+script = ExtResource("1")
+body_scene = ExtResource("2")
+run_scene = ExtResource("3")
+attack_scene = ExtResource("4")
+cast_scene = ExtResource("5")
+
+[node name="Model" type="Node3D" parent="."]
+
+[node name="AnimationTree" type="AnimationTree" parent="."]

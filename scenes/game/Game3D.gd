@@ -11,8 +11,10 @@ extends Node3D
 ## (_apply_day_night_preset/_animate_day_night/_update_celestial_lights), mort/respawn
 ## (%DeathPopup).
 ##
-## PAS dans ce prototype : groupe, sous-classe. Les entités restent de simples capsules
-## colorées — pas de rig/squelette/attach points d'équipement.
+## Les personnages (joueur + autres joueurs, kind="character") utilisent le rig Mixamo
+## (scenes/game/entities/Character.gd, voir _make_entity_node/CHARACTER_SCENE) : squelette,
+## animations idle/course/attaque/incantation. PNJ/monstres restent de simples capsules
+## colorées, faute de modèle dédié — pas encore d'attach points d'équipement (arme/armure).
 
 const WORLD_UP := Vector3.UP
 const DEFAULT_SPEED_TILES_PER_SEC := 2.4
@@ -43,6 +45,11 @@ const PLAYER_COLOR := Color(0.35, 0.65, 0.95)
 const OTHER_PLAYER_COLOR := Color(0.30, 0.80, 0.55)
 const MONSTER_COLOR := Color(0.85, 0.30, 0.28)
 const NPC_COLOR := Color(0.85, 0.75, 0.30)
+## Rig Mixamo partagé par tous les personnages (voir _make_entity_node) — un seul modèle pour
+## l'instant (assets/characters/human/), donc PLAYER_COLOR/OTHER_PLAYER_COLOR ne teintent plus
+## rien pour ces entités (le nom flottant/l'anneau de sélection suffisent à les distinguer),
+## seuls les monstres/PNJ (toujours des capsules) restent colorés.
+const CHARACTER_SCENE := preload("res://scenes/game/entities/Character.tscn")
 ## Bleu façon "portail d'énergie" (au lieu du violet précédent) — voir _make_portal_node,
 ## qui recouvre désormais l'ancien disque plat au sol d'un anneau vertical + tourbillon
 ## animé, demande explicite du 2026-09-06 pour se rapprocher d'un portail bleu tourbillonnant
@@ -615,11 +622,13 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 			_moving[PLAYER_KEY] = {"target": target}
 			_entity_speed_by_key[PLAYER_KEY] = _player_speed()
 			_face_heading(_player_node, float(payload.get("heading", 0.0)))
+			_play_body_state(_player_node, Character.RUN_ANIM)
 			_show_move_marker(Vector2(target.x, target.z))
 		"MovementFinished", "MovementStopped", "MovementBlockedByBounds":
 			_moving.erase(PLAYER_KEY)
 			_ensure_player_node()
 			_player_node.position = Vector3(payload.get("x", 0.0), 0.0, payload.get("y", 0.0))
+			_play_body_state(_player_node, Character.IDLE_ANIM)
 			_hide_move_marker()
 		"NoPathToDestination":
 			_hide_move_marker()
@@ -639,6 +648,7 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 				_register_entity_id(key, character_id)
 				_face_heading(node, float(payload.get("heading", 0.0)))
 				_moving[key] = {"target": Vector3(payload.get("targetX", 0.0), 0.0, payload.get("targetY", 0.0))}
+				_play_body_state(node, Character.RUN_ANIM)
 				if not _entity_speed_by_key.has(key):
 					_entity_speed_by_key[key] = DEFAULT_SPEED_TILES_PER_SEC
 		"CharacterMovementFinished", "CharacterMovementStopped", "CharacterMovementBlocked":
@@ -649,6 +659,7 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 				_moving.erase(key2)
 				var node2 := _ensure_entity_node(key2, entity_name2, OTHER_PLAYER_COLOR)
 				node2.position = Vector3(payload.get("x", 0.0), 0.0, payload.get("y", 0.0))
+				_play_body_state(node2, Character.IDLE_ANIM)
 		"EntityAppeared":
 			for entry in payload.get("entities", []):
 				_apply_appeared_entity(entry)
@@ -724,14 +735,17 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 			_ensure_player_node()
 			var used_color := SOULSHOT_GLOW_COLOR if str(payload.get("shotType", "")) == "SOULSHOT" else SPIRITSHOT_GLOW_COLOR
 			_flash_entity(_player_node, used_color, SHOT_GLOW_UP_DURATION, SHOT_GLOW_DOWN_DURATION)
+			_play_body_action(_player_node, Character.ATTACK_ANIM)
 		"SoulshotUsed":
 			var soulshot_node := _entity_node_by_id(str(payload.get("characterId", "")))
 			if soulshot_node != null:
 				_flash_entity(soulshot_node, SOULSHOT_GLOW_COLOR, SHOT_GLOW_UP_DURATION, SHOT_GLOW_DOWN_DURATION)
+				_play_body_action(soulshot_node, Character.ATTACK_ANIM)
 		"SpiritshotUsed":
 			var spiritshot_node := _entity_node_by_id(str(payload.get("characterId", "")))
 			if spiritshot_node != null:
 				_flash_entity(spiritshot_node, SPIRITSHOT_GLOW_COLOR, SHOT_GLOW_UP_DURATION, SHOT_GLOW_DOWN_DURATION)
+				_play_body_action(spiritshot_node, Character.ATTACK_ANIM)
 		"ShotGradeChanged":
 			var sg_label := "Soulshot" if str(payload.get("shotType", "")) == "SOULSHOT" else "Spiritshot"
 			var sg_grade = payload.get("grade")
@@ -1744,29 +1758,33 @@ func _ensure_player_node() -> void:
 		return
 	var player_name := str(GameState.player_stats.get("name", "Vous"))
 	# pickable = false : on ne se sélectionne pas soi-même (voir _make_entity_node/
-	# _pick_entity_id_at_mouse — aucune PickArea créée pour cette capsule).
-	_player_node = _make_entity_node(player_name, PLAYER_COLOR, false)
+	# _pick_entity_id_at_mouse — aucune PickArea créée pour ce nœud). humanoid = true : le
+	# joueur est toujours un personnage (rig Mixamo), jamais un monstre/PNJ.
+	_player_node = _make_entity_node(player_name, PLAYER_COLOR, false, true)
 	_set_entity_title(_player_node, _extract_title(GameState.player_stats))
 	_entities_root.add_child(_player_node)
 	_entities_by_key[PLAYER_KEY] = _player_node
 	_ensure_bars(PLAYER_KEY)
 
 
+## `key` porte déjà le "kind" serveur en préfixe ("character:"/"monster:"/"npc:", voir
+## _apply_appeared_entity et les gestionnaires Character/MovementStarted) : un personnage a
+## toujours le rig Mixamo, monstre/PNJ restent des capsules faute de modèle dédié.
 func _ensure_entity_node(key: String, entity_name: String, color: Color) -> Node3D:
 	if _entities_by_key.has(key):
 		return _entities_by_key[key]
-	var node := _make_entity_node(entity_name, color, true)
+	var node := _make_entity_node(entity_name, color, true, key.begins_with("character:"))
 	_entities_root.add_child(node)
 	_entities_by_key[key] = node
 	_ensure_bars(key)
 	return node
 
 
-## Capsule colorée + nom flottant (Label3D, toujours face caméra) — pas d'art directionnel
-## disponible pour ce prototype, contrairement au client 2D qui a au moins des portraits ;
-## ce sera le premier axe à enrichir (rig + squelette + attach points d'équipement) une
-## fois la direction 3D validée.
-func _make_entity_node(entity_name: String, color: Color, pickable: bool) -> Node3D:
+## `humanoid` : rig Mixamo (voir CHARACTER_SCENE/Character.gd — squelette, animations, futur
+## attach point d'équipement) pour les personnages joueurs ; sinon capsule colorée pour les
+## monstres/PNJ, faute de modèle dédié. `color` est ignoré quand humanoid=true (le mesh importé
+## porte ses propres matériaux) — seul le nom flottant/l'anneau de sélection les distingue.
+func _make_entity_node(entity_name: String, color: Color, pickable: bool, humanoid: bool = false) -> Node3D:
 	var root := Node3D.new()
 	root.name = entity_name if not entity_name.is_empty() else "Entity"
 	# Godot renomme silencieusement les nœuds enfants homonymes (ex. "Fox" -> "Fox2") pour
@@ -1775,32 +1793,44 @@ func _make_entity_node(entity_name: String, color: Color, pickable: bool) -> Nod
 	# plusieurs monstres homonymes présents — meta séparée, jamais réécrite par le moteur.
 	root.set_meta("entity_name", entity_name)
 
-	var body := MeshInstance3D.new()
+	# Gabarit de la zone cliquable (voir plus bas) — repris de l'ancienne capsule visuelle même
+	# pour un rig Mixamo (~1.75 unité de haut, mesuré sur assets/characters/human/human_base.fbx) :
+	# juste une approximation de silhouette humaine, pas besoin de coller au mesh réel.
+	const PICK_RADIUS := 0.35
+	const PICK_HEIGHT := 1.6
+	const PICK_OFFSET := Vector3(0.0, 0.8, 0.0)
+
+	var body: Node3D
+	if humanoid:
+		body = CHARACTER_SCENE.instantiate()
+	else:
+		var mesh_instance := MeshInstance3D.new()
+		var capsule := CapsuleMesh.new()
+		capsule.radius = PICK_RADIUS
+		capsule.height = PICK_HEIGHT
+		var mat := StandardMaterial3D.new()
+		mat.albedo_color = color
+		capsule.material = mat
+		mesh_instance.mesh = capsule
+		mesh_instance.position = PICK_OFFSET
+		body = mesh_instance
 	body.name = "Body"
-	var capsule := CapsuleMesh.new()
-	capsule.radius = 0.35
-	capsule.height = 1.6
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = color
-	capsule.material = mat
-	body.mesh = capsule
-	body.position = Vector3(0.0, 0.8, 0.0)
 	root.add_child(body)
 
 	if pickable:
-		# Zone de collision calquée exactement sur la capsule visuelle (même rayon/hauteur,
-		# même décalage vertical) : voir _pick_entity_id_at_mouse pour la requête qui la
-		# vise. L'UUID réseau à sélectionner (voir _register_entity_id) est lu directement
-		# sur `root` via sa meta "entity_id", pas sur cette zone elle-même.
+		# Zone de collision calquée sur le gabarit ci-dessus (voir PICK_RADIUS/PICK_HEIGHT/
+		# PICK_OFFSET) : voir _pick_entity_id_at_mouse pour la requête qui la vise. L'UUID
+		# réseau à sélectionner (voir _register_entity_id) est lu directement sur `root` via sa
+		# meta "entity_id", pas sur cette zone elle-même.
 		var pick_area := Area3D.new()
 		pick_area.name = "PickArea"
 		pick_area.collision_layer = ENTITY_PICK_COLLISION_LAYER
 		pick_area.collision_mask = 0
-		pick_area.position = body.position
+		pick_area.position = PICK_OFFSET
 		var pick_shape := CollisionShape3D.new()
 		var capsule_shape := CapsuleShape3D.new()
-		capsule_shape.radius = capsule.radius
-		capsule_shape.height = capsule.height
+		capsule_shape.radius = PICK_RADIUS
+		capsule_shape.height = PICK_HEIGHT
 		pick_shape.shape = capsule_shape
 		pick_area.add_child(pick_shape)
 		root.add_child(pick_area)
@@ -1951,6 +1981,27 @@ func _face_heading(node: Node3D, heading: float) -> void:
 	if target.is_equal_approx(node.position):
 		return
 	node.look_at(target, WORLD_UP)
+
+
+## No-op pour un monstre/PNJ (capsule, pas de rig) : évite un `if` dupliqué à chaque appelant.
+func _play_body_state(node: Node3D, state_name: String) -> void:
+	if node == null:
+		return
+	var body := node.get_node_or_null("Body")
+	if body is Character:
+		body.play_state(state_name)
+
+
+## Comme _play_body_state, mais pour un état ponctuel (attaque/incantation) : revient
+## automatiquement à idle une fois le clip terminé (voir Character.play_transient_state) — on
+## ne suit pas ici si l'entité est en train de bouger, un léger figeage en idle après une
+## attaque en marchant est un compromis acceptable pour cette première intégration.
+func _play_body_action(node: Node3D, action_state: String) -> void:
+	if node == null:
+		return
+	var body := node.get_node_or_null("Body")
+	if body is Character:
+		body.play_transient_state(action_state, Character.IDLE_ANIM)
 
 
 func _step_movement(delta: float) -> void:
@@ -2241,8 +2292,9 @@ func _on_skill_cast_started(payload: Dictionary) -> void:
 		state["wind_timer_ms"] = 0.0
 		state["skill_name"] = skill_name
 	_casting_by_key[key] = state
+	var caster_node: Node3D = _entities_by_key.get(key)
+	_play_body_state(caster_node, Character.CAST_ANIM)
 	if _skill_visual_kind(skill_name) == SkillVisualKind.HEAL:
-		var caster_node: Node3D = _entities_by_key.get(key)
 		if caster_node != null:
 			_play_heal_cast_effect(caster_node)
 
@@ -2251,6 +2303,8 @@ func _clear_casting(key: String) -> void:
 	if key.is_empty():
 		return
 	_casting_by_key.erase(key)
+	var node: Node3D = _entities_by_key.get(key)
+	_play_body_state(node, Character.RUN_ANIM if _moving.has(key) else Character.IDLE_ANIM)
 
 
 func _skill_visual_kind(skill_name: String) -> int:
