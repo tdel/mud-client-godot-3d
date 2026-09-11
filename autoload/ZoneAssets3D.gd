@@ -1,16 +1,22 @@
 extends Node
-## Équivalent 3D de ZoneAssets.gd (client 2D, res://autoload/ZoneAssets.gd) : parse les
-## mêmes fichiers .tmx (copiés du backend, res://data/maps/*.tmx) pour habiller
-## visuellement le sol, mais produit une texture de sol + une hauteur d'obstacle par case
-## plutôt qu'une TileMapLayer. Comme côté 2D, le walkable/non-walkable envoyé par le
-## serveur (MapView.grid.walkableRows) reste l'unique source de vérité pour les règles de
-## jeu : les fichiers Tiled locaux ne servent qu'à choisir la couleur/hauteur par case.
+## Terrain et cartes : depuis la migration vers l'éditeur Godot interne (les cartes sont
+## désormais des scènes res://scenes/maps/*.tscn contenant un GridMap peint avec
+## assets/terrain/terrain_library.res, voir tools/convert_tmx_to_scene.gd), ce fichier ne
+## garde que : (1) l'annuaire nom de carte -> chemin de scène, construit une fois au
+## démarrage en scannant scenes/maps/ (équivalent du _scan_map_files historique, qui
+## scannait des .tmx) et (2) les données de terrain encore utiles à Game3D après coup —
+## couleurs simplifiées pour la minimap (TERRAIN_COLORS) et hauteur d'obstacle
+## (TALL_OBSTACLE_TERRAINS) — le nom de terrain par case étant désormais lu en direct sur
+## le GridMap de la scène instanciée (voir Game3D._read_terrain_grid) plutôt que stocké ici.
+## Comme avant la migration, le walkable/non-walkable envoyé par le serveur
+## (MapView.grid.walkableRows) reste l'unique source de vérité pour les règles de jeu : les
+## scènes de carte ne servent qu'au rendu (sol, hauteur d'obstacle, lumières de nuit).
 ##
 ## Prototype : ce fichier ne fait QUE le rendu du sol/des obstacles. Combat, sorts,
 ## équipement visuel, animations ne sont pas dans le scope de ce prototype (voir
 ## scenes/game/Game3D.gd).
 
-const MAPS_DIR := "res://data/maps"
+const MAP_SCENES_DIR := "res://scenes/maps"
 const PX_PER_TILE := 4
 
 ## Couleurs de terrain — copiées telles quelles depuis ZoneAssets.gd (2D) pour rester
@@ -42,25 +48,28 @@ const TALL_OBSTACLE_TERRAINS := {
 	"mausoleum": true, "deadTree": true, "gate": true,
 }
 
-## map_name -> Array[Array[String]] (terrain par case, "" si inconnu)
-var _terrain_grid_by_map: Dictionary = {}
+## map_name (propriété "name" exportée par MapData.gd sur la racine de la scène) -> chemin
+## de la scène res://scenes/maps/*.tscn correspondante — voir _scan_map_scenes.
+var _map_scene_path_by_name: Dictionary = {}
 
 
 func _ready() -> void:
-	_scan_map_files()
+	_scan_map_scenes()
 
 
-func get_terrain_grid(map_name: String) -> Array:
-	return _terrain_grid_by_map.get(map_name, [])
+## Chemin de la scène convertie pour `map_name` (nom envoyé par le serveur dans
+## MapView.mapName), ou "" si aucune carte n'a été convertie sous ce nom — voir
+## Game3D._rebuild_map, qui instancie cette scène pour le rendu du sol.
+func get_map_scene_path(map_name: String) -> String:
+	return _map_scene_path_by_name.get(map_name, "")
 
 
-## Construit une texture de sol pour toute la carte (une passe, un seul quad à l'usage —
-## voir Game3D._rebuild_ground) : PX_PER_TILE x PX_PER_TILE pixels par case, coloré par
+## Construit une texture de sol simplifiée pour la minimap (une passe, un seul quad à
+## l'usage — voir Game3D._minimap) : PX_PER_TILE x PX_PER_TILE pixels par case, coloré par
 ## terrain connu ou par un fallback marche/bloqué déterminé par le grid serveur.
-func build_ground_texture(map_view_payload: Dictionary) -> ImageTexture:
-	var map_name: String = map_view_payload.get("mapName", "")
-	var terrain_grid: Array = get_terrain_grid(map_name)
-
+## `terrain_grid` (Array[Array[String]]) est lu par l'appelant sur le GridMap de la carte
+## tout juste instanciée, voir Game3D._read_terrain_grid.
+func build_ground_texture(map_view_payload: Dictionary, terrain_grid: Array) -> ImageTexture:
 	var grid: Dictionary = map_view_payload.get("grid", {})
 	var width: int = grid.get("width", 0)
 	var height: int = grid.get("height", 0)
@@ -98,17 +107,13 @@ func build_ground_texture(map_view_payload: Dictionary) -> ImageTexture:
 	return texture
 
 
-## Hauteur d'obstacle (mètres) pour une case non franchissable, ou 0.0 si franchissable —
-## Game3D construit un MultiMeshInstance3D de blocs à partir de cette info (voir
-## Game3D._rebuild_ground). Purement cosmétique : la vraie règle de collision reste
-## walkableRows côté serveur, jamais recalculée ici.
-func obstacle_height_for(map_name: String, x: int, y: int, walkable: bool) -> float:
+## Hauteur d'obstacle (mètres) pour une case non franchissable de terrain `terrain_name`,
+## ou 0.0 si franchissable — Game3D construit un MultiMeshInstance3D de blocs à partir de
+## cette info (voir Game3D._rebuild_obstacles). Purement cosmétique : la vraie règle de
+## collision reste walkableRows côté serveur, jamais recalculée ici.
+func obstacle_height_for(terrain_name: String, walkable: bool) -> float:
 	if walkable:
 		return 0.0
-	var terrain_grid: Array = get_terrain_grid(map_name)
-	var terrain_name := ""
-	if y < terrain_grid.size() and x < terrain_grid[y].size():
-		terrain_name = terrain_grid[y][x]
 	return 2.4 if TALL_OBSTACLE_TERRAINS.get(terrain_name, false) else 0.7
 
 
@@ -519,103 +524,35 @@ func _draw_options_icon(image: Image, size: int) -> void:
 				image.set_pixel(x, y, UI_ICON_IVORY)
 
 
-func _scan_map_files() -> void:
-	var dir := DirAccess.open(MAPS_DIR)
+## Scanne res://scenes/maps/*.tscn une fois au démarrage pour indexer chaque scène par sa
+## propriété `map_name` (exportée par MapData.gd sur la racine, voir
+## tools/convert_tmx_to_scene.gd) — équivalent du _scan_map_files historique, qui indexait
+## les .tmx par leur propriété Tiled "name". Instancie brièvement chaque scène pour lire
+## cette propriété puis la libère aussitôt : Game3D ne garde en mémoire que la carte
+## réellement affichée (voir Game3D._rebuild_map), pas les sept à la fois.
+func _scan_map_scenes() -> void:
+	var dir := DirAccess.open(MAP_SCENES_DIR)
 	if dir == null:
-		push_warning("ZoneAssets3D: dossier introuvable: %s" % MAPS_DIR)
+		push_warning("ZoneAssets3D: dossier introuvable: %s" % MAP_SCENES_DIR)
 		return
 	dir.list_dir_begin()
 	var file_name := dir.get_next()
 	while file_name != "":
-		if not dir.current_is_dir() and file_name.ends_with(".tmx"):
-			_parse_map_file(MAPS_DIR.path_join(file_name))
+		if not dir.current_is_dir() and file_name.ends_with(".tscn"):
+			_index_map_scene(MAP_SCENES_DIR.path_join(file_name))
 		file_name = dir.get_next()
 	dir.list_dir_end()
 
 
-## Parseur XML séquentiel identique à ZoneAssets._parse_map_file (voir ce fichier pour le
-## détail des conventions .tmx) — dupliqué plutôt que partagé pour garder ce prototype
-## dans un projet Godot totalement indépendant du client 2D, sans dépendance croisée.
-func _parse_map_file(path: String) -> void:
-	var xml := XMLParser.new()
-	if xml.open(path) != OK:
-		push_warning("ZoneAssets3D: lecture/XML invalide: %s" % path)
+func _index_map_scene(path: String) -> void:
+	var packed: PackedScene = load(path)
+	if packed == null:
+		push_warning("ZoneAssets3D: scène illisible: %s" % path)
 		return
-
-	var tag_stack: Array = []
-	var map_name := ""
-
-	var first_gid := 1
-	var seen_tileset := false
-	var current_tile_id := -1
-	var terrain_by_local_id: Dictionary = {}
-
-	var in_terrain_layer := false
-	var terrain_layer_width := 0
-	var terrain_layer_height := 0
-	var terrain_csv := ""
-
-	while xml.read() == OK:
-		var node_type := xml.get_node_type()
-		if node_type == XMLParser.NODE_ELEMENT:
-			var tag_name := xml.get_node_name()
-			var parent: String = tag_stack.back() if not tag_stack.is_empty() else ""
-
-			if tag_name == "tileset" and not seen_tileset and parent == "map":
-				seen_tileset = true
-				first_gid = int(xml.get_named_attribute_value_safe("firstgid"))
-			elif tag_name == "tile" and parent == "tileset":
-				current_tile_id = int(xml.get_named_attribute_value_safe("id"))
-			elif tag_name == "layer" and parent == "map":
-				var is_terrain := xml.get_named_attribute_value_safe("name") == "terrain"
-				in_terrain_layer = is_terrain
-				if is_terrain:
-					terrain_layer_width = int(xml.get_named_attribute_value_safe("width"))
-					terrain_layer_height = int(xml.get_named_attribute_value_safe("height"))
-					terrain_csv = ""
-			elif tag_name == "property":
-				var prop_name := xml.get_named_attribute_value_safe("name")
-				var prop_value := xml.get_named_attribute_value_safe("value")
-				if parent == "properties" and tag_stack.size() == 2 and tag_stack[0] == "map":
-					if prop_name == "name":
-						map_name = prop_value
-				elif prop_name == "terrain" and current_tile_id >= 0 and parent == "properties":
-					terrain_by_local_id[current_tile_id] = prop_value
-
-			if not xml.is_empty():
-				tag_stack.append(tag_name)
-		elif node_type == XMLParser.NODE_TEXT:
-			if in_terrain_layer:
-				terrain_csv += xml.get_node_data()
-		elif node_type == XMLParser.NODE_ELEMENT_END:
-			var closed_name := xml.get_node_name()
-			if closed_name == "tile":
-				current_tile_id = -1
-			elif closed_name == "layer":
-				in_terrain_layer = false
-			if not tag_stack.is_empty():
-				tag_stack.pop_back()
-
+	var root: Node3D = packed.instantiate()
+	var map_name: String = root.map_name
+	root.free()
 	if map_name.is_empty():
-		push_warning("ZoneAssets3D: pas de propriété 'name' dans %s" % path)
+		push_warning("ZoneAssets3D: pas de map_name dans %s" % path)
 		return
-
-	var terrain_grid: Array = []
-	if terrain_layer_width > 0 and terrain_layer_height > 0:
-		var gids := PackedInt64Array()
-		for token in terrain_csv.split(","):
-			var trimmed := token.strip_edges()
-			if not trimmed.is_empty():
-				gids.append(int(trimmed))
-		for y in terrain_layer_height:
-			var row: Array = []
-			for x in terrain_layer_width:
-				var index := y * terrain_layer_width + x
-				var gid: int = gids[index] if index < gids.size() else 0
-				var terrain := ""
-				if gid > 0:
-					terrain = terrain_by_local_id.get(gid - first_gid, "")
-				row.append(terrain)
-			terrain_grid.append(row)
-
-	_terrain_grid_by_map[map_name] = terrain_grid
+	_map_scene_path_by_name[map_name] = path

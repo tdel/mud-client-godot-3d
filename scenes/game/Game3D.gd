@@ -301,7 +301,7 @@ const HEAL_TARGET_EFFECT_DURATION := 2.6
 const HEAL_TARGET_PARTICLE_AMOUNT := 30
 
 @onready var _world: Node3D = $World
-@onready var _ground: MeshInstance3D = $World/Ground
+@onready var _map_scene_root: Node3D = $World/MapScene
 @onready var _obstacles: MultiMeshInstance3D = $World/Obstacles
 @onready var _entities_root: Node3D = $World/Entities
 @onready var _camera_rig: Node3D = $CameraRig
@@ -356,6 +356,11 @@ var _current_map_name := ""
 var _map_width := 0
 var _map_height := 0
 var _walkable_rows: Array = []
+## Nom de terrain par case de la carte courante (Array[Array[String]]), lu sur le GridMap
+## "Terrain" de la scène instanciée dans _map_scene_root — voir _read_terrain_grid.
+## Alimente le rendu de la minimap et le choix de hauteur des obstacles/lumières de nuit ;
+## la marchabilité réelle reste dans _walkable_rows (source de vérité : le serveur).
+var _terrain_grid: Array = []
 
 ## Toutes les entités (joueur compris, sous la clé PLAYER_KEY) sont traitées de façon
 ## générique par _step_movement : key -> Node3D / {"target": Vector3} / vitesse (tuiles/s).
@@ -931,16 +936,20 @@ func _rebuild_map(payload: Dictionary) -> void:
 	_clear_entities()
 	_hide_move_marker()
 
-	var texture := ZoneAssets3D.build_ground_texture(payload)
-	var plane := PlaneMesh.new()
-	plane.size = Vector2(maxf(_map_width, 1.0), maxf(_map_height, 1.0))
-	var ground_mat := StandardMaterial3D.new()
-	ground_mat.albedo_texture = texture
-	ground_mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
-	ground_mat.roughness = 0.95
-	plane.material = ground_mat
-	_ground.mesh = plane
-	_ground.position = Vector3(_map_width / 2.0, 0.0, _map_height / 2.0)
+	for child in _map_scene_root.get_children():
+		child.queue_free()
+
+	var scene_path := ZoneAssets3D.get_map_scene_path(_current_map_name)
+	var grid_map: GridMap = null
+	if scene_path.is_empty():
+		push_warning("Game3D: aucune scène convertie pour la carte '%s'" % _current_map_name)
+	else:
+		var map_instance: Node3D = load(scene_path).instantiate()
+		_map_scene_root.add_child(map_instance)
+		grid_map = map_instance.get_node("Terrain")
+	_terrain_grid = _read_terrain_grid(grid_map)
+
+	var texture := ZoneAssets3D.build_ground_texture(payload, _terrain_grid)
 
 	_rebuild_obstacles()
 	_clear_portals()
@@ -949,13 +958,37 @@ func _rebuild_map(payload: Dictionary) -> void:
 	_log("Carte : %s (%dx%d)" % [_current_map_name, _map_width, _map_height])
 
 
+## Nom de terrain par case (voir _terrain_grid) lu directement sur le GridMap de la scène
+## de carte tout juste instanciée — remplace l'ancien ZoneAssets3D.get_terrain_grid, qui
+## lisait un dictionnaire construit une fois au démarrage depuis les .tmx. `grid_map` est
+## null quand aucune scène n'a été trouvée pour la carte (voir _rebuild_map) : renvoie
+## alors une grille de "" (fallback marche/bloqué déjà géré par build_ground_texture et
+## obstacle_height_for dans ce cas).
+func _read_terrain_grid(grid_map: GridMap) -> Array:
+	var terrain_grid: Array = []
+	var mesh_library: MeshLibrary = grid_map.mesh_library if grid_map != null else null
+	for y in _map_height:
+		var row: Array = []
+		for x in _map_width:
+			var terrain_name := ""
+			if grid_map != null:
+				var item_id := grid_map.get_cell_item(Vector3i(x, 0, y))
+				if item_id != GridMap.INVALID_CELL_ITEM and mesh_library != null:
+					terrain_name = mesh_library.get_item_name(item_id)
+			row.append(terrain_name)
+		terrain_grid.append(row)
+	return terrain_grid
+
+
 func _rebuild_obstacles() -> void:
 	var transforms: Array[Transform3D] = []
 	for y in _map_height:
 		var row: String = _walkable_rows[y] if y < _walkable_rows.size() else ""
+		var terrain_row: Array = _terrain_grid[y] if y < _terrain_grid.size() else []
 		for x in _map_width:
 			var walkable: bool = x < row.length() and row[x] == "1"
-			var height := ZoneAssets3D.obstacle_height_for(_current_map_name, x, y, walkable)
+			var terrain_name: String = terrain_row[x] if x < terrain_row.size() else ""
+			var height := ZoneAssets3D.obstacle_height_for(terrain_name, walkable)
 			if height <= 0.0:
 				continue
 			var obstacle_basis := Basis().scaled(Vector3(0.94, height, 0.94))
@@ -991,10 +1024,9 @@ func _rebuild_night_lights() -> void:
 	for child in _night_lights.get_children():
 		child.queue_free()
 
-	var terrain_grid: Array = ZoneAssets3D.get_terrain_grid(_current_map_name)
 	for terrain_name in LANDMARK_LIGHTS:
 		var props: Dictionary = LANDMARK_LIGHTS[terrain_name]
-		for cluster_center in _terrain_clusters(terrain_grid, terrain_name):
+		for cluster_center in _terrain_clusters(_terrain_grid, terrain_name):
 			var light := OmniLight3D.new()
 			light.light_color = props["color"]
 			light.omni_range = props["range"]
