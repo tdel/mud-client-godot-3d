@@ -69,21 +69,6 @@ current = true
 
 [node name="Minimap" parent="HUD" instance=ExtResource("12")]
 
-[node name="HintLabel" type="Label" parent="HUD"]
-unique_name_in_owner = true
-anchor_left = 1.0
-anchor_right = 1.0
-offset_left = -420.0
-offset_top = 252.0
-offset_right = -16.0
-offset_bottom = 368.0
-horizontal_alignment = 2
-autowrap_mode = 3
-text = "Clic gauche : se déplacer / sélectionner
-Clic droit sur un portail/PNJ sélectionné : menu (Parler/Boutique) — clic droit maintenu : tourner la caméra
-Molette : zoom — Échap : fermer une fenêtre/désélectionner — Tab : cibler
-K : sorts — I : sac — P : personnage — O : équipement — Entrée : discuter"
-
 [node name="ChatLogPanel" type="Control" parent="HUD"]
 anchor_top = 1.0
 anchor_bottom = 1.0

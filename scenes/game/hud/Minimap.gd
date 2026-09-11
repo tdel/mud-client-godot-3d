@@ -91,6 +91,7 @@ void fragment() {
 @onready var _entity_dots: Control = %EntityDots
 @onready var _map_name_label: Label = %MapNameLabel
 @onready var _coords_label: Label = %CoordsLabel
+@onready var _time_label: Label = %TimeLabel
 
 var _player_tile_pos := Vector2.ZERO
 var _monster_tile_positions: Array[Vector2] = []
@@ -151,6 +152,14 @@ func set_player_tile_position(x: float, z: float) -> void:
 	_coords_label.text = "%.1f, %.1f" % [x, z]
 	_player_tile_pos = Vector2(x, z)
 	_entity_dots.queue_redraw()
+
+
+## Appelé par Game3D._update_minimap à chaque frame avec l'horloge in-game continue (voir
+## Game3D._game_minutes_of_day/_advance_day_night_clock) — affichée à côté des coordonnées
+## plutôt que dans un label séparé pour rester dans le même bloc d'infos compact sous le disque.
+func set_game_time(minutes_of_day: float) -> void:
+	var total_minutes := int(minutes_of_day)
+	_time_label.text = "%02d:%02d" % [total_minutes / 60, total_minutes % 60]
 
 
 ## Appelé par Game3D._update_minimap à chaque frame avec les monstres/PNJ/autres joueurs

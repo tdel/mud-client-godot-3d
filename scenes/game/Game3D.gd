@@ -2004,6 +2004,17 @@ func _play_body_action(node: Node3D, action_state: String) -> void:
 		body.play_transient_state(action_state, Character.IDLE_ANIM)
 
 
+## Comme _play_body_state, mais spécifiquement pour l'incantation (voir Character.play_cast) :
+## cale la durée de lecture du clip CAST_ANIM sur duration_sec (castingTimeMs serveur) au lieu
+## de sa durée native — no-op silencieux pour une entité sans rig (capsule).
+func _play_body_cast(node: Node3D, duration_sec: float) -> void:
+	if node == null:
+		return
+	var body := node.get_node_or_null("Body")
+	if body is Character:
+		body.play_cast(duration_sec)
+
+
 func _step_movement(delta: float) -> void:
 	for key in _moving.keys().duplicate():
 		var node: Node3D = _entities_by_key.get(key)
@@ -2293,7 +2304,7 @@ func _on_skill_cast_started(payload: Dictionary) -> void:
 		state["skill_name"] = skill_name
 	_casting_by_key[key] = state
 	var caster_node: Node3D = _entities_by_key.get(key)
-	_play_body_state(caster_node, Character.CAST_ANIM)
+	_play_body_cast(caster_node, total_ms / 1000.0)
 	if _skill_visual_kind(skill_name) == SkillVisualKind.HEAL:
 		if caster_node != null:
 			_play_heal_cast_effect(caster_node)
@@ -2769,6 +2780,7 @@ func _make_selection_ring() -> void:
 func _update_minimap() -> void:
 	if _player_node != null:
 		_minimap.set_player_tile_position(_player_node.position.x, _player_node.position.z)
+	_minimap.set_game_time(_game_minutes_of_day)
 	var selected_key: String = _key_by_entity_id.get(_selected_target_id, "")
 	var party_member_ids: Dictionary = GameState.party.get("members", {})
 	var monster_tile_positions: Array[Vector2] = []

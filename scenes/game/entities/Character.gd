@@ -62,6 +62,7 @@ func _instance_model() -> void:
 	_import_animation(ATTACK_ANIM, attack_scene, false)
 	_import_animation(CAST_ANIM, cast_scene, true)
 	_setup_animation_tree()
+	_setup_root_motion()
 	_setup_weapon_attachment()
 
 
@@ -126,6 +127,29 @@ func _setup_animation_tree() -> void:
 		playback.start(IDLE_ANIM)
 
 
+## Les clips Mixamo "run"/"walk" embarquent le déplacement dans la piste de position du bone
+## Hips (le personnage avance déjà "tout seul" dans l'animation) — or c'est déjà le script
+## (Game3D._advance_positions, move_toward sur le speed serveur) qui déplace le node racine :
+## sans ceci les deux se cumulent et le perso semble avancer bien plus vite que speed. En
+## déclarant cette piste comme root_motion_track, l'AnimationMixer la retire de la pose jouée
+## (le clip tourne "sur place") au lieu de l'appliquer au bone — on n'a pas besoin de récupérer
+## le delta puisque c'est déjà le script qui pilote la translation.
+func _setup_root_motion() -> void:
+	if _animation_player == null or _animation_tree == null:
+		return
+	for anim_name in [RUN_ANIM, IDLE_ANIM]:
+		if not _animation_player.has_animation(anim_name):
+			continue
+		var anim := _animation_player.get_animation(anim_name)
+		for i in anim.get_track_count():
+			if anim.track_get_type(i) != Animation.TYPE_POSITION_3D:
+				continue
+			var path := anim.track_get_path(i)
+			if str(path).findn("Hips") != -1:
+				_animation_tree.root_motion_track = path
+				return
+
+
 ## Joue la transition idle/course/attaque/incantation — nom d'état = nom de clip (voir
 ## _setup_animation_tree) ; no-op silencieux si le clip n'a pas été importé (modèle partiel).
 func play_state(state_name: String) -> void:
@@ -134,8 +158,33 @@ func play_state(state_name: String) -> void:
 	var state_machine := _animation_tree.tree_root as AnimationNodeStateMachine
 	if not state_machine.has_node(state_name):
 		return
+	if not _animation_tree.active:
+		# Sortie de play_cast (voir plus bas) : l'AnimationPlayer a été piloté directement le
+		# temps du cast, en dehors de l'AnimationTree — on rend la main à la state machine.
+		_animation_player.speed_scale = 1.0
+		_animation_tree.active = true
 	var playback: AnimationNodeStateMachinePlayback = _animation_tree.get("parameters/playback")
 	playback.travel(state_name)
+
+
+## Comme play_state(CAST_ANIM), mais avec la vitesse de lecture ajustée pour que la durée du
+## clip corresponde exactement à duration_sec (temps de cast serveur, voir
+## Game3D._on_skill_cast_started) plutôt que sa durée native — avant ce changement le clip
+## rejouait en boucle à vitesse native, désynchronisé du temps de cast réel. La state machine
+## (AnimationNodeStateMachinePlayback) n'expose pas de contrôle de vitesse par état : on sort
+## temporairement l'AnimationTree du jeu (active=false) pour piloter _animation_player en
+## direct, seul moyen simple d'accélérer/ralentir CE clip sans toucher idle/run/attack. play_state
+## (appelé par Game3D._clear_casting à la fin du cast) réactive l'AnimationTree ensuite.
+func play_cast(duration_sec: float) -> void:
+	if _animation_player == null or not _animation_player.has_animation(CAST_ANIM):
+		return
+	if duration_sec <= 0.0:
+		play_state(CAST_ANIM)
+		return
+	var natural_length := _animation_player.get_animation(CAST_ANIM).length
+	_animation_tree.active = false
+	_animation_player.speed_scale = natural_length / duration_sec if natural_length > 0.0 else 1.0
+	_animation_player.play(CAST_ANIM)
 
 
 ## Comme play_state, mais pour un clip non bouclé (attaque) : revient automatiquement à

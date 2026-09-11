@@ -14,5 +14,6 @@ attack_scene = ExtResource("4")
 cast_scene = ExtResource("5")
 
 [node name="Model" type="Node3D" parent="."]
+rotation_degrees = Vector3(0, 180, 0)
 
 [node name="AnimationTree" type="AnimationTree" parent="."]

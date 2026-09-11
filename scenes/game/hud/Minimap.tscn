@@ -83,11 +83,24 @@ theme_override_colors/font_color = Color(0.88, 0.74, 0.44, 1)
 theme_override_font_sizes/font_size = 14
 text = "Carte"
 
-[node name="CoordsLabel" type="Label" parent="VBox"]
+[node name="InfoRow" type="HBoxContainer" parent="VBox"]
+layout_mode = 2
+mouse_filter = 2
+alignment = 1
+theme_override_constants/separation = 10
+
+[node name="CoordsLabel" type="Label" parent="VBox/InfoRow"]
 unique_name_in_owner = true
 layout_mode = 2
 mouse_filter = 2
-horizontal_alignment = 1
 theme_override_colors/font_color = Color(0.75, 0.70, 0.60, 1)
 theme_override_font_sizes/font_size = 12
 text = "0.0, 0.0"
+
+[node name="TimeLabel" type="Label" parent="VBox/InfoRow"]
+unique_name_in_owner = true
+layout_mode = 2
+mouse_filter = 2
+theme_override_colors/font_color = Color(0.75, 0.70, 0.60, 1)
+theme_override_font_sizes/font_size = 12
+text = "00:00"
