@@ -39,7 +39,7 @@ static func build(item: Dictionary, footer_lines: Array = []) -> String:
 	if not type_line.is_empty():
 		lines.append("[color=#%s]%s[/color]" % [UITheme.TEXT_DIM.to_html(false), type_line])
 
-	if type_key == "SOULSHOT" or type_key == "SPIRITSHOT":
+	if type_key in ["SOULSHOT", "SPIRITSHOT", "POTION"]:
 		lines.append(UITheme.tooltip_stat("Quantité :", UITheme.format_number(int(item.get("quantity", 1)))))
 
 	for entry in STAT_LINES:

@@ -11,10 +11,11 @@ extends Node3D
 ## (_apply_day_night_preset/_animate_day_night/_update_celestial_lights), mort/respawn
 ## (%DeathPopup).
 ##
-## Les personnages (joueur + autres joueurs, kind="character") utilisent le rig Mixamo
-## (scenes/game/entities/Character.gd, voir _make_entity_node/CHARACTER_SCENE) : squelette,
-## animations idle/course/attaque/incantation. PNJ/monstres restent de simples capsules
-## colorées, faute de modèle dédié — pas encore d'attach points d'équipement (arme/armure).
+## Les personnages (joueur + autres joueurs, kind="character") utilisent le mannequin low-poly
+## homme/femme (scenes/game/entities/Character.gd, voir _make_entity_node/CHARACTER_SCENE) :
+## animations idle/course/attaque 1 ou 2 mains/incantation/lancer/mort, équipement porté
+## visible (voir _apply_player_equipment). PNJ/monstres restent de simples capsules colorées,
+## faute de modèle dédié.
 
 const WORLD_UP := Vector3.UP
 const DEFAULT_SPEED_TILES_PER_SEC := 2.4
@@ -45,9 +46,9 @@ const PLAYER_COLOR := Color(0.35, 0.65, 0.95)
 const OTHER_PLAYER_COLOR := Color(0.30, 0.80, 0.55)
 const MONSTER_COLOR := Color(0.85, 0.30, 0.28)
 const NPC_COLOR := Color(0.85, 0.75, 0.30)
-## Rig Mixamo partagé par tous les personnages (voir _make_entity_node) — un seul modèle pour
-## l'instant (assets/characters/human/), donc PLAYER_COLOR/OTHER_PLAYER_COLOR ne teintent plus
-## rien pour ces entités (le nom flottant/l'anneau de sélection suffisent à les distinguer),
+## Mannequin partagé par tous les personnages (voir _make_entity_node, modèles générés par
+## tools/character_gen/build_characters.py), donc PLAYER_COLOR/OTHER_PLAYER_COLOR ne teintent
+## plus rien pour ces entités (le nom flottant/l'anneau de sélection suffisent à les distinguer),
 ## seuls les monstres/PNJ (toujours des capsules) restent colorés.
 const CHARACTER_SCENE := preload("res://scenes/game/entities/Character.tscn")
 ## Bleu façon "portail d'énergie" (au lieu du violet précédent) — voir _make_portal_node,
@@ -240,67 +241,10 @@ const MONSTER_DEATH_GREY_DELAY := 0.5
 const MONSTER_DEATH_FADE_DURATION := 0.6
 const MONSTER_DEATH_GREY_COLOR := Color(0.42, 0.42, 0.42)
 
-## Catégorie visuelle par sort (voir _play_skill_animation/_play_skill_projectile). Le
-## protocole ne transmet ni élément ni type de dégât en détail — voir le catalogue
-## mud-server-java/src/main/resources/data/skills/skills.json ; un sort absent de cette
-## table retombe sur un projectile arcane neutre. Couleurs unies plutôt que textures (pas
-## d'art directionnel disponible dans ce prototype, voir _make_entity_node).
-enum SkillVisualKind { FIRE, FROST, STORM, HOLY, DARK, ARCANE, HEAL, BUFF, DEBUFF }
-const SKILL_VISUAL_KIND_DEFAULT := SkillVisualKind.ARCANE
-const SKILL_VISUAL_KIND_BY_NAME := {
-	"Flame Strike": SkillVisualKind.FIRE, "Prominence": SkillVisualKind.FIRE,
-	"Aqua Strike": SkillVisualKind.FROST,
-	"Wind Strike": SkillVisualKind.STORM, "Twister": SkillVisualKind.STORM,
-	"Solar Strike": SkillVisualKind.HOLY,
-	"Death Spike": SkillVisualKind.DARK,
-	"Heal": SkillVisualKind.HEAL, "Mass Heal": SkillVisualKind.HEAL,
-	"Might": SkillVisualKind.BUFF, "Focus": SkillVisualKind.BUFF, "Empower": SkillVisualKind.BUFF,
-	"Rage": SkillVisualKind.BUFF, "Guidance": SkillVisualKind.BUFF, "Bulwark": SkillVisualKind.BUFF,
-	"Curse: Doom": SkillVisualKind.DEBUFF, "Curse: Weakness": SkillVisualKind.DEBUFF,
-}
-const SKILL_VISUAL_COLOR_BY_KIND := {
-	SkillVisualKind.FIRE: Color(1.0, 0.55, 0.25),
-	SkillVisualKind.FROST: Color(0.55, 0.85, 1.0),
-	SkillVisualKind.STORM: Color(1.0, 0.92, 0.35),
-	SkillVisualKind.HOLY: Color(1.0, 0.97, 0.80),
-	SkillVisualKind.DARK: Color(0.45, 0.15, 0.55),
-	SkillVisualKind.ARCANE: Color(0.65, 0.55, 1.0),
-	# Jaune chaud (demande explicite du 2026-09-03, confirmée le 2026-09-06 pour les nouveaux
-	# effets dédiés — voir _play_heal_cast_effect/_play_heal_target_effect plus bas).
-	SkillVisualKind.HEAL: Color(1.0, 0.92, 0.35),
-	SkillVisualKind.BUFF: Color(1.0, 0.88, 0.45),
-	SkillVisualKind.DEBUFF: Color(0.55, 0.25, 0.75),
-}
-## Sorts à dégâts sans projectile (portée "toucher" côté backend) : flash direct plutôt
-## qu'un projectile lancé, voir _play_skill_animation.
+## Sorts à dégâts sans projectile (portée "toucher" côté backend) : impact direct de leur
+## élément sur la cible plutôt qu'un projectile lancé, voir _play_skill_animation. L'élément
+## (et donc la couleur/forme des effets) de chaque sort est défini dans SpellVfx.
 const NON_PROJECTILE_DAMAGE_SKILLS := ["Twister", "Prominence"]
-
-## Sorts affichant une petite animation pendant l'incantation elle-même (pas seulement à
-## l'impact, voir _play_skill_animation/_play_skill_projectile) — voir _spawn_wind_wisp,
-## déclenché depuis _advance_casting tant que le sort est dans _casting_by_key. Heal utilisait
-## ce même souffle tourbillonnant (recoloré en jaune) jusqu'au 2026-09-06, remplacé depuis par
-## un effet au sol dédié à l'entrée en incantation, voir _on_skill_cast_started/
-## _play_heal_cast_effect — Wind Strike reste seul ici.
-const WIND_CAST_ANIMATION_SKILLS := ["Wind Strike"]
-const WIND_WISP_SPAWN_INTERVAL_MS := 110.0
-const WIND_WISP_RISE_HEIGHT := 1.5
-const WIND_WISP_DURATION := 0.55
-const WIND_WISP_COLOR := Color(0.75, 0.95, 0.85, 0.65)
-## Rayon d'apparition des souffles autour du lanceur : au-delà du rayon de la capsule
-## (0.35, voir _make_entity_node) pour qu'ils l'entourent visiblement plutôt que de partir
-## de son centre (donc de sembler "passer à travers" le corps).
-const WIND_WISP_RADIUS_MIN := 0.45
-const WIND_WISP_RADIUS_MAX := 0.75
-const WIND_WISP_SIZE := Vector2(0.24, 0.5)
-
-## Effet de soin dédié (demande du 2026-09-06) — voir _play_heal_cast_effect (au sol, au début
-## de l'incantation) et _play_heal_target_effect (autour de la cible, à l'impact).
-const HEAL_CAST_BURST_LIFETIME := 0.9
-const HEAL_CAST_BURST_AMOUNT := 26
-const HEAL_CAST_FLARE_HEIGHT := 1.6
-const HEAL_CAST_FLARE_DURATION := 0.7
-const HEAL_TARGET_EFFECT_DURATION := 2.6
-const HEAL_TARGET_PARTICLE_AMOUNT := 30
 
 @onready var _world: Node3D = $World
 @onready var _map_scene_root: Node3D = $World/MapScene
@@ -381,6 +325,8 @@ var _entity_bars_by_key: Dictionary = {}
 ## {elapsed_ms, total_ms}. Alimenté par SkillCastStarted, vidé par SkillCastCancelled/
 ## SkillFizzled ou par expiration locale du délai (voir _process).
 var _casting_by_key: Dictionary = {}
+## Effets visuels des sorts (cercles d'incantation, projectiles, soins...), voir SpellVfx.
+var _spell_vfx: SpellVfx
 
 ## UUID de l'entité actuellement sélectionnée ("" si aucune) — seule source de vérité pour
 ## F1-F12 (Hotbar.gd envoie attack/cast sans UUID de cible, résolus côté serveur sur la
@@ -446,6 +392,9 @@ func _ready() -> void:
 	# Permet à Hotbar.gd (autre branche de l'arbre, sous HUD) de retrouver cette scène
 	# pour is_player_casting()/show_skill_range()/hide_skill_range().
 	add_to_group("game_root")
+	_spell_vfx = SpellVfx.new()
+	_spell_vfx.name = "SpellVfx"
+	_world.add_child(_spell_vfx)
 	Net.message_received.connect(_on_message_received)
 	Net.disconnected.connect(_on_net_disconnected)
 	_chat_input.text_submitted.connect(_on_chat_submitted)
@@ -482,6 +431,9 @@ func _ready() -> void:
 
 	Net.send_command("stats")
 	Net.send_command("skills")
+	# Équipement porté, pour l'habiller dès l'arrivée (voir _apply_player_equipment) — sinon
+	# il ne serait demandé qu'à l'ouverture de l'inventaire/de la fenêtre d'équipement.
+	Net.send_command("inventory")
 	# MapView/MapEnter/EntityAppeared sont poussés automatiquement par le serveur au spawn
 	# (character-select/create), mais peuvent être arrivés avant que cette scène n'existe
 	# (GameState les met en cache dès l'autoload) : on les rejoue ici si besoin. EntityAppeared
@@ -503,6 +455,8 @@ func _ready() -> void:
 	# mud-godot/scenes/game/Game.gd.
 	if GameState.is_dead:
 		_death_popup.open("")
+		_ensure_player_node()
+		_play_body_death(_player_node)
 
 
 func _process(delta: float) -> void:
@@ -599,6 +553,7 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 			_refresh_entities(payload)
 		"GamePlayerStats":
 			_ensure_player_node()
+			_set_body_gender(_player_node, str(payload.get("gender", "")))
 			_set_entity_label(_player_node, str(payload.get("name", "")))
 			_set_entity_title(_player_node, _extract_title(payload))
 			# Enregistre notre propre UUID sous PLAYER_KEY : sans ça, _apply_target_current_health
@@ -619,6 +574,8 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 				var node := _ensure_entity_node(key, joined_name, OTHER_PLAYER_COLOR)
 				node.position = Vector3(payload.get("x", 0.0), 0.0, payload.get("y", 0.0))
 				_register_entity_id(key, str(payload.get("characterId", "")))
+				# Retour d'un joueur mort (respawn = nouvelle entrée sur une carte) : on le relève.
+				_play_body_revive(node)
 				_log("%s rejoint la carte." % _bbcode_escape(joined_name))
 		"GamePlayerLeftMap", "GamePlayerDisconnected":
 			var left_name := str(payload.get("characterName", ""))
@@ -697,6 +654,12 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 				_clear_selection()
 			_log("[i]Cible introuvable.[/i]")
 		"AttackResult":
+			var attacker_node := _entity_node_by_id(str(payload.get("attackerId", "")))
+			# L'attaquant fait face à sa cible : heading calculé par le serveur (source de vérité,
+			# même valeur qu'EntityView pour les nouveaux arrivants).
+			if attacker_node != null and payload.has("attackerHeading"):
+				_face_heading(attacker_node, float(payload.get("attackerHeading", 0.0)))
+			_play_body_attack(attacker_node)
 			var attack_target_id := str(payload.get("targetId", ""))
 			_flash_entity_by_id(attack_target_id)
 			if bool(payload.get("hit", false)):
@@ -744,17 +707,14 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 			_ensure_player_node()
 			var used_color := SOULSHOT_GLOW_COLOR if str(payload.get("shotType", "")) == "SOULSHOT" else SPIRITSHOT_GLOW_COLOR
 			_flash_entity(_player_node, used_color, SHOT_GLOW_UP_DURATION, SHOT_GLOW_DOWN_DURATION)
-			_play_body_action(_player_node, Character.ATTACK_ANIM)
 		"SoulshotUsed":
 			var soulshot_node := _entity_node_by_id(str(payload.get("characterId", "")))
 			if soulshot_node != null:
 				_flash_entity(soulshot_node, SOULSHOT_GLOW_COLOR, SHOT_GLOW_UP_DURATION, SHOT_GLOW_DOWN_DURATION)
-				_play_body_action(soulshot_node, Character.ATTACK_ANIM)
 		"SpiritshotUsed":
 			var spiritshot_node := _entity_node_by_id(str(payload.get("characterId", "")))
 			if spiritshot_node != null:
 				_flash_entity(spiritshot_node, SPIRITSHOT_GLOW_COLOR, SHOT_GLOW_UP_DURATION, SHOT_GLOW_DOWN_DURATION)
-				_play_body_action(spiritshot_node, Character.ATTACK_ANIM)
 		"ShotGradeChanged":
 			var sg_label := "Soulshot" if str(payload.get("shotType", "")) == "SOULSHOT" else "Spiritshot"
 			var sg_grade = payload.get("grade")
@@ -808,8 +768,14 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 			# Réponse à "shop"/"buy" (voir %ShopWindow, qui réagit indépendamment au même
 			# message pour son propre panneau de confirmation — même principe que GameState/
 			# Game3D réagissant chacun à ShotGradeChanged sans se coordonner).
+			# Un achat stackable arrive en un message par pile touchée (quantity = exemplaires
+			# versés dans cette pile, voir InventorySystem.store côté backend).
+			var bought_quantity := int(payload.get("quantity", 1))
+			var bought_name := _bbcode_escape(str(payload.get("itemName", "?")))
+			if bought_quantity > 1:
+				bought_name = "%s x%d" % [bought_name, bought_quantity]
 			_log("[color=%s]Vous achetez : %s (%s or).[/color]" % [
-				LOG_COLOR_GAIN, _bbcode_escape(str(payload.get("itemName", "?"))), str(payload.get("price", 0)),
+				LOG_COLOR_GAIN, bought_name, str(payload.get("price", 0)),
 			])
 		"NotEnoughGold":
 			_log("[i]Pas assez d'or (%s requis).[/i]" % str(payload.get("price", 0)))
@@ -817,16 +783,28 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 			_log("[i]Cet objet n'est plus disponible chez ce marchand.[/i]")
 		"GamePlayerDefeated":
 			_log_player_defeated(payload)
+			_play_body_death(_character_node_by_name(str(payload.get("characterName", ""))))
 			if str(payload.get("characterName", "")) == str(GameState.player_stats.get("name", "")):
 				_death_popup.open(str(payload.get("killerName", "")))
 		"PlayerRespawned":
 			_log("Vous revenez à la vie.")
 			_death_popup.close()
+			_play_body_revive(_player_node)
 			var respawn_level := int(_entity_vitals_by_key.get(PLAYER_KEY, {}).get("level", 1))
 			_entity_vitals_by_key[PLAYER_KEY] = {
 				"current": int(payload.get("currentHealth", 0)), "max": int(payload.get("maxHealth", 0)),
 				"level": respawn_level,
 			}
+		"Inventory":
+			_apply_player_equipment(payload)
+		"CharacterAppearanceChanged":
+			# Un joueur à portée a équipé/retiré un objet (jamais nous : le serveur nous exclut,
+			# notre propre tenue suit l'Inventory).
+			_set_body_equipment(_entity_node_by_id(str(payload.get("characterId", ""))), payload.get("equipment", []))
+		"ItemEquipped", "ItemUnequipped":
+			# Ces deux messages ne portent que le nom de l'objet : on redemande l'inventaire
+			# complet (slot par objet) pour rhabiller le personnage — même geste qu'EquipmentWindow.
+			Net.send_command("inventory")
 		"CharacterIsDead":
 			_log("[i]Vous êtes mort — impossible tant que vous n'avez pas réapparu.[/i]")
 		"CharacterNotDead":
@@ -1761,6 +1739,11 @@ func _apply_appeared_entity(entry: Dictionary) -> void:
 	# Détermine si le clic droit propose le menu PNJ ("Parler"/"Boutique") du tout, voir
 	# _handle_right_click.
 	node.set_meta("kind", kind)
+	if kind == "character":
+		# EntityView.gender/equipment (backend, 2026-09-26) : bon mannequin, habillé. Mis à
+		# jour ensuite par CharacterAppearanceChanged.
+		_set_body_gender(node, str(entry.get("gender", "")))
+		_set_body_equipment(node, entry.get("equipment", []))
 	_register_entity_id(key, entity_id)
 	if entry.has("currentHealth") or entry.has("maxHealth"):
 		_entity_vitals_by_key[key] = {
@@ -1797,9 +1780,12 @@ func _ensure_player_node() -> void:
 	var player_name := str(GameState.player_stats.get("name", "Vous"))
 	# pickable = false : on ne se sélectionne pas soi-même (voir _make_entity_node/
 	# _pick_entity_id_at_mouse — aucune PickArea créée pour ce nœud). humanoid = true : le
-	# joueur est toujours un personnage (rig Mixamo), jamais un monstre/PNJ.
+	# joueur est toujours un personnage (mannequin), jamais un monstre/PNJ.
 	_player_node = _make_entity_node(player_name, PLAYER_COLOR, false, true)
 	_set_entity_title(_player_node, _extract_title(GameState.player_stats))
+	_set_body_gender(_player_node, str(GameState.player_stats.get("gender", "")))
+	if not GameState.inventory.is_empty():
+		_apply_player_equipment(GameState.inventory)
 	_entities_root.add_child(_player_node)
 	_entities_by_key[PLAYER_KEY] = _player_node
 	_ensure_bars(PLAYER_KEY)
@@ -1807,7 +1793,8 @@ func _ensure_player_node() -> void:
 
 ## `key` porte déjà le "kind" serveur en préfixe ("character:"/"monster:"/"npc:", voir
 ## _apply_appeared_entity et les gestionnaires Character/MovementStarted) : un personnage a
-## toujours le rig Mixamo, monstre/PNJ restent des capsules faute de modèle dédié.
+## toujours le mannequin (voir Character.gd), monstre/PNJ restent des capsules faute de modèle
+## dédié.
 func _ensure_entity_node(key: String, entity_name: String, color: Color) -> Node3D:
 	if _entities_by_key.has(key):
 		return _entities_by_key[key]
@@ -1818,8 +1805,8 @@ func _ensure_entity_node(key: String, entity_name: String, color: Color) -> Node
 	return node
 
 
-## `humanoid` : rig Mixamo (voir CHARACTER_SCENE/Character.gd — squelette, animations, futur
-## attach point d'équipement) pour les personnages joueurs ; sinon capsule colorée pour les
+## `humanoid` : mannequin (voir CHARACTER_SCENE/Character.gd — squelette, animations,
+## équipement visible) pour les personnages joueurs ; sinon capsule colorée pour les
 ## monstres/PNJ, faute de modèle dédié. `color` est ignoré quand humanoid=true (le mesh importé
 ## porte ses propres matériaux) — seul le nom flottant/l'anneau de sélection les distingue.
 func _make_entity_node(entity_name: String, color: Color, pickable: bool, humanoid: bool = false) -> Node3D:
@@ -1832,7 +1819,8 @@ func _make_entity_node(entity_name: String, color: Color, pickable: bool, humano
 	root.set_meta("entity_name", entity_name)
 
 	# Gabarit de la zone cliquable (voir plus bas) — repris de l'ancienne capsule visuelle même
-	# pour un rig Mixamo (~1.75 unité de haut, mesuré sur assets/characters/human/human_base.fbx) :
+	# pour le mannequin (1.78 unité de haut pour l'homme, 1.68 pour la femme, voir
+	# tools/character_gen/build_characters.py) :
 	# juste une approximation de silhouette humaine, pas besoin de coller au mesh réel.
 	const PICK_RADIUS := 0.35
 	const PICK_HEIGHT := 1.6
@@ -2042,21 +2030,78 @@ func _play_body_state(node: Node3D, state_name: String) -> void:
 		body.play_state(state_name)
 
 
-## Comme _play_body_state, mais pour un état ponctuel (attaque/incantation) : revient
-## automatiquement à idle une fois le clip terminé (voir Character.play_transient_state) — on
-## ne suit pas ici si l'entité est en train de bouger, un léger figeage en idle après une
-## attaque en marchant est un compromis acceptable pour cette première intégration.
-func _play_body_action(node: Node3D, action_state: String) -> void:
+## Rig du nœud d'entité `node` (null pour un monstre/PNJ, simple capsule) — évite un `if`
+## dupliqué dans chaque helper _play_body_* ci-dessous.
+func _character_body(node: Node3D) -> Character:
 	if node == null:
+		return null
+	return node.get_node_or_null("Body") as Character
+
+
+## Coup d'arme (AttackResult) : attack_1h ou attack_2h selon l'arme portée, puis retour seul
+## à l'état tenu (idle/course, voir Character.play_state).
+func _play_body_attack(node: Node3D) -> void:
+	var body := _character_body(node)
+	if body != null:
+		body.play_attack()
+
+
+## Geste de libération à la fin d'une incantation (voir _clear_casting).
+func _play_body_launch(node: Node3D) -> void:
+	var body := _character_body(node)
+	if body != null:
+		body.play_launch()
+
+
+## Chute au sol, figée jusqu'à _play_body_revive (PlayerRespawned pour nous, retour sur la
+## carte pour les autres — voir GamePlayerJoinedMap).
+func _play_body_death(node: Node3D) -> void:
+	var body := _character_body(node)
+	if body != null:
+		body.play_death()
+
+
+func _play_body_revive(node: Node3D) -> void:
+	var body := _character_body(node)
+	if body != null:
+		body.revive()
+
+
+## "man"/"woman" (GamePlayerStats.gender) ou "MAN"/"WOMAN" (EntityView.gender, autres joueurs).
+func _set_body_gender(node: Node3D, gender: String) -> void:
+	var body := _character_body(node)
+	if body != null and not gender.is_empty():
+		body.set_gender(gender)
+
+
+## Nœud d'un personnage par son nom (GamePlayerDefeated ne porte pas d'UUID) — nous-même
+## compris.
+func _character_node_by_name(character_name: String) -> Node3D:
+	if character_name.is_empty():
+		return null
+	if character_name == str(GameState.player_stats.get("name", "")):
+		return _player_node
+	return _entities_by_key.get("character:%s" % character_name)
+
+
+## Habille notre personnage d'après l'Inventory (objets dont `slot` est renseigné = portés,
+## voir EquipmentWindow._refresh).
+func _apply_player_equipment(inventory_payload: Dictionary) -> void:
+	_ensure_player_node()
+	_set_body_equipment(_player_node, inventory_payload.get("items", []))
+
+
+## `items` : entrées Inventory ou EquipmentView (voir Character.equipped_from_items).
+func _set_body_equipment(node: Node3D, items) -> void:
+	var body := _character_body(node)
+	if body == null or not items is Array:
 		return
-	var body := node.get_node_or_null("Body")
-	if body is Character:
-		body.play_transient_state(action_state, Character.IDLE_ANIM)
+	body.set_equipment(Character.equipped_from_items(items))
 
 
 ## Comme _play_body_state, mais spécifiquement pour l'incantation (voir Character.play_cast) :
-## cale la durée de lecture du clip CAST_ANIM sur duration_sec (castingTimeMs serveur) au lieu
-## de sa durée native — no-op silencieux pour une entité sans rig (capsule).
+## cale la vitesse du clip CAST_ANIM sur duration_sec (castingTimeMs serveur) plutôt que sa
+## vitesse native — no-op silencieux pour une entité sans rig (capsule).
 func _play_body_cast(node: Node3D, duration_sec: float) -> void:
 	if node == null:
 		return
@@ -2270,13 +2315,8 @@ func _advance_casting(delta: float) -> void:
 	for key in _casting_by_key.keys().duplicate():
 		var state: Dictionary = _casting_by_key[key]
 		state.elapsed_ms += delta * 1000.0
-		if state.has("wind_timer_ms"):
-			state.wind_timer_ms += delta * 1000.0
-			if state.wind_timer_ms >= WIND_WISP_SPAWN_INTERVAL_MS:
-				state.wind_timer_ms = 0.0
-				_spawn_wind_wisp(key)
 		if state.elapsed_ms >= state.total_ms:
-			_clear_casting(key)
+			_clear_casting(key, true)
 
 
 # ---------------------------------------------------------------------------
@@ -2354,50 +2394,63 @@ func _on_skill_cast_started(payload: Dictionary) -> void:
 	var key := _key_for_entity_id(caster_id)
 	if key.is_empty() or total_ms <= 0.0:
 		return
+	# Un nouveau cast remplace le précédent (jamais deux cercles sous le même lanceur).
+	_finish_cast_vfx(key, false)
 	var skill_name := str(payload.get("skillName", ""))
 	var state := {"elapsed_ms": 0.0, "total_ms": total_ms}
-	if skill_name in WIND_CAST_ANIMATION_SKILLS:
-		state["wind_timer_ms"] = 0.0
-		state["skill_name"] = skill_name
 	_casting_by_key[key] = state
 	var caster_node: Node3D = _entities_by_key.get(key)
+	# Le lanceur fait face à sa cible (inchangé côté serveur pour un sort sur soi-même).
+	if caster_node != null and payload.has("casterHeading"):
+		_face_heading(caster_node, float(payload.get("casterHeading", 0.0)))
 	_play_body_cast(caster_node, total_ms / 1000.0)
-	if _skill_visual_kind(skill_name) == SkillVisualKind.HEAL:
-		if caster_node != null:
-			_play_heal_cast_effect(caster_node)
+	# Cercle d'incantation calé sur castingTimeMs (voir CastCircle), couleur selon l'élément.
+	var element := SpellVfx.element_for_skill(skill_name)
+	if caster_node != null and SpellVfx.has_cast_circle(element):
+		state["vfx"] = _spell_vfx.start_cast(caster_node, element, total_ms / 1000.0)
 
 
-func _clear_casting(key: String) -> void:
+## `completed` : fin normale du temps d'incantation (voir _advance_casting) -> geste de
+## libération du sort (Character.play_launch, qui revient ensuite seul à idle/course) et
+## libération du cercle ; une annulation (SkillCastCancelled/SkillFizzled) revient directement
+## à idle/course et brise le cercle.
+func _clear_casting(key: String, completed: bool = false) -> void:
 	if key.is_empty():
 		return
+	_finish_cast_vfx(key, completed)
 	_casting_by_key.erase(key)
 	var node: Node3D = _entities_by_key.get(key)
 	_play_body_state(node, Character.RUN_ANIM if _moving.has(key) else Character.IDLE_ANIM)
+	if completed:
+		_play_body_launch(node)
 
 
-func _skill_visual_kind(skill_name: String) -> int:
-	return SKILL_VISUAL_KIND_BY_NAME.get(skill_name, SKILL_VISUAL_KIND_DEFAULT)
+## Termine le cercle d'incantation en cours de `key` s'il y en a un (voir CastCircle.finish).
+func _finish_cast_vfx(key: String, completed: bool) -> void:
+	var state: Dictionary = _casting_by_key.get(key, {})
+	# Variant d'abord : assigner une instance déjà libérée à une variable typée lèverait une erreur.
+	var circle: Variant = state.get("vfx")
+	if is_instance_valid(circle):
+		(circle as CastCircle).finish(completed)
 
 
-func _skill_visual_color(skill_name: String) -> Color:
-	return SKILL_VISUAL_COLOR_BY_KIND.get(_skill_visual_kind(skill_name), Color.WHITE)
-
-
-## Anime l'impact d'un sort sur sa cible : une pulsation colorée pour un soin/buff/debuff
-## (portée "toucher" côté backend, pas de trajectoire à montrer), un flash pour un sort à
-## dégâts sans projectile (voir NON_PROJECTILE_DAMAGE_SKILLS). Un sort à dégâts AVEC
-## projectile est animé séparément, dès son lancer, par _on_skill_projectile_launched.
+## Anime l'effet d'un sort sur sa cible : soin (colonne de lumière qui monte du sol), buff
+## (anneaux qui s'élèvent), debuff (sceau qui descend de la tête aux pieds), impact direct pour
+## un sort à dégâts sans projectile (voir NON_PROJECTILE_DAMAGE_SKILLS) ou une compétence
+## physique. Un sort à dégâts AVEC projectile est animé séparément, dès son lancer, par
+## _on_skill_projectile_launched (impact compris).
 func _play_skill_animation(target_id: String, skill_name: String) -> void:
 	var target_node := _entity_node_by_id(target_id)
 	if target_node == null:
 		return
-	var kind := _skill_visual_kind(skill_name)
-	if kind == SkillVisualKind.HEAL:
-		_play_heal_target_effect(target_node)
-	elif kind == SkillVisualKind.BUFF or kind == SkillVisualKind.DEBUFF:
-		_play_skill_pulse(target_node, kind)
-	elif skill_name in NON_PROJECTILE_DAMAGE_SKILLS:
-		_flash_entity(target_node)
+	var element := SpellVfx.element_for_skill(skill_name)
+	match element:
+		SpellVfx.Element.HEAL, SpellVfx.Element.BUFF, SpellVfx.Element.DEBUFF, SpellVfx.Element.PHYSICAL:
+			_spell_vfx.play_on_target(target_node, element)
+		_:
+			if skill_name in NON_PROJECTILE_DAMAGE_SKILLS:
+				_spell_vfx.play_on_target(target_node, element)
+				_flash_entity(target_node)
 
 
 func _on_skill_projectile_launched(payload: Dictionary) -> void:
@@ -2405,245 +2458,12 @@ func _on_skill_projectile_launched(payload: Dictionary) -> void:
 	var target_node := _entity_node_by_id(str(payload.get("targetId", "")))
 	if caster_node == null or target_node == null or caster_node == target_node:
 		return
-	var color := _skill_visual_color(str(payload.get("skillName", "")))
+	var element := SpellVfx.element_for_skill(str(payload.get("skillName", "")))
 	var duration_sec := maxf(float(payload.get("travelDurationMs", 0)) / 1000.0, 0.05)
-	_play_skill_projectile(caster_node, target_node, color, duration_sec)
-
-
-func _play_skill_projectile(caster_node: Node3D, target_node: Node3D, color: Color, duration_sec: float) -> void:
-	var projectile := MeshInstance3D.new()
-	var sphere := SphereMesh.new()
-	sphere.radius = 0.14
-	sphere.height = 0.28
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = color
-	mat.emission_enabled = true
-	mat.emission = color
-	mat.emission_energy_multiplier = 1.5
-	sphere.material = mat
-	projectile.mesh = sphere
-	projectile.position = caster_node.position + Vector3(0, 1.0, 0)
-	_world.add_child(projectile)
-
-	var target_pos := target_node.position + Vector3(0, 1.0, 0)
-	var tween := create_tween()
-	tween.tween_property(projectile, "position", target_pos, duration_sec)
-	tween.finished.connect(func() -> void:
-		projectile.queue_free()
-		_flash_entity(target_node)
+	_spell_vfx.play_projectile(caster_node, target_node, element, duration_sec, func() -> void:
+		if is_instance_valid(target_node):
+			_flash_entity(target_node)
 	)
-
-
-func _play_skill_pulse(target_node: Node3D, kind: int) -> void:
-	var color: Color = SKILL_VISUAL_COLOR_BY_KIND.get(kind, Color.WHITE)
-	var ring := MeshInstance3D.new()
-	var torus := TorusMesh.new()
-	torus.inner_radius = 0.3
-	torus.outer_radius = 0.45
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = color
-	mat.emission_enabled = true
-	mat.emission = color
-	mat.emission_energy_multiplier = 1.5
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	torus.material = mat
-	ring.mesh = torus
-	ring.position = target_node.position + Vector3(0, 0.1, 0)
-	_world.add_child(ring)
-
-	var tween := create_tween()
-	tween.set_parallel(true)
-	tween.tween_property(ring, "scale", Vector3.ONE * 2.0, 0.45)
-	tween.tween_property(mat, "albedo_color:a", 0.0, 0.45)
-	tween.chain().tween_callback(ring.queue_free)
-
-
-## Dégradé alpha 1 → 0 (avec un palier intermédiaire pour éviter une extinction trop linéaire)
-## appliqué au color_ramp d'un ParticleProcessMaterial, pour que les particules d'un effet en
-## one-shot s'estompent progressivement plutôt que de disparaître d'un coup en fin de vie —
-## voir _play_heal_cast_effect/_play_heal_target_effect.
-func _fade_out_color_ramp(color: Color) -> GradientTexture1D:
-	var gradient := Gradient.new()
-	gradient.set_color(0, Color(color.r, color.g, color.b, 1.0))
-	gradient.set_color(1, Color(color.r, color.g, color.b, 0.0))
-	gradient.add_point(0.65, Color(color.r, color.g, color.b, 0.7))
-	var texture := GradientTexture1D.new()
-	texture.gradient = gradient
-	return texture
-
-
-## Effet de sol joué une seule fois au tout début de l'incantation d'un sort de soin (voir
-## _on_skill_cast_started) : un burst sphérique de particules jaunes qui jaillissent du sol
-## (le "pop" initial) accompagné d'une flare verticale lumineuse qui jaillit puis s'estompe —
-## demande du 2026-09-06 ("animation sur le sol, jaune... burst de particules sphérique avec
-## une flare verticale et des textures qui brillent doucement"). Remplace l'ancien souffle
-## tourbillonnant partagé avec Wind Strike (voir WIND_CAST_ANIMATION_SKILLS ci-dessus).
-func _play_heal_cast_effect(caster_node: Node3D) -> void:
-	var color: Color = SKILL_VISUAL_COLOR_BY_KIND[SkillVisualKind.HEAL]
-	var base_pos := caster_node.position + Vector3(0, 0.03, 0)
-
-	var particles := GPUParticles3D.new()
-	particles.position = base_pos
-	particles.amount = HEAL_CAST_BURST_AMOUNT
-	particles.lifetime = HEAL_CAST_BURST_LIFETIME
-	particles.one_shot = true
-	particles.local_coords = false
-
-	var quad := QuadMesh.new()
-	quad.size = Vector2.ONE * 0.12
-	var particle_mat := StandardMaterial3D.new()
-	particle_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	particle_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	particle_mat.emission_enabled = true
-	particle_mat.emission = color
-	particle_mat.emission_energy_multiplier = 2.5
-	particle_mat.albedo_color = Color(color.r, color.g, color.b, 0.9)
-	particle_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
-	quad.material = particle_mat
-	particles.draw_pass_1 = quad
-
-	var process_mat := ParticleProcessMaterial.new()
-	process_mat.direction = Vector3(0.0, 1.0, 0.0)
-	process_mat.spread = 60.0
-	process_mat.initial_velocity_min = 0.8
-	process_mat.initial_velocity_max = 1.6
-	process_mat.gravity = Vector3(0.0, -1.4, 0.0)
-	process_mat.scale_min = 0.5
-	process_mat.scale_max = 1.1
-	process_mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE_SURFACE
-	process_mat.emission_sphere_radius = 0.25
-	process_mat.color = color
-	process_mat.color_ramp = _fade_out_color_ramp(color)
-	particles.process_material = process_mat
-
-	_world.add_child(particles)
-	particles.emitting = true
-	particles.finished.connect(particles.queue_free)
-
-	# Flare verticale : un cône fin qui jaillit du sol puis s'estompe, pour la "vertical flare"
-	# demandée en plus du burst de particules.
-	var flare := MeshInstance3D.new()
-	var cone := CylinderMesh.new()
-	cone.top_radius = 0.03
-	cone.bottom_radius = 0.16
-	cone.height = 1.0
-	var flare_mat := StandardMaterial3D.new()
-	flare_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	flare_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	flare_mat.emission_enabled = true
-	flare_mat.emission = Color(1.0, 0.95, 0.6)
-	flare_mat.emission_energy_multiplier = 3.0
-	flare_mat.albedo_color = Color(1.0, 0.95, 0.6, 0.75)
-	cone.material = flare_mat
-	flare.mesh = cone
-	flare.position = base_pos
-	flare.scale = Vector3(0.25, 0.01, 0.25)
-	_world.add_child(flare)
-
-	var flare_tween := create_tween()
-	flare_tween.set_parallel(true)
-	flare_tween.tween_property(
-		flare, "scale", Vector3(1.0, HEAL_CAST_FLARE_HEIGHT, 1.0), HEAL_CAST_FLARE_DURATION * 0.4
-	).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	flare_tween.tween_property(
-		flare_mat, "albedo_color:a", 0.0, HEAL_CAST_FLARE_DURATION
-	).set_delay(HEAL_CAST_FLARE_DURATION * 0.3)
-	flare_tween.chain().tween_callback(flare.queue_free)
-
-
-## Effet joué à l'impact d'un soin sur sa cible (voir _play_skill_animation) : un anneau
-## lumineux immédiat (même pulsation que _play_skill_pulse) puis une volée de particules
-## jaunes qui montent en tourbillonnant autour du personnage pendant HEAL_TARGET_EFFECT_
-## DURATION (2 à 3 secondes, demande du 2026-09-06) — bien plus long que l'ancienne pulsation
-## de 0.45s, réservée depuis à BUFF/DEBUFF.
-func _play_heal_target_effect(target_node: Node3D) -> void:
-	var color: Color = SKILL_VISUAL_COLOR_BY_KIND[SkillVisualKind.HEAL]
-	_play_skill_pulse(target_node, SkillVisualKind.HEAL)
-
-	var particles := GPUParticles3D.new()
-	particles.position = target_node.position + Vector3(0, 0.05, 0)
-	particles.amount = HEAL_TARGET_PARTICLE_AMOUNT
-	particles.lifetime = HEAL_TARGET_EFFECT_DURATION
-	particles.one_shot = true
-	particles.explosiveness = 0.15
-	particles.local_coords = false
-
-	var quad := QuadMesh.new()
-	quad.size = Vector2.ONE * 0.16
-	var particle_mat := StandardMaterial3D.new()
-	particle_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	particle_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	particle_mat.emission_enabled = true
-	particle_mat.emission = color
-	particle_mat.emission_energy_multiplier = 2.0
-	particle_mat.albedo_color = Color(color.r, color.g, color.b, 0.85)
-	particle_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
-	quad.material = particle_mat
-	particles.draw_pass_1 = quad
-
-	var process_mat := ParticleProcessMaterial.new()
-	process_mat.direction = Vector3(0.0, 1.0, 0.0)
-	process_mat.spread = 10.0
-	process_mat.initial_velocity_min = 0.6
-	process_mat.initial_velocity_max = 1.0
-	process_mat.gravity = Vector3.ZERO
-	process_mat.damping_min = 0.25
-	process_mat.damping_max = 0.55
-	process_mat.scale_min = 0.5
-	process_mat.scale_max = 1.0
-	process_mat.angular_velocity_min = -60.0
-	process_mat.angular_velocity_max = 60.0
-	process_mat.orbit_velocity_min = 0.15
-	process_mat.orbit_velocity_max = 0.3
-	process_mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_RING
-	process_mat.emission_ring_radius = 0.45
-	process_mat.emission_ring_inner_radius = 0.35
-	process_mat.emission_ring_height = 0.1
-	process_mat.emission_ring_axis = Vector3(0, 1, 0)
-	process_mat.color = color
-	process_mat.color_ramp = _fade_out_color_ramp(color)
-	particles.process_material = process_mat
-
-	_world.add_child(particles)
-	particles.emitting = true
-	particles.finished.connect(particles.queue_free)
-
-
-## Un souffle léger qui part du bas du lanceur (au ras du sol) vers le haut, répété toutes
-## les WIND_WISP_SPAWN_INTERVAL_MS pendant l'incantation d'un sort de WIND_CAST_ANIMATION_
-## SKILLS (voir _advance_casting) — purement cosmétique, distinct de l'impact sur la cible
-## (_play_skill_animation/_play_skill_projectile), qui reste inchangé.
-func _spawn_wind_wisp(key: String) -> void:
-	var caster_node: Node3D = _entities_by_key.get(key)
-	if caster_node == null:
-		return
-	# Deux souffles de part et d'autre (angle et angle+PI) pour que l'effet encercle bien le
-	# lanceur au lieu de n'apparaître que d'un seul côté.
-	var angle := randf() * TAU
-	_spawn_wind_wisp_at(caster_node, angle, WIND_WISP_COLOR)
-	_spawn_wind_wisp_at(caster_node, angle + PI, WIND_WISP_COLOR)
-
-
-func _spawn_wind_wisp_at(caster_node: Node3D, angle: float, color: Color) -> void:
-	var radius := randf_range(WIND_WISP_RADIUS_MIN, WIND_WISP_RADIUS_MAX)
-	var wisp := MeshInstance3D.new()
-	var quad := QuadMesh.new()
-	quad.size = WIND_WISP_SIZE
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = color
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
-	quad.material = mat
-	wisp.mesh = quad
-	wisp.position = caster_node.position + Vector3(cos(angle) * radius, 0.05, sin(angle) * radius)
-	_world.add_child(wisp)
-
-	var tween := create_tween()
-	tween.set_parallel(true)
-	tween.tween_property(wisp, "position:y", wisp.position.y + WIND_WISP_RISE_HEIGHT, WIND_WISP_DURATION)
-	tween.tween_property(mat, "albedo_color:a", 0.0, WIND_WISP_DURATION)
-	tween.chain().tween_callback(wisp.queue_free)
 
 
 ## Résultat de notre propre incantation (envoyé uniquement au lanceur). selfHeal :
@@ -2729,6 +2549,7 @@ func _despawn_monster(monster_name: String) -> void:
 	_moving.erase(key)
 	_entity_speed_by_key.erase(key)
 	_entity_vitals_by_key.erase(key)
+	_finish_cast_vfx(key, false)
 	_casting_by_key.erase(key)
 	_free_bars(key)
 	if not monster_id.is_empty():

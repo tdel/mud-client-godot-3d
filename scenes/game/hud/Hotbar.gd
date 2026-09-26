@@ -19,6 +19,9 @@ const SLOT_KEYS := [
 ]
 const CONFIG_PATH := "user://hotbar.cfg"
 
+## Types empilés côté backend (ItemType.maxStack() > 1) : compteur affiché même à 1.
+const STACKABLE_TYPES := ["SOULSHOT", "SPIRITSHOT", "POTION"]
+
 const EFFECT_LABELS := {
 	"DAMAGE": "Dégâts", "HEALING": "Soin", "BUFF": "Bonus", "DEBUFF": "Malus",
 }
@@ -85,6 +88,7 @@ func set_slot(index: int, kind: String, ref_id: String, ref_name: String, item_t
 	_save_config()
 	_refresh_mana_affordability()
 	_refresh_shot_active_states()
+	_refresh_item_quantities()
 
 
 func clear_slot(index: int) -> void:
@@ -258,6 +262,35 @@ func _refresh_shot_active_states() -> void:
 			_slot_nodes[i].set_active(_is_shot_active(item_type, str(slot.get("item_grade", ""))))
 
 
+## Compteur de chaque slot "item" : somme des quantités de toutes les entrées d'inventaire du
+## même nom (les potions se répartissent en piles de 100, voir GameState.inventory). Affiché
+## pour un objet stackable ou possédé en plusieurs exemplaires ; un objet unique non stackable
+## (clé...) n'en a pas. Tant qu'aucun Inventory n'est arrivé, rien n'est grisé.
+func _refresh_item_quantities() -> void:
+	var inventory_known := GameState.inventory.has("items")
+	for i in SLOT_COUNT:
+		var slot: Dictionary = _slots[i]
+		if slot.get("kind", "") != "item":
+			continue
+		var ref_name := str(slot.get("ref_name", ""))
+		var total := 0
+		var stackable := str(slot.get("item_type", "")) in STACKABLE_TYPES
+		for entry in GameState.inventory.get("items", []):
+			if str(entry.get("name", "")) != ref_name:
+				continue
+			var entry_slot = entry.get("slot")
+			if entry_slot != null and not str(entry_slot).is_empty():
+				continue
+			total += int(entry.get("quantity", 1))
+			stackable = stackable or str(entry.get("type", "")) in STACKABLE_TYPES
+		if not inventory_known:
+			_slot_nodes[i].set_quantity(-1)
+		elif total == 0:
+			_slot_nodes[i].set_quantity(0)
+		else:
+			_slot_nodes[i].set_quantity(total if stackable or total > 1 else -1)
+
+
 ## Dupliqué à l'identique dans InventoryWindow.gd (même convention que le reste du HUD, voir
 ## CLAUDE.md : chaque fenêtre reste un Control autonome sans dépendance croisée).
 func _is_shot_active(item_type: String, item_grade: String) -> bool:
@@ -334,8 +367,13 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 			_refresh_mana_affordability()
 			if type == "GamePlayerStats":
 				_refresh_shot_active_states()
+			elif type == "ManaPotionUsed":
+				_refresh_item_quantities()
 		"ShotGradeChanged", "ShotOutOfStock":
 			_refresh_shot_active_states()
+		"Inventory", "ItemUsed", "ShotUsed":
+			# GameState (autoload, abonné avant ce script) a déjà appliqué le message.
+			_refresh_item_quantities()
 		"CastResult":
 			# Démarre une estimation immédiate (cooldownSeconds du catalogue) sans attendre
 			# SkillOnCooldown : malgré l'évolution backend du 2026-09-02 (documentée plus bas)

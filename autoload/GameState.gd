@@ -6,7 +6,8 @@ extends Node
 ## "changer de personnage".
 var current_login := ""
 
-## Dernière CharacterList reçue: Array[Dictionary] {name, race, characterClass, level}.
+## Dernière CharacterList reçue: Array[Dictionary] {name, race, characterClass, level, gender,
+## equipment (liste d'EquipmentView)}.
 var character_list: Array = []
 
 ## Dernier GamePlayerStats.payload reçu (fiche de personnage complète).
@@ -70,9 +71,19 @@ var party: Dictionary = {}
 ## Dernier Inventory.payload reçu: {items: Array[{name, grade, slot, type, quantity, ...}],
 ## gold: int} — grade (ex-rarity, voir CLAUDE.md) : enum ItemGrade NOGRADE/D/C/B/A/S.
 ## `quantity` (2026-09-04, commit backend "Ajoute le système soulshot/spiritshot") vaut 1
-## pour tout objet normal, la taille du stack pour un ItemType stackable (SOULSHOT/
-## SPIRITSHOT pour l'instant, voir ItemType.stackable() côté backend).
+## pour tout objet normal, la taille du stack pour un ItemType stackable (voir
+## ItemType.maxStack() côté backend) : SOULSHOT/SPIRITSHOT en une pile illimitée, POTION
+## en piles de 100 au plus (plusieurs entrées du même nom possibles). Patché en place par
+## ItemUsed/ManaPotionUsed/ShotUsed (remainingQuantity) pour que Hotbar résolve toujours une
+## pile encore présente et affiche le bon compteur sans attendre un "inventory".
 var inventory: Dictionary = {}
+
+## Case de la grille d'inventaire (InventoryWindow, onglet "Tout") de chaque objet porté non
+## équipé : {item_id: index}. Le serveur n'a aucune notion de position (Inventory.items suit
+## l'ordre d'insertion, objets équipés compris) : la disposition est tenue ici, à chaque
+## Inventory reçu (voir _update_inventory_cells), pour que les objets restent en place d'un
+## rafraîchissement à l'autre. Repart de l'ordre serveur à chaque session.
+var inventory_cells: Dictionary = {}
 
 ## Dernier KnownSkills.payload reçu (ex-KnownSpells, renommé par le commit backend "Unifie
 ## sorts/passifs sous SkillSystem", voir CLAUDE.md) : {skills: Array[{name, level, description,
@@ -182,6 +193,7 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 			for portal_id in payload.get("portalIds", []):
 				appeared_portals.erase(str(portal_id))
 		"Inventory":
+			_update_inventory_cells(inventory.get("items", []), payload.get("items", []))
 			inventory = payload
 		"KnownSkills":
 			known_skills = payload
@@ -206,6 +218,19 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 		"RegenTick", "ManaPotionUsed":
 			current_mana = int(payload.get("currentMana", current_mana))
 			max_mana = int(payload.get("maxMana", max_mana))
+			if type == "ManaPotionUsed":
+				_patch_item_quantity(str(payload.get("itemId", "")), int(payload.get("remainingQuantity", 0)))
+		"ItemUsed":
+			_patch_item_quantity(str(payload.get("itemId", "")), int(payload.get("remainingQuantity", 0)))
+		"ShotUsed":
+			# Pas d'itemId sur ce message : la pile de charges est unique par type+grade (voir
+			# InventorySystem.findStackable côté backend).
+			var items: Array = inventory.get("items", [])
+			for entry in items:
+				if str(entry.get("type", "")) == str(payload.get("shotType", "")) \
+						and str(entry.get("grade", "")) == str(payload.get("grade", "")):
+					_patch_item_quantity(str(entry.get("id", "")), int(payload.get("remainingQuantity", 0)))
+					break
 		"XpGained":
 			xp = int(payload.get("xp", xp))
 			xp_for_current_level = int(payload.get("xpForCurrentLevel", xp_for_current_level))
@@ -296,6 +321,83 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 			pass
 
 
+## Replace les objets portés non équipés de `new_items` dans inventory_cells, en comparant à
+## `old_items` (Inventory précédent) :
+## - un objet déjà rangé garde sa case ;
+## - un objet qui revient d'un slot d'équipement repris par un objet de l'inventaire
+##   (remplacement) prend la case libérée par ce dernier ;
+## - un objet simplement déséquipé va à la suite du dernier objet rangé, pas dans le premier
+##   trou venu ;
+## - un nouvel objet (loot, achat, premier Inventory de la session) prend la première case
+##   libre.
+func _update_inventory_cells(old_items: Array, new_items: Array) -> void:
+	var old_slots := {}
+	for item in old_items:
+		var slot := _item_slot(item)
+		if not slot.is_empty():
+			old_slots[str(item.get("id", ""))] = slot
+	var cells := {}
+	var freed_by_slot := {}
+	var incoming: Array = []
+	for item in new_items:
+		var item_id := str(item.get("id", ""))
+		var slot := _item_slot(item)
+		if not slot.is_empty():
+			if inventory_cells.has(item_id):
+				freed_by_slot[slot] = inventory_cells[item_id]
+		elif inventory_cells.has(item_id):
+			cells[item_id] = inventory_cells[item_id]
+		else:
+			incoming.append(item_id)
+
+	var used := {}
+	for cell in cells.values():
+		used[cell] = true
+	var unequipped: Array = []
+	var fresh: Array = []
+	for item_id in incoming:
+		var previous_slot: String = old_slots.get(item_id, "")
+		if previous_slot.is_empty():
+			fresh.append(item_id)
+		elif freed_by_slot.has(previous_slot) and not used.has(freed_by_slot[previous_slot]):
+			cells[item_id] = freed_by_slot[previous_slot]
+			used[cells[item_id]] = true
+		else:
+			unequipped.append(item_id)
+	for item_id in unequipped:
+		var next := 0
+		for cell in used:
+			next = maxi(next, int(cell) + 1)
+		cells[item_id] = next
+		used[next] = true
+	var first_free := 0
+	for item_id in fresh:
+		while used.has(first_free):
+			first_free += 1
+		cells[item_id] = first_free
+		used[first_free] = true
+	inventory_cells = cells
+
+
+static func _item_slot(item: Dictionary) -> String:
+	var slot = item.get("slot")
+	return "" if slot == null else str(slot)
+
+
+## Reporte la quantité restante d'une pile après consommation (ItemUsed/ManaPotionUsed/ShotUsed) ;
+## retire l'entrée quand la pile est vide (le serveur l'a déjà supprimée), pour que Hotbar
+## passe à la pile suivante du même nom au prochain "use".
+func _patch_item_quantity(item_id: String, remaining: int) -> void:
+	var items: Array = inventory.get("items", [])
+	for i in items.size():
+		if str(items[i].get("id", "")) == item_id:
+			if remaining <= 0:
+				items.remove_at(i)
+			else:
+				items[i]["quantity"] = remaining
+			return
+
+
 func _member_vitals(member: Dictionary) -> Dictionary:
 	return {
 		"name": str(member.get("name", "")), "current_health": int(member.get("currentHealth", 0)),
@@ -313,6 +415,7 @@ func clear_session() -> void:
 	appeared_entities = {}
 	appeared_portals = {}
 	inventory = {}
+	inventory_cells = {}
 	known_skills = {}
 	current_mana = 0
 	max_mana = 0

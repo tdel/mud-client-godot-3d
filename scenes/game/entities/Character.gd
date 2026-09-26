@@ -1,238 +1,507 @@
 class_name Character
 extends Node3D
-## Rig Mixamo (squelette + animations) — voir pipeline Mixamo -> Godot. Instancié par
-## Game3D._make_entity_node comme "Body" de tout personnage (kind="character", joueur compris) ;
-## Game3D pilote les transitions via play_state()/play_transient_state() (MovementStarted,
-## SkillCastStarted, ShotUsed, etc. — voir _play_body_state/_play_body_action côté Game3D.gd).
+## Mannequin low-poly joueur (homme/femme) — voir tools/character_gen/build_characters.py
+## (générateur Blender) pour le squelette, les animations et la garde-robe. Instancié par
+## Game3D._make_entity_node comme "Body" de tout personnage (kind="character", joueur compris).
 ##
-## Chaque export Mixamo (FBX "With Skin", un clip par fichier — voir assets/characters/human/)
-## contient exactement UN clip, toujours nommé "mixamo_com" par l'import Godot (assaini depuis
-## "mixamo.com") : inutile de renommer quoi que ce soit à l'import, on le renomme ici à la
-## volée dans l'AnimationLibrary de body_scene sous IDLE_ANIM/RUN_ANIM/ATTACK_ANIM/CAST_ANIM
-## (vérifié par inspection : voir get_animation_list() sur chaque .fbx importé). Les bones
-## utilisent déjà l'underscore ("mixamorig_RightHand", pas "mixamorig:RightHand" — Godot
-## assainit aussi les deux-points des noms de bones à l'import).
+## Chaque .glb contient le corps en sous-vêtements ("Body" + "Hair") ET toutes les pièces
+## d'équipement ("torso_plate", "weapon_sword", ...) déjà skinnées sur le même Skeleton3D et
+## ajustées au gabarit : équiper un objet revient à rendre visible la pièce correspondante
+## (voir set_equipment/visual_for_item). Aucune pièce n'est visible par défaut.
 ##
-## Caveat connu (personnage Mixamo "Maria" utilisé pour les tests) : le mesh de base embarque
-## déjà une épée skinnée ("Maria_sword"), visible même sans rien équiper via equip_weapon —
-## à cacher/retirer le jour où un vrai set d'armes swappables remplace ce mesh de test.
+## Animations (clips du .glb, noms conservés) : idle/run/cast bouclent ; attack_1h/attack_2h/
+## launch reviennent à l'état de base (idle ou run) une fois finies ; death reste figée sur
+## sa dernière image jusqu'à revive(). Pilotage direct de l'AnimationPlayer (fondu enchaîné
+## via BLEND_TIME) : plus besoin d'AnimationTree, et la vitesse du cast se règle par clip.
 
 const IDLE_ANIM := "idle"
 const RUN_ANIM := "run"
-const ATTACK_ANIM := "attack"
 const CAST_ANIM := "cast"
+const LAUNCH_ANIM := "launch"
+const DEATH_ANIM := "death"
+const ATTACK_1H_ANIM := "attack_1h"
+const ATTACK_2H_ANIM := "attack_2h"
 
-## Nom de bone Mixamo standard pour la main droite — sert d'ancrage à l'arme équipée.
-const RIGHT_HAND_BONE := "mixamorig_RightHand"
+const LOOPED_ANIMS := [IDLE_ANIM, RUN_ANIM, CAST_ANIM]
+const BLEND_TIME := 0.15
 
-## Corps de base : mesh + Skeleton3D + AnimationPlayer (le clip embarqué devient IDLE_ANIM).
-@export var body_scene: PackedScene
-## Animations additionnelles : un FBX par état, chacun avec un seul clip (voir commentaire
-## d'en-tête) fusionné dans l'AnimationPlayer de body_scene sous le nom canonique.
-@export var run_scene: PackedScene
-@export var attack_scene: PackedScene
-@export var cast_scene: PackedScene
+## Préfixes des meshes d'équipement du .glb (cachés à l'instanciation).
+const EQUIPMENT_PREFIXES := ["torso_", "legs_", "helmet_", "gloves_", "boots_", "weapon_", "shield_"]
+## Armes tenues à deux mains : attaque attack_2h (le générateur place la main gauche sur la
+## poignée) et bouclier masqué.
+const TWO_HANDED_WEAPONS := ["weapon_greatsword", "weapon_hammer", "weapon_staff", "weapon_spear"]
+## L'arc occupe la main gauche : pas de bouclier non plus.
+const OFF_HAND_BLOCKING_WEAPONS := ["weapon_greatsword", "weapon_hammer", "weapon_staff", "weapon_spear", "weapon_bow"]
+## Couvre-chefs qui laissent voir les cheveux.
+const HAIR_VISIBLE_HELMETS := ["helmet_circlet"]
+
+## WeaponType serveur (champ `weaponType` d'Inventory/EquipmentView, voir
+## app.domain.item.WeaponType côté backend) -> mesh d'arme.
+const WEAPON_VISUALS := {
+	"SWORD": "weapon_sword", "BIG_SWORD": "weapon_greatsword", "DAGGER": "weapon_dagger",
+	"BLUNT": "weapon_mace", "BIG_BLUNT": "weapon_hammer", "AXE": "weapon_axe", "POLE": "weapon_spear",
+	"STAFF": "weapon_staff", "WAND": "weapon_wand", "BOW": "weapon_bow",
+}
+
+## Effet d'équipement (voir _play_mesh_effect) : la pièce qui apparaît se matérialise (fondu
+## + halo doré qui s'éteint + étincelles montantes), celle qui disparaît s'illumine puis se
+## dissout (poussière bleutée qui retombe).
+const EQUIP_GLOW_SHADER := preload("res://scenes/game/entities/equip_glow.gdshader")
+const EQUIP_COLOR := Color(1.0, 0.8, 0.35)
+const UNEQUIP_COLOR := Color(0.55, 0.75, 1.0)
+const EQUIP_FADE_TIME := 0.35
+const EQUIP_GLOW_TIME := 0.9
+const UNEQUIP_FLASH_TIME := 0.12
+const UNEQUIP_FADE_TIME := 0.5
+## Préfixe de mesh -> [bones où émettre les étincelles, rayon d'émission].
+const EFFECT_BONES := {
+	"weapon_bow": [["LeftHand"], 0.2],
+	"weapon_": [["RightHand"], 0.2],
+	"shield_": [["LeftHand"], 0.18],
+	"helmet_": [["Head"], 0.14],
+	"torso_": [["Chest"], 0.24],
+	"legs_": [["LeftLowerLeg", "RightLowerLeg"], 0.16],
+	"gloves_": [["LeftHand", "RightHand"], 0.1],
+	"boots_": [["LeftFoot", "RightFoot"], 0.1],
+}
+
+static var _sparkle_mesh: QuadMesh
+
+@export var male_scene: PackedScene
+@export var female_scene: PackedScene
 
 @onready var _model_holder: Node3D = $Model
-@onready var _animation_tree: AnimationTree = $AnimationTree
 
+var _gender := "male"
+var _model: Node3D
 var _skeleton: Skeleton3D
 var _animation_player: AnimationPlayer
-var _weapon_attachment: BoneAttachment3D
-var _weapon_node: Node3D
+## slot EquipmentSlot -> nom du mesh visible (voir set_equipment).
+var _visuals: Dictionary = {}
+## Faux jusqu'au premier set_equipment : la tenue initiale (arrivée en jeu, entité qui
+## apparaît) s'affiche sans effet, seuls les changements ultérieurs sont animés.
+var _equipment_initialized := false
+## Nom de mesh -> Tween de l'effet en cours (voir _play_mesh_effect).
+var _effect_tweens: Dictionary = {}
+## Meshes retirés mais encore visibles le temps de leur disparition.
+var _vanishing: Dictionary = {}
+var _base_state := IDLE_ANIM
+var _dead := false
 
 
 func _ready() -> void:
-	if body_scene != null:
+	_instance_model()
+
+
+## "man"/"woman" (GamePlayerStats.gender) ou "male"/"female" ; ré-instancie le modèle si le
+## gabarit change, en conservant équipement et état (mort comprise).
+func set_gender(gender: String) -> void:
+	var normalized := "female" if gender.to_lower() in ["woman", "female", "f"] else "male"
+	if normalized == _gender and _model != null:
+		return
+	_gender = normalized
+	if is_inside_tree():
 		_instance_model()
 
 
 func _instance_model() -> void:
-	var model := body_scene.instantiate()
-	_model_holder.add_child(model)
-	_skeleton = _find_of_type(model, "Skeleton3D") as Skeleton3D
-	_animation_player = _find_of_type(model, "AnimationPlayer") as AnimationPlayer
+	_clear_mesh_effects()
+	if _model != null:
+		_model.queue_free()
+		_model = null
+	var scene := female_scene if _gender == "female" else male_scene
+	if scene == null:
+		return
+	_model = scene.instantiate()
+	_model_holder.add_child(_model)
+	_skeleton = _model.find_child("Skeleton3D", true, false) as Skeleton3D
+	_animation_player = _model.find_child("AnimationPlayer", true, false) as AnimationPlayer
 	if _skeleton == null or _animation_player == null:
-		push_warning("Character: body_scene sans Skeleton3D/AnimationPlayer (%s)" % body_scene.resource_path)
+		push_warning("Character: modèle sans Skeleton3D/AnimationPlayer (%s)" % scene.resource_path)
 		return
-	# idle/course/incantation bouclent (états tenus tant qu'aucune transition n'arrive) ;
-	# l'attaque ne boucle pas (un seul coup, voir play_transient_state qui revient à idle après).
-	_rename_only_clip(_animation_player, IDLE_ANIM, true)
-	_import_animation(RUN_ANIM, run_scene, true)
-	_import_animation(ATTACK_ANIM, attack_scene, false)
-	_import_animation(CAST_ANIM, cast_scene, true)
-	_setup_animation_tree()
-	_setup_root_motion()
-	_setup_weapon_attachment()
+	for anim_name in LOOPED_ANIMS:
+		if _animation_player.has_animation(anim_name):
+			_animation_player.get_animation(anim_name).loop_mode = Animation.LOOP_LINEAR
+	_animation_player.animation_finished.connect(_on_animation_finished)
+	_apply_visuals()
+	if _dead:
+		_animation_player.play(DEATH_ANIM)
+		_animation_player.seek(_animation_player.current_animation_length, true)
+	else:
+		_play(_base_state)
 
 
-## Renomme l'unique clip de `player` (voir commentaire d'en-tête — toujours "mixamo_com" pour
-## ces exports) en `target_name`, quel que soit son nom d'origine.
-func _rename_only_clip(player: AnimationPlayer, target_name: String, loop: bool) -> void:
-	var names := player.get_animation_list()
-	if names.is_empty():
+# ---------------------------------------------------------------------------
+# Équipement
+# ---------------------------------------------------------------------------
+
+## `equipped` : slot EquipmentSlot ("WEAPON", "OFF_HAND", "HEAD", "CHEST", "HANDS", "LEGS",
+## "FEET"...) -> item de l'Inventory ({name, type, armorCategory, ...}). Les slots absents
+## sont vidés ; les bijoux n'ont pas de rendu. Les pièces qui apparaissent/disparaissent
+## par rapport à l'appel précédent sont animées, sauf au tout premier appel ou si `animate`
+## est faux (aperçu de l'écran de sélection, qui change de personnage et non de tenue).
+func set_equipment(equipped: Dictionary, animate := true) -> void:
+	animate = animate and _equipment_initialized
+	_equipment_initialized = true
+	var before := _shown_meshes()
+	_visuals.clear()
+	for slot in equipped.keys():
+		var visual := visual_for_item(str(slot), equipped[slot])
+		if not visual.is_empty():
+			_visuals[str(slot)] = visual
+	var after := _shown_meshes()
+	_apply_visuals()
+	if not animate or _skeleton == null:
 		return
-	var lib := player.get_animation_library("")
-	lib.rename_animation(names[0], target_name)
-	if loop:
-		lib.get_animation(target_name).loop_mode = Animation.LOOP_LINEAR
+	for mesh_name in after:
+		if not before.has(mesh_name):
+			_play_mesh_effect(mesh_name, true)
+	for mesh_name in before:
+		if not after.has(mesh_name):
+			_play_mesh_effect(mesh_name, false)
 
 
-## Instancie temporairement `source_scene` (un FBX Mixamo, un seul clip dedans) pour copier ce
-## clip dans l'AnimationLibrary de _animation_player sous `target_name` — évite d'avoir à
-## configurer le renommage côté import (voir commentaire d'en-tête).
-func _import_animation(target_name: String, source_scene: PackedScene, loop: bool) -> void:
-	if source_scene == null or _animation_player == null:
-		return
-	var source := source_scene.instantiate()
-	var source_player := _find_of_type(source, "AnimationPlayer") as AnimationPlayer
-	if source_player != null:
-		var names := source_player.get_animation_list()
-		if not names.is_empty():
-			var anim := source_player.get_animation(names[0]).duplicate()
-			if loop:
-				anim.loop_mode = Animation.LOOP_LINEAR
-			_animation_player.get_animation_library("").add_animation(target_name, anim)
-	source.free()
-
-
-func _find_of_type(node: Node, type_name: String) -> Node:
-	if node.get_class() == type_name:
-		return node
-	for child in node.get_children():
-		var found := _find_of_type(child, type_name)
-		if found != null:
-			return found
-	return null
-
-
-## Construit l'état-machine à partir des clips réellement présents dans model_scene plutôt que
-## de supposer IDLE/RUN/ATTACK/CAST déjà tous exportés — permet de brancher un modèle partiel
-## (idle+run seuls, par exemple) sans faire planter l'AnimationTree.
-func _setup_animation_tree() -> void:
-	_animation_tree.anim_player = _animation_tree.get_path_to(_animation_player)
-	var state_machine := AnimationNodeStateMachine.new()
-	var available := _animation_player.get_animation_list()
-	for anim_name in [IDLE_ANIM, RUN_ANIM, ATTACK_ANIM, CAST_ANIM]:
-		if anim_name in available:
-			var anim_node := AnimationNodeAnimation.new()
-			anim_node.animation = anim_name
-			state_machine.add_node(anim_name, anim_node)
-	_animation_tree.tree_root = state_machine
-	_animation_tree.active = true
-	# Pas de "start node" sur AnimationNodeStateMachine (Godot 4) : on démarre directement sur
-	# idle via la playback plutôt que de câbler une transition depuis le pseudo-état "Start".
-	if state_machine.has_node(IDLE_ANIM):
-		var playback: AnimationNodeStateMachinePlayback = _animation_tree.get("parameters/playback")
-		playback.start(IDLE_ANIM)
-
-
-## Les clips Mixamo "run"/"walk" embarquent le déplacement dans la piste de position du bone
-## Hips (le personnage avance déjà "tout seul" dans l'animation) — or c'est déjà le script
-## (Game3D._advance_positions, move_toward sur le speed serveur) qui déplace le node racine :
-## sans ceci les deux se cumulent et le perso semble avancer bien plus vite que speed. En
-## déclarant cette piste comme root_motion_track, l'AnimationMixer la retire de la pose jouée
-## (le clip tourne "sur place") au lieu de l'appliquer au bone — on n'a pas besoin de récupérer
-## le delta puisque c'est déjà le script qui pilote la translation.
-func _setup_root_motion() -> void:
-	if _animation_player == null or _animation_tree == null:
-		return
-	for anim_name in [RUN_ANIM, IDLE_ANIM]:
-		if not _animation_player.has_animation(anim_name):
+## `items` : entrées Inventory ou EquipmentView ({slot, name, type, armorCategory, weaponType,
+## ...}) -> dictionnaire slot -> item attendu par set_equipment ; seules les entrées dont
+## `slot` est renseigné sont portées.
+static func equipped_from_items(items) -> Dictionary:
+	var equipped := {}
+	if not items is Array:
+		return equipped
+	for item in items:
+		if not item is Dictionary:
 			continue
-		var anim := _animation_player.get_animation(anim_name)
-		for i in anim.get_track_count():
-			if anim.track_get_type(i) != Animation.TYPE_POSITION_3D:
-				continue
-			var path := anim.track_get_path(i)
-			if str(path).findn("Hips") != -1:
-				_animation_tree.root_motion_track = path
-				return
+		var slot = item.get("slot")
+		if slot != null and not str(slot).is_empty():
+			equipped[str(slot)] = item
+	return equipped
 
 
-## Joue la transition idle/course/attaque/incantation — nom d'état = nom de clip (voir
-## _setup_animation_tree) ; no-op silencieux si le clip n'a pas été importé (modèle partiel).
+## Mesh du .glb à montrer pour `item` porté dans `slot` ("" : rien à afficher).
+static func visual_for_item(slot: String, item: Dictionary) -> String:
+	var item_name := str(item.get("name", "")).to_lower()
+	var category := str(item.get("armorCategory", "")).to_upper()
+	match slot:
+		"WEAPON":
+			# Sans `weaponType` (backend antérieur à ce champ) : même devinette que les icônes.
+			var weapon_type := str(item.get("weaponType", "")).to_upper()
+			if not WEAPON_VISUALS.has(weapon_type):
+				weapon_type = IconFactory.guess_weapon_type(item_name)
+			return WEAPON_VISUALS.get(weapon_type, "weapon_sword")
+		"OFF_HAND":
+			return "shield_round"
+		"HEAD":
+			if _has_any(item_name, ["circlet", "crown", "tiara", "diadem"]):
+				return "helmet_circlet"
+			if _has_any(item_name, ["hood", "cowl"]):
+				return "helmet_hood"
+			if _has_any(item_name, ["leather", "padded", "cap"]) or category == "LIGHT":
+				return "helmet_leather"
+			return "helmet_plate"
+		"CHEST":
+			if item_name.contains("leather"):
+				return "torso_leather"
+			if _has_any(item_name, ["robe", "tunic", "arcana"]):
+				return "torso_robe"
+			if _has_any(item_name, ["plate", "mail", "breastplate", "cuirass"]):
+				return "torso_plate"
+			if item_name.contains("padded"):
+				return "torso_cloth"
+			return _by_category(category, "torso_", "cloth")
+		"LEGS":
+			if _has_any(item_name, ["leather", "pants"]):
+				return "legs_leather"
+			if _has_any(item_name, ["leggings", "greaves", "plate"]):
+				return "legs_plate"
+			return _by_category(category, "legs_", "cloth")
+		"HANDS":
+			if item_name.contains("leather"):
+				return "gloves_leather"
+			if item_name.contains("gauntlet"):
+				return "gloves_plate"
+			return "gloves_plate" if category == "HEAVY" else "gloves_leather"
+		"FEET":
+			if item_name.contains("leather"):
+				return "boots_leather"
+			return "boots_plate" if category == "HEAVY" else "boots_leather"
+	return ""
+
+
+static func _has_any(text: String, words: Array) -> bool:
+	for word in words:
+		if text.contains(word):
+			return true
+	return false
+
+
+## LIGHT/MEDIUM/HEAVY (ArmorCategory backend) -> variante de mesh, `fallback` si absent.
+## LIGHT regroupe cuir ET robes côté serveur (Leather Tunic, Major Arcana Robe...) : les robes
+## sont reconnues avant, par leur nom (voir visual_for_item) ; MEDIUM = cottes de mailles.
+static func _by_category(category: String, prefix: String, fallback: String) -> String:
+	match category:
+		"HEAVY", "MEDIUM":
+			return prefix + "plate"
+		"LIGHT":
+			return prefix + "leather"
+	return prefix + fallback
+
+
+## Meshes d'équipement à rendre visibles d'après _visuals (nom -> true).
+func _shown_meshes() -> Dictionary:
+	var shown := {}
+	for visual in _visuals.values():
+		shown[visual] = true
+	if _visuals.get("WEAPON", "") in OFF_HAND_BLOCKING_WEAPONS:
+		shown.erase(_visuals.get("OFF_HAND", ""))
+	return shown
+
+
+func _apply_visuals() -> void:
+	if _skeleton == null:
+		return
+	var shown := _shown_meshes()
+	var helmet: String = _visuals.get("HEAD", "")
+	for child in _skeleton.get_children():
+		if not child is MeshInstance3D:
+			continue
+		var child_name := str(child.name)
+		if child_name == "Hair":
+			child.visible = helmet.is_empty() or helmet in HAIR_VISIBLE_HELMETS
+		elif _is_equipment_mesh(child_name):
+			child.visible = shown.has(child_name) or _vanishing.has(child_name)
+
+
+## Apparition (`appearing`) ou disparition animée d'une pièce : fondu via
+## GeometryInstance3D.transparency (compatible avec les matériaux opaques du .glb), halo
+## equip_glow.gdshader en overlay, puis étincelles aux bones concernés. Une pièce qui
+## disparaît reste visible (_vanishing) jusqu'à la fin de l'effet ; un nouvel effet sur la
+## même pièce (ré-équipement rapide) interrompt le précédent.
+func _play_mesh_effect(mesh_name: String, appearing: bool) -> void:
+	var mesh := _skeleton.get_node_or_null(NodePath(mesh_name)) as MeshInstance3D
+	if mesh == null:
+		return
+	_stop_mesh_effect(mesh_name)
+	var glow := ShaderMaterial.new()
+	glow.shader = EQUIP_GLOW_SHADER
+	glow.set_shader_parameter("glow_color", EQUIP_COLOR if appearing else UNEQUIP_COLOR)
+	mesh.material_overlay = glow
+	mesh.visible = true
+	var tween := create_tween()
+	_effect_tweens[mesh_name] = tween
+	if appearing:
+		mesh.transparency = 1.0
+		glow.set_shader_parameter("intensity", 2.2)
+		tween.tween_property(mesh, "transparency", 0.0, EQUIP_FADE_TIME) \
+				.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		tween.parallel().tween_property(glow, "shader_parameter/intensity", 0.0, EQUIP_GLOW_TIME) \
+				.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	else:
+		_vanishing[mesh_name] = true
+		glow.set_shader_parameter("intensity", 0.0)
+		tween.tween_property(glow, "shader_parameter/intensity", 2.5, UNEQUIP_FLASH_TIME)
+		tween.tween_property(mesh, "transparency", 1.0, UNEQUIP_FADE_TIME) \
+				.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+		tween.parallel().tween_property(glow, "shader_parameter/intensity", 0.0, UNEQUIP_FADE_TIME)
+	tween.finished.connect(_stop_mesh_effect.bind(mesh_name))
+	_spawn_sparkles(mesh_name, appearing)
+
+
+## Termine l'effet de `mesh_name` (interrompu ou fini) : rendu normal, visibilité selon
+## l'équipement courant.
+func _stop_mesh_effect(mesh_name: String) -> void:
+	var tween: Tween = _effect_tweens.get(mesh_name)
+	if tween != null and tween.is_valid():
+		tween.kill()
+	_effect_tweens.erase(mesh_name)
+	_vanishing.erase(mesh_name)
+	var mesh: MeshInstance3D = null
+	if _skeleton != null:
+		mesh = _skeleton.get_node_or_null(NodePath(mesh_name)) as MeshInstance3D
+	if mesh != null:
+		mesh.transparency = 0.0
+		mesh.material_overlay = null
+	_apply_visuals()
+
+
+## Avant de jeter le modèle (changement de gabarit) : les Tweens visent ses meshes.
+func _clear_mesh_effects() -> void:
+	for tween in _effect_tweens.values():
+		if tween != null and tween.is_valid():
+			tween.kill()
+	_effect_tweens.clear()
+	_vanishing.clear()
+
+
+func _spawn_sparkles(mesh_name: String, appearing: bool) -> void:
+	var spec: Array = []
+	for prefix in EFFECT_BONES:
+		if mesh_name.begins_with(prefix):
+			spec = EFFECT_BONES[prefix]
+			break
+	if spec.is_empty():
+		return
+	for bone_name in spec[0]:
+		if _skeleton.find_bone(bone_name) < 0:
+			continue
+		# Accrochée au bone (et non placée une fois pour toutes) : la rafale part de la pose
+		# animée, pas de la pose de repos, et suit la main en pleine course.
+		var attachment := BoneAttachment3D.new()
+		attachment.bone_name = bone_name
+		_skeleton.add_child(attachment)
+		var particles := _make_sparkles(appearing, spec[1])
+		attachment.add_child(particles)
+		particles.finished.connect(attachment.queue_free)
+		_emit_next_frame.call_deferred(particles)
+
+
+## Deux frames plus tard (process_frame part avant l'AnimationPlayer de la frame) : le
+## BoneAttachment3D a alors suivi la pose animée — un équipement appliqué avant la toute
+## première frame d'animation partirait sinon de la pose de repos.
+func _emit_next_frame(particles: CPUParticles3D) -> void:
+	await get_tree().process_frame
+	await get_tree().process_frame
+	if is_instance_valid(particles):
+		particles.emitting = true
+
+
+## Rafale unique de points lumineux additifs : dorés et montants à l'équipement, bleutés et
+## retombants au retrait. Coordonnées monde (local_coords faux) : la rafale ne suit pas le
+## personnage une fois émise.
+func _make_sparkles(appearing: bool, radius: float) -> CPUParticles3D:
+	var particles := CPUParticles3D.new()
+	particles.one_shot = true
+	particles.emitting = false
+	particles.amount = 28 if appearing else 22
+	particles.lifetime = 0.8 if appearing else 0.7
+	particles.explosiveness = 0.8
+	particles.mesh = _get_sparkle_mesh()
+	particles.emission_shape = CPUParticles3D.EMISSION_SHAPE_SPHERE
+	particles.emission_sphere_radius = radius
+	particles.direction = Vector3.UP if appearing else Vector3.DOWN
+	particles.spread = 70.0
+	particles.initial_velocity_min = 0.2
+	particles.initial_velocity_max = 0.8 if appearing else 0.5
+	particles.gravity = Vector3(0, 0.8, 0) if appearing else Vector3(0, -1.6, 0)
+	particles.damping_min = 0.5
+	particles.damping_max = 1.5
+	particles.scale_amount_min = 0.6
+	particles.scale_amount_max = 1.3
+	var base_color := EQUIP_COLOR if appearing else UNEQUIP_COLOR
+	var ramp := Gradient.new()
+	ramp.set_color(0, Color(base_color.lightened(0.5), 1.0))
+	ramp.set_color(1, Color(base_color, 0.0))
+	particles.color_ramp = ramp
+	return particles
+
+
+static func _get_sparkle_mesh() -> QuadMesh:
+	if _sparkle_mesh != null:
+		return _sparkle_mesh
+	var dot := GradientTexture2D.new()
+	dot.fill = GradientTexture2D.FILL_RADIAL
+	dot.fill_from = Vector2(0.5, 0.5)
+	dot.fill_to = Vector2(0.5, 0.0)
+	dot.width = 32
+	dot.height = 32
+	var falloff := Gradient.new()
+	falloff.set_color(0, Color(1, 1, 1, 1))
+	falloff.set_color(1, Color(1, 1, 1, 0))
+	dot.gradient = falloff
+	var material := StandardMaterial3D.new()
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	material.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
+	material.vertex_color_use_as_albedo = true
+	material.albedo_texture = dot
+	material.disable_receive_shadows = true
+	_sparkle_mesh = QuadMesh.new()
+	_sparkle_mesh.size = Vector2(0.05, 0.05)
+	_sparkle_mesh.material = material
+	return _sparkle_mesh
+
+
+func _is_equipment_mesh(mesh_name: String) -> bool:
+	for prefix in EQUIPMENT_PREFIXES:
+		if mesh_name.begins_with(prefix):
+			return true
+	return false
+
+
+func is_two_handed() -> bool:
+	return _visuals.get("WEAPON", "") in TWO_HANDED_WEAPONS
+
+
+# ---------------------------------------------------------------------------
+# Animations
+# ---------------------------------------------------------------------------
+
+## État tenu : idle ou run (et cast, voir play_cast). Ignoré tant que le personnage est mort.
 func play_state(state_name: String) -> void:
-	if _animation_tree == null or _animation_tree.tree_root == null:
+	if state_name == IDLE_ANIM or state_name == RUN_ANIM:
+		_base_state = state_name
+	if _dead:
 		return
-	var state_machine := _animation_tree.tree_root as AnimationNodeStateMachine
-	if not state_machine.has_node(state_name):
-		return
-	if not _animation_tree.active:
-		# Sortie de play_cast (voir plus bas) : l'AnimationPlayer a été piloté directement le
-		# temps du cast, en dehors de l'AnimationTree — on rend la main à la state machine.
-		_animation_player.speed_scale = 1.0
-		_animation_tree.active = true
-	var playback: AnimationNodeStateMachinePlayback = _animation_tree.get("parameters/playback")
-	playback.travel(state_name)
+	_play(state_name)
 
 
-## Comme play_state(CAST_ANIM), mais avec la vitesse de lecture ajustée pour que la durée du
-## clip corresponde exactement à duration_sec (temps de cast serveur, voir
-## Game3D._on_skill_cast_started) plutôt que sa durée native — avant ce changement le clip
-## rejouait en boucle à vitesse native, désynchronisé du temps de cast réel. La state machine
-## (AnimationNodeStateMachinePlayback) n'expose pas de contrôle de vitesse par état : on sort
-## temporairement l'AnimationTree du jeu (active=false) pour piloter _animation_player en
-## direct, seul moyen simple d'accélérer/ralentir CE clip sans toucher idle/run/attack. play_state
-## (appelé par Game3D._clear_casting à la fin du cast) réactive l'AnimationTree ensuite.
+## Coup d'arme (auto-attaque) : attack_2h avec une arme à deux mains, attack_1h sinon (mains
+## nues comprises), puis retour à l'état de base.
+func play_attack() -> void:
+	if not _dead:
+		_play(ATTACK_2H_ANIM if is_two_handed() else ATTACK_1H_ANIM)
+
+
+## Libération d'un sort (fin d'incantation), puis retour à l'état de base.
+func play_launch() -> void:
+	if not _dead:
+		_play(LAUNCH_ANIM)
+
+
+## Incantation calée sur duration_sec (castingTimeMs serveur, voir
+## Game3D._on_skill_cast_started) : le clip bouclé est accéléré/ralenti pour qu'un cycle dure
+## au moins autant que le cast (jamais plus d'un cycle et demi accéléré).
 func play_cast(duration_sec: float) -> void:
-	if _animation_player == null or not _animation_player.has_animation(CAST_ANIM):
-		return
-	if duration_sec <= 0.0:
-		play_state(CAST_ANIM)
+	if _dead or _animation_player == null or not _animation_player.has_animation(CAST_ANIM):
 		return
 	var natural_length := _animation_player.get_animation(CAST_ANIM).length
-	_animation_tree.active = false
-	_animation_player.speed_scale = natural_length / duration_sec if natural_length > 0.0 else 1.0
-	_animation_player.play(CAST_ANIM)
+	var speed := 1.0
+	if duration_sec > 0.0 and natural_length > 0.0:
+		speed = clampf(natural_length / duration_sec, 0.5, 1.5)
+	_animation_player.play(CAST_ANIM, BLEND_TIME, speed)
 
 
-## Comme play_state, mais pour un clip non bouclé (attaque) : revient automatiquement à
-## `fallback_state` une fois sa durée écoulée — sinon l'AnimationPlayer resterait figé sur la
-## dernière frame. Le minutage est approximatif (Timer du SceneTree, pas calé sur la playback
-## elle-même) : suffisant pour ne pas rester figé, pas garanti à l'image près.
-func play_transient_state(state_name: String, fallback_state: String) -> void:
-	if _animation_player == null or not _animation_player.has_animation(state_name):
+func play_death() -> void:
+	_dead = true
+	_play(DEATH_ANIM)
+
+
+func revive() -> void:
+	if not _dead:
 		return
-	play_state(state_name)
-	var duration := _animation_player.get_animation(state_name).length
-	get_tree().create_timer(duration).timeout.connect(play_state.bind(fallback_state))
+	_dead = false
+	_play(_base_state)
 
 
-func _setup_weapon_attachment() -> void:
-	_weapon_attachment = BoneAttachment3D.new()
-	_weapon_attachment.name = "WeaponAttachment"
-	_weapon_attachment.bone_name = RIGHT_HAND_BONE
-	_skeleton.add_child(_weapon_attachment)
+func is_dead() -> bool:
+	return _dead
 
 
-## Remplace l'arme en main : détruit l'ancienne, instancie weapon_scene sous WeaponAttachment
-## (donc elle suit la main dans toutes les animations sans code par animation). weapon_scene
-## à null pour désarmer.
-func equip_weapon(weapon_scene: PackedScene) -> void:
-	if _weapon_attachment == null:
+func _play(anim_name: String) -> void:
+	if _animation_player == null or not _animation_player.has_animation(anim_name):
 		return
-	if _weapon_node != null:
-		_weapon_node.queue_free()
-		_weapon_node = null
-	if weapon_scene != null:
-		_weapon_node = weapon_scene.instantiate()
-		_weapon_attachment.add_child(_weapon_node)
+	if _animation_player.current_animation == anim_name and anim_name in LOOPED_ANIMS \
+			and _animation_player.get_playing_speed() == 1.0:
+		return
+	# Relance explicite d'un clip ponctuel (deux attaques de suite) : sans stop(), play() sur
+	# le clip déjà en cours ne repart pas du début.
+	if _animation_player.current_animation == anim_name:
+		_animation_player.stop()
+	_animation_player.play(anim_name, BLEND_TIME)
 
 
-## Armure par slot : remplace le nœud nommé exactement `slot` sous le modèle (convention à
-## tenir côté export Blender/Mixamo, ex. "Head"/"Torso"/"Legs") par mesh_scene, reskinné sur
-## le même Skeleton3D. mesh_scene à null pour retirer la pièce.
-func equip_armor(slot: String, mesh_scene: PackedScene) -> void:
-	if _model_holder == null:
+func _on_animation_finished(anim_name: StringName) -> void:
+	if _dead or anim_name == DEATH_ANIM:
 		return
-	var old := _model_holder.find_child(slot, true, false)
-	if old != null:
-		old.queue_free()
-	if mesh_scene == null:
-		return
-	var new_part := mesh_scene.instantiate()
-	new_part.name = slot
-	_model_holder.add_child(new_part)
-	if new_part is MeshInstance3D and _skeleton != null:
-		(new_part as MeshInstance3D).skeleton = new_part.get_path_to(_skeleton)
+	if not str(anim_name) in LOOPED_ANIMS:
+		_play(_base_state)

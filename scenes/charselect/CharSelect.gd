@@ -1,10 +1,12 @@
 extends Control
 ## Sélection du personnage façon Lineage 2 : liste des personnages du compte à gauche (clic =
-## sélection, double-clic = jouer), fiche du personnage sélectionné à droite, et en bas les
+## sélection, double-clic = jouer), le personnage sélectionné en 3D au centre (mannequin +
+## équipement porté, comme en jeu — voir CharacterStage), sa fiche à droite, et en bas les
 ## actions Créer / Jouer / Supprimer (suppression avec confirmation locale, le backend n'en
 ## demande aucune) plus Déconnexion.
 
 @onready var _backdrop: TextureRect = %Backdrop
+@onready var _character_stage: CharacterStage = %CharacterStage
 @onready var _list_container: VBoxContainer = %ListContainer
 @onready var _error_label: Label = %ErrorLabel
 @onready var _slots_label: Label = %SlotsLabel
@@ -17,6 +19,7 @@ extends Control
 @onready var _delete_confirm_dialog: ConfirmationDialog = %DeleteConfirmDialog
 @onready var _logout_button: Button = %LogoutButton
 
+const GENDER_LABELS := {"MAN": "Homme", "WOMAN": "Femme"}
 const RACE_LABELS := {"HUMAN": "Humain"}
 const CLASS_LABELS := {"FIGHTER": "Guerrier", "MYSTIC": "Mystique"}
 
@@ -143,10 +146,17 @@ func _refresh_selection() -> void:
 	for child in _info_grid.get_children():
 		child.queue_free()
 	if not has_selection:
+		_character_stage.clear()
 		return
 	var entry := _entry_for(_selected_name)
+	# gender/equipment : ajoutés à CharacterList (backend, 2026-09-26) ; absents d'un backend
+	# plus ancien -> mannequin masculin sans équipement.
+	_character_stage.show_character(str(entry.get("gender", "")), entry.get("equipment", []))
 	_info_name.text = _selected_name
 	_add_info("Niveau", str(entry.get("level", "?")))
+	var gender := str(entry.get("gender", ""))
+	if not gender.is_empty():
+		_add_info("Sexe", GENDER_LABELS.get(gender, _prettify(gender)))
 	_add_info("Race", RACE_LABELS.get(str(entry.get("race", "")), _prettify(str(entry.get("race", "")))))
 	_add_info("Classe", CLASS_LABELS.get(str(entry.get("characterClass", "")), _prettify(str(entry.get("characterClass", "")))))
 

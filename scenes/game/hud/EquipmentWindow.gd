@@ -2,8 +2,8 @@ extends WindowFrame
 ## Emplacements d'équipement porté, disposés en silhouette façon L2 (boucles d'oreilles et
 ## casque en haut, arme/torse/bouclier, gants/jambes/bottes, anneaux et collier en bas —
 ## voir EquipmentWindow.tscn), calés contre l'inventaire (voir InventoryWindow._dock_equipment_window) :
-## glisser un objet non équipé depuis InventoryWindow ici pour l'équiper, clic
-## droit sur un slot rempli pour le retirer. Entièrement nouveau (2026-09-03, demandé
+## glisser un objet non équipé depuis InventoryWindow ici (ou clic droit dessus dans
+## l'inventaire) pour l'équiper, clic droit sur un slot rempli pour le retirer. Entièrement nouveau (2026-09-03, demandé
 ## explicitement) — le client 2D n'a qu'une liste texte en lecture seule dans CharacterSheet
 ## (mud-godot/scenes/game/hud/CharacterSheet.gd), jamais de slots interactifs.
 ##
@@ -21,10 +21,11 @@ const SLOT_ORDER := [
 
 @onready var _message_label: Label = %MessageLabel
 ## Plus d'icône ni de raccourci clavier propres à cette fenêtre (demandé explicitement le
-## 2026-09-06) : elle s'ouvre/se ferme toujours avec InventoryWindow, qui pilote normalement
-## les deux (voir InventoryWindow.open()/close_window()) ; ce rappel symétrique ne sert que si
-## cette fenêtre est fermée par sa propre croix ou par Échap alors qu'elle est au sommet de la
-## pile (voir WindowFrame.close_topmost).
+## 2026-09-06), ni de croix (2026-09-26) : elle s'ouvre/se ferme toujours avec InventoryWindow,
+## qui pilote normalement les deux (voir InventoryWindow.open()/close_window()) et à laquelle
+## elle est solidaire (WindowFrame.attach_to : déplacement et premier plan communs) ; ce
+## rappel symétrique ne sert que si cette fenêtre est fermée par Échap alors qu'elle est au
+## sommet de la pile (voir WindowFrame.close_topmost).
 @onready var _inventory_window: WindowFrame = %InventoryWindow
 
 var _slots_by_key: Dictionary = {}
@@ -33,6 +34,7 @@ var _slots_by_key: Dictionary = {}
 func _ready() -> void:
 	super._ready()
 	set_window_title("Équipement")
+	_close_button.visible = false
 	Net.message_received.connect(_on_message_received)
 	for slot_key in SLOT_ORDER:
 		var slot_node: Control = get_body().find_child(slot_key, true, false)

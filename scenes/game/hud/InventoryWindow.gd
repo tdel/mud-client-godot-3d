@@ -4,18 +4,25 @@ extends WindowFrame
 ## visibles), adena et nombre d'objets en pied de fenêtre. Seuls les objets non équipés
 ## (slot vide, voir Inventory.Entry.slot) y figurent ; l'équipement porté est dans
 ## EquipmentWindow, qui s'ouvre/se ferme toujours avec cette fenêtre (voir open/close_window).
+## Chaque objet garde sa case (GameState.inventory_cells) : un objet remplacé à l'équipement
+## prend la case de celui qu'on vient d'équiper, un objet déséquipé se range après le dernier.
 ##
 ## Gestes sur une icône : glisser vers un slot d'équipement = équiper, vers la barre de
-## raccourcis = raccourci, clic droit = utiliser (ou activer/désactiver l'auto-use d'une
-## charge soulshot/spiritshot), glisser-déposer hors de cette fenêtre = jeter (avec
+## raccourcis = raccourci, clic droit = équiper un objet équipable (l'objet déjà porté à cet
+## emplacement revient dans l'inventaire — échange fait par InventorySystem.equipItem côté
+## serveur), utiliser un consommable, ou activer/désactiver l'auto-use d'une charge
+## soulshot/spiritshot ; glisser-déposer hors de cette fenêtre = jeter (avec
 ## confirmation locale, "drop" détruisant l'objet côté serveur sans confirmation).
 
 const DraggableIcon := preload("res://scenes/game/hud/DraggableIcon.gd")
 
+## Types d'objet qui ont un emplacement d'équipement (ItemType.equipmentSlots non vide côté
+## backend) : clic droit = "equip" plutôt que "use".
+const EQUIPPABLE_TYPES := ["WEAPON", "HELMET", "ARMOR", "PANTS", "BOOTS", "GLOVES", "SHIELD", "NECKLACE", "EARRING", "RING"]
 ## Onglets : [libellé, types d'objet affichés (vide = tous, null = "le reste")].
 const TABS := [
 	["Tout", []],
-	["Équipement", ["WEAPON", "HELMET", "ARMOR", "PANTS", "BOOTS", "GLOVES", "SHIELD", "NECKLACE", "EARRING", "RING"]],
+	["Équipement", EQUIPPABLE_TYPES],
 	["Consommables", ["POTION", "SOULSHOT", "SPIRITSHOT"]],
 	["Divers", null],
 ]
@@ -41,6 +48,7 @@ var _current_tab := 0
 func _ready() -> void:
 	super._ready()
 	set_window_title("Inventaire")
+	attach_to(_equipment_window)
 	Net.message_received.connect(_on_message_received)
 	_drop_confirm_dialog.confirmed.connect(_on_drop_confirmed)
 	_coin_icon.texture = IconFactory.ui_icon("coin", 16)
@@ -127,9 +135,10 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 			# GameState.active_*shot_grade est déjà à jour : on ne fait que redessiner le
 			# surlignage "actif" sans attendre un aller-retour "inventory".
 			_refresh()
-		"ShotUsed":
-			# Corrige la quantité en place plutôt que de redemander "inventory" à chaque tir.
-			_patch_shot_quantity(str(payload.get("shotType", "")), int(payload.get("remainingQuantity", 0)))
+		"ItemUsed", "ManaPotionUsed", "ShotUsed":
+			# GameState (autoload, abonné avant cette fenêtre) a déjà décrémenté la pile en
+			# place : pas d'aller-retour "inventory" à chaque tir/potion.
+			_refresh()
 		_:
 			pass
 
@@ -148,12 +157,40 @@ func _refresh() -> void:
 			carried.append(item)
 	_count_label.text = "%d objet%s" % [carried.size(), "s" if carried.size() > 1 else ""]
 
-	var shown: Array = carried.filter(_matches_tab)
-	for item in shown:
-		_items_container.add_child(_build_cell(item))
-	var total_cells := maxi(MIN_CELLS, ceili(shown.size() / float(COLUMNS)) * COLUMNS)
-	for i in total_cells - shown.size():
-		_items_container.add_child(_build_empty_cell())
+	var by_cell := _layout(carried.filter(_matches_tab))
+	var last_cell := -1
+	for cell in by_cell:
+		last_cell = maxi(last_cell, cell)
+	var total_cells := maxi(MIN_CELLS, ceili((last_cell + 1) / float(COLUMNS)) * COLUMNS)
+	for i in total_cells:
+		_items_container.add_child(_build_cell(by_cell[i]) if by_cell.has(i) else _build_empty_cell())
+
+
+## Case -> objet. Onglet "Tout" : chaque objet à sa case GameState.inventory_cells (trous
+## compris, un objet reste en place quand on équipe/déséquipe autour de lui). Onglets filtrés :
+## même ordre, mais tassé. Un objet sans case connue (inventaire posé sans message Inventory,
+## voir tools/ui_preview) comble le premier trou.
+func _layout(items: Array) -> Dictionary:
+	var positions: Dictionary = GameState.inventory_cells
+	var by_cell := {}
+	var unplaced: Array = []
+	if _current_tab == 0:
+		for item in items:
+			var cell = positions.get(str(item.get("id", "")))
+			if cell == null or by_cell.has(cell):
+				unplaced.append(item)
+			else:
+				by_cell[cell] = item
+	else:
+		unplaced = items.duplicate()
+		unplaced.sort_custom(func(a, b):
+			return int(positions.get(str(a.get("id", "")), 1 << 30)) < int(positions.get(str(b.get("id", "")), 1 << 30)))
+	var next := 0
+	for item in unplaced:
+		while by_cell.has(next):
+			next += 1
+		by_cell[next] = item
+	return by_cell
 
 
 func _matches_tab(item: Dictionary) -> bool:
@@ -197,7 +234,7 @@ func _build_cell(item: Dictionary) -> Control:
 	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	icon.stretch_mode = TextureRect.STRETCH_SCALE
 	icon.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	icon.texture = IconFactory.slot_icon("item", item_name, type_key)
+	icon.texture = IconFactory.item_icon(item)
 	# ref_id = UUID d'instance : EquipmentSlot envoie "equip <uuid>" directement.
 	icon.drag_kind = "item"
 	icon.drag_ref_id = item_id
@@ -218,6 +255,9 @@ func _build_cell(item: Dictionary) -> Control:
 			"Glisser hors de la fenêtre : jeter",
 		])
 		icon.right_clicked.connect(func(): Net.send_command(type_key.to_lower(), grade.to_lower()))
+	elif type_key in EQUIPPABLE_TYPES:
+		icon.tooltip_text = ItemTooltip.build(item, ["Clic droit : équiper", "Glisser hors de la fenêtre : jeter"])
+		icon.right_clicked.connect(func(): Net.send_command("equip", item_id))
 	else:
 		icon.tooltip_text = ItemTooltip.build(item, ["Clic droit : utiliser", "Glisser hors de la fenêtre : jeter"])
 		icon.right_clicked.connect(func(): Net.send_command("use", item_id))
@@ -257,18 +297,6 @@ func _short_quantity(quantity: int) -> String:
 func _is_shot_active(item_type: String, item_grade: String) -> bool:
 	var active_grade := GameState.active_soulshot_grade if item_type == "SOULSHOT" else GameState.active_spiritshot_grade
 	return not active_grade.is_empty() and active_grade == item_grade
-
-
-## Ne retire jamais l'entrée à 0 (le serveur la supprime) : la prochaine ouverture de la
-## fenêtre la fera disparaître pour de bon.
-func _patch_shot_quantity(shot_type: String, remaining: int) -> void:
-	if shot_type.is_empty():
-		return
-	for item in GameState.inventory.get("items", []):
-		if str(item.get("type", "")) == shot_type:
-			item["quantity"] = remaining
-			break
-	_refresh()
 
 
 ## Un lâcher qui n'atterrit sur aucune cible valide ET hors de cette fenêtre = "jeter" ;

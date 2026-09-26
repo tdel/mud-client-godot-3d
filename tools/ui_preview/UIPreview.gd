@@ -8,6 +8,8 @@ extends Node
 ##
 ## user://hotbar.cfg est sauvegardé puis restauré tel quel : la hotbar écrit sa config pour le
 ## personnage factice au chargement, ce qui ne doit pas polluer la config réelle du joueur.
+## Les positions de fenêtres sauvegardées (user://windows.cfg) sont ignorées et jamais écrites,
+## pour des captures reproductibles.
 
 const HOTBAR_CFG := "user://hotbar.cfg"
 const MAP_NAME := "Place du village"
@@ -24,6 +26,7 @@ func _ready() -> void:
 			_shot = arg.substr(7)
 		elif arg.begins_with("--out="):
 			_out = arg.substr(6)
+	WindowFrame.persist_positions = false
 	_hotbar_existed = FileAccess.file_exists(HOTBAR_CFG)
 	if _hotbar_existed:
 		_hotbar_backup = FileAccess.get_file_as_bytes(HOTBAR_CFG)
@@ -36,9 +39,23 @@ func _run() -> void:
 			_open_scene("res://scenes/login/Login.tscn")
 		"charselect":
 			GameState.character_list = [
-				{"name": "Aelwyn", "race": "HUMAN", "characterClass": "FIGHTER", "level": 12},
-				{"name": "Morwen", "race": "HUMAN", "characterClass": "MYSTIC", "level": 27},
-				{"name": "Thorgal", "race": "HUMAN", "characterClass": "FIGHTER", "level": 3},
+				{"name": "Aelwyn", "race": "HUMAN", "characterClass": "FIGHTER", "level": 12, "gender": "MAN",
+					"equipment": [
+						{"slot": "WEAPON", "name": "Long Sword", "weaponType": "SWORD"},
+						{"slot": "OFF_HAND", "name": "Wooden Shield", "type": "SHIELD"},
+						{"slot": "CHEST", "name": "Chain Mail", "armorCategory": "HEAVY"},
+						{"slot": "LEGS", "name": "Leather Pants", "armorCategory": "LIGHT"},
+						{"slot": "FEET", "name": "Leather Boots", "armorCategory": "LIGHT"},
+						{"slot": "HEAD", "name": "Iron Helmet", "armorCategory": "HEAVY"},
+					]},
+				{"name": "Morwen", "race": "HUMAN", "characterClass": "MYSTIC", "level": 27, "gender": "WOMAN",
+					"equipment": [
+						{"slot": "WEAPON", "name": "Staff of Healing", "weaponType": "STAFF"},
+						{"slot": "CHEST", "name": "Major Arcana Robe", "armorCategory": "LIGHT"},
+						{"slot": "HEAD", "name": "Major Arcana Circlet", "armorCategory": "LIGHT"},
+					]},
+				{"name": "Thorgal", "race": "HUMAN", "characterClass": "FIGHTER", "level": 3, "gender": "MAN",
+					"equipment": []},
 			]
 			_open_scene("res://scenes/charselect/CharSelect.tscn")
 		"create":
@@ -51,6 +68,8 @@ func _run() -> void:
 	await _frames(8)
 	if _shot.begins_with("game"):
 		_setup_game_scene()
+	if _shot == "game_spells":
+		await _play_spell_scenario()
 	await _frames(20)
 	await RenderingServer.frame_post_draw
 	var image := get_viewport().get_texture().get_image()
@@ -97,7 +116,10 @@ func _build_icon_sheet() -> void:
 		["attack", "Attaque", ""], ["skill", "Heal", "HEALING"], ["skill", "Wind Strike", "DAMAGE"],
 		["skill", "Might", "BUFF"], ["skill", "Curse", "DEBUFF"], ["skill", "Fire Bolt", "DAMAGE"],
 		["skill", "Ice Bolt", "DAMAGE"], ["skill", "Power Strike", "DAMAGE"],
-		["item", "Bastard Sword", "WEAPON"], ["item", "Iron Helmet", "HELMET"], ["item", "Tunic", "ARMOR"],
+		["item", "Short Sword", "SWORD"], ["item", "Tsurugi", "BIG_SWORD"], ["item", "Dagger", "DAGGER"],
+		["item", "Wooden Club", "BLUNT"], ["item", "Hammer of Ruin", "BIG_BLUNT"], ["item", "Battle Axe", "AXE"],
+		["item", "Spear", "POLE"], ["item", "Wooden Staff", "STAFF"], ["item", "Wand of Flames", "WAND"],
+		["item", "Wooden Bow", "BOW"], ["item", "Bastard Sword", "WEAPON"], ["item", "Iron Helmet", "HELMET"], ["item", "Tunic", "ARMOR"],
 		["item", "Pants", "PANTS"], ["item", "Boots", "BOOTS"], ["item", "Gloves", "GLOVES"],
 		["item", "Shield", "SHIELD"], ["item", "Necklace", "NECKLACE"], ["item", "Earring", "EARRING"],
 		["item", "Ring", "RING"], ["item", "Healing Potion", "POTION"], ["item", "Mana Potion", "POTION"],
@@ -160,8 +182,8 @@ func _feed_game_state() -> void:
 	_emit("Inventory", {
 		"gold": 1254300,
 		"items": [
-			{"id": "i1", "name": "Healing Potion", "grade": "NOGRADE", "type": "POTION", "quantity": 1, "description": "Rend 50 PV."},
-			{"id": "i2", "name": "Mana Potion", "grade": "NOGRADE", "type": "POTION", "quantity": 1},
+			{"id": "i1", "name": "Healing Potion", "grade": "NOGRADE", "type": "POTION", "quantity": 100, "description": "Rend 50 PV."},
+			{"id": "i2", "name": "Mana Potion", "grade": "NOGRADE", "type": "POTION", "quantity": 37},
 			{"id": "i3", "name": "Soulshot", "grade": "NOGRADE", "type": "SOULSHOT", "quantity": 1520},
 			{"id": "i4", "name": "Spiritshot", "grade": "D", "type": "SPIRITSHOT", "quantity": 340},
 			{"id": "i5", "name": "Bastard Sword", "grade": "C", "type": "WEAPON", "pAtk": 107, "atkSpd": 379, "critBonus": 8, "enchant": 3},
@@ -194,7 +216,13 @@ func _feed_game_state() -> void:
 		{"id": "m1", "name": "Loup gris", "kind": "monster", "x": cx + 3, "y": cy + 1, "currentHealth": 64, "maxHealth": 120, "level": 14},
 		{"id": "m2", "name": "Gobelin", "kind": "monster", "x": cx - 4, "y": cy + 3, "currentHealth": 80, "maxHealth": 80, "level": 9},
 		{"id": "n1", "name": "Lector", "kind": "npc", "title": "Marchand", "x": cx - 2, "y": cy - 3, "hasShop": true},
-		{"id": "c1", "name": "Kaelis", "kind": "character", "title": "Chevalier", "x": cx + 1, "y": cy - 4, "currentHealth": 300, "maxHealth": 300, "level": 20},
+		{"id": "c1", "name": "Kaelis", "kind": "character", "title": "Chevalier", "x": cx + 1, "y": cy - 4, "currentHealth": 300, "maxHealth": 300, "level": 20,
+			"gender": "WOMAN", "equipment": [
+				{"slot": "WEAPON", "name": "Tsurugi", "type": "WEAPON", "grade": "C", "weaponType": "BIG_SWORD"},
+				{"slot": "CHEST", "name": "Plate Armor", "type": "ARMOR", "grade": "C", "armorCategory": "HEAVY"},
+				{"slot": "HEAD", "name": "Helm of Terror", "type": "HELMET", "grade": "C"},
+				{"slot": "FEET", "name": "Dark Crystal Boots", "type": "BOOTS", "grade": "B"},
+			]},
 	]})
 
 
@@ -207,9 +235,14 @@ func _setup_game_scene() -> void:
 	slot_nodes[2].set_content("skill", "Wind Strike")
 	slot_nodes[3].set_content("skill", "Might")
 	slot_nodes[4].set_content("item", "Healing Potion")
+	slot_nodes[4].set_quantity(237)
 	slot_nodes[5].set_content("item", "Mana Potion")
+	slot_nodes[5].set_quantity(37)
 	slot_nodes[6].set_content("item", "Soulshot")
+	slot_nodes[6].set_quantity(1520)
 	slot_nodes[6].set_active(true)
+	slot_nodes[7].set_content("item", "Greater Healing Potion")
+	slot_nodes[7].set_quantity(0)
 	slot_nodes[2].set_cooldown_overlay(6000.0)
 
 	game._log("Vous infligez 42 dégâts à Loup gris.")
@@ -261,7 +294,8 @@ func _setup_game_scene() -> void:
 				var item: Dictionary = GameState.inventory["items"][4 if i == 0 else 3]
 				var tip := PanelContainer.new()
 				tip.add_theme_stylebox_override("panel", UITheme.theme.get_stylebox("panel", "TooltipPanel"))
-				var footer := ["Clic droit : utiliser", "Glisser hors de la fenêtre : jeter"]
+				var action := "équiper" if str(item.get("type", "")) in inventory.EQUIPPABLE_TYPES else "utiliser"
+				var footer := ["Clic droit : %s" % action, "Glisser hors de la fenêtre : jeter"]
 				tip.add_child(UITheme.make_rich_tooltip(ItemTooltip.build(item, footer)))
 				tip.position = cell.get_global_rect().end + Vector2(8 + 230 * i, 8)
 				hud.add_child(tip)
@@ -286,3 +320,21 @@ func _map_size(map_name: String) -> Vector2i:
 			result = Vector2i(maxi(result.x, cell.x + 1), maxi(result.y, cell.z + 1))
 	map_instance.free()
 	return result
+
+
+## --shot=game_spells : incantations/projectile/soin simulés dans la vraie scène de jeu
+## (flux Net -> Game3D -> SpellVfx), capturés en plein vol.
+func _play_spell_scenario() -> void:
+	_emit("SkillCastStarted", {"casterId": "p1", "casterName": "Aelwyn", "skillName": "Wind Strike",
+		"targetId": "m1", "castingTimeMs": 4000, "casterHeading": 0.0})
+	_emit("SkillCastStarted", {"casterId": "c1", "casterName": "Kaelis", "skillName": "Curse: Doom",
+		"targetId": "m2", "castingTimeMs": 3000, "casterHeading": 0.0})
+	await get_tree().create_timer(0.7).timeout
+	_emit("SkillProjectileLaunched", {"casterId": "c1", "skillName": "Flame Strike", "targetId": "m1",
+		"travelDurationMs": 1200})
+	await get_tree().create_timer(0.3).timeout
+	_emit("SkillCastAnnounced", {"casterId": "m2", "casterName": "Gobelin", "targetId": "m2",
+		"skillName": "Heal", "selfHeal": true, "targetHealthAfter": 80, "targetMaxHealth": 80})
+	await get_tree().create_timer(0.2).timeout
+	_emit("SkillCastCancelled", {"casterId": "c1", "casterName": "Kaelis", "skillName": "Curse: Doom"})
+	await get_tree().create_timer(0.15).timeout

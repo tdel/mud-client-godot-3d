@@ -14,10 +14,23 @@ extends Control
 ##         Body (%Body) — contenu propre à la fenêtre
 ## La fenêtre s'ajuste automatiquement à la taille minimale de son contenu (voir
 ## _fit_to_content) : la taille posée dans le .tscn n'est qu'un point de départ.
+##
+## La position de chaque fenêtre est mémorisée côté client dans user://windows.cfg (clé : nom
+## du nœud) à la fin d'un glisser et à la fermeture, puis restaurée à la première ouverture —
+## y compris après un redémarrage du jeu. La position du .tscn ne sert que tant qu'aucune
+## position n'a été sauvegardée.
+
+const POSITIONS_PATH := "user://windows.cfg"
+const POSITIONS_SECTION := "positions"
 
 ## Pile des fenêtres ouvertes, dans l'ordre d'ouverture/mise au premier plan — Échap
 ## (Game3D._unhandled_input → close_topmost) ferme toujours la dernière.
 static var _open_stack: Array[WindowFrame] = []
+## Désactivé par l'outil tools/ui_preview, dont les captures doivent utiliser les positions
+## par défaut sans écraser celles du joueur.
+static var persist_positions := true
+## Cache de user://windows.cfg, chargé au premier accès (voir _positions_config).
+static var _positions: ConfigFile = null
 
 @onready var _panel: Control = $Panel
 @onready var _title_bar: Control = %TitleBar
@@ -27,6 +40,11 @@ static var _open_stack: Array[WindowFrame] = []
 
 var _dragging := false
 var _drag_offset := Vector2.ZERO
+## Fenêtre solidaire de celle-ci (voir attach_to) : glisser l'une déplace l'autre du même
+## écart, et les deux passent ensemble au premier plan — ex. InventoryWindow/EquipmentWindow,
+## qui ne forment qu'une seule fenêtre dans L2.
+var _attached: WindowFrame = null
+var _position_restored := false
 
 
 func _ready() -> void:
@@ -55,17 +73,35 @@ func get_body() -> Control:
 
 ## À appeler en tête du `open()` propre à chaque fenêtre concrète.
 func show_window() -> void:
+	if not _position_restored:
+		_position_restored = true
+		_restore_position()
 	visible = true
 	_bring_to_front()
 	_fit_to_content.call_deferred()
 
 
 func close_window() -> void:
+	if visible:
+		_save_position()
 	visible = false
 	WindowFrame._open_stack.erase(self)
 
 
+## Lie deux fenêtres dans les deux sens (déplacement et premier plan communs).
+func attach_to(other: WindowFrame) -> void:
+	_attached = other
+	other._attached = self
+
+
 func _bring_to_front() -> void:
+	# La fenêtre solidaire passe devant d'abord, pour que celle cliquée reste au sommet.
+	if _attached != null and _attached.visible:
+		_attached._raise()
+	_raise()
+
+
+func _raise() -> void:
 	get_parent().move_child(self, get_parent().get_child_count() - 1)
 	WindowFrame._open_stack.erase(self)
 	WindowFrame._open_stack.append(self)
@@ -91,15 +127,27 @@ func _fit_to_content() -> void:
 
 
 ## Garde toujours la barre de titre à l'écran (sinon une fenêtre glissée trop loin devient
-## impossible à rattraper).
+## impossible à rattraper). Une fenêtre solidaire visible est bornée avec elle comme un seul
+## bloc, pour que le recadrage ne les décale jamais l'une par rapport à l'autre.
 func _clamp_to_viewport() -> void:
 	var viewport_size := get_viewport_rect().size
 	if viewport_size == Vector2.ZERO:
 		return
-	global_position = Vector2(
-		clampf(global_position.x, 40.0 - size.x, viewport_size.x - 40.0),
-		clampf(global_position.y, 0.0, viewport_size.y - 24.0)
+	var with_attached := _attached != null and _attached.visible
+	var rect := get_global_rect()
+	if with_attached:
+		rect = rect.merge(_attached.get_global_rect())
+	var clamped := Vector2(
+		clampf(rect.position.x, 40.0 - rect.size.x, viewport_size.x - 40.0),
+		clampf(rect.position.y, 0.0, viewport_size.y - 24.0)
 	)
+	_move_by(clamped - rect.position)
+
+
+func _move_by(delta: Vector2) -> void:
+	global_position += delta
+	if _attached != null and _attached.visible:
+		_attached.global_position += delta
 
 
 func _on_panel_gui_input(event: InputEvent) -> void:
@@ -113,8 +161,38 @@ func _on_title_bar_gui_input(event: InputEvent) -> void:
 			_dragging = true
 			_drag_offset = get_global_mouse_position() - global_position
 			_bring_to_front()
-		else:
+		elif _dragging:
 			_dragging = false
+			_save_position()
 	elif event is InputEventMouseMotion and _dragging:
-		global_position = get_global_mouse_position() - _drag_offset
+		_move_by(get_global_mouse_position() - _drag_offset - global_position)
 		_clamp_to_viewport()
+
+
+static func _positions_config() -> ConfigFile:
+	if _positions == null:
+		_positions = ConfigFile.new()
+		_positions.load(POSITIONS_PATH)
+	return _positions
+
+
+## Une position sauvegardée avec une fenêtre de jeu plus grande est ramenée à l'écran par le
+## _fit_to_content différé de show_window (voir _clamp_to_viewport).
+func _restore_position() -> void:
+	var config := _positions_config()
+	if not persist_positions or not config.has_section_key(POSITIONS_SECTION, name):
+		return
+	var saved = config.get_value(POSITIONS_SECTION, name)
+	if saved is Vector2:
+		global_position = saved
+
+
+## Sauvegarde aussi la fenêtre solidaire, que le glisser a déplacée du même écart.
+func _save_position() -> void:
+	if not persist_positions:
+		return
+	var config := _positions_config()
+	config.set_value(POSITIONS_SECTION, name, global_position)
+	if _attached != null and _attached.visible:
+		config.set_value(POSITIONS_SECTION, _attached.name, _attached.global_position)
+	config.save(POSITIONS_PATH)

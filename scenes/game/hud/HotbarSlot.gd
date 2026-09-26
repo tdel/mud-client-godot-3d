@@ -23,6 +23,7 @@ const COOLDOWN_EDGE := Color(1.0, 0.92, 0.65, 0.85)
 @onready var _icon: TextureRect = %Icon
 @onready var _overlay: Control = %Overlay
 @onready var _key_label: Label = %KeyLabel
+@onready var _quantity_label: Label = %QuantityLabel
 @onready var _cooldown_label: Label = %CooldownLabel
 @onready var _error_overlay: ColorRect = %ErrorOverlay
 
@@ -54,6 +55,7 @@ func set_content(kind: String, ref_name: String, tooltip: String = "") -> void:
 	_kind = kind
 	_ref_name = ref_name
 	set_insufficient_mana(false)
+	set_quantity(-1)
 	if kind.is_empty():
 		_icon.texture = null
 		tooltip_text = ""
@@ -136,6 +138,25 @@ func _clip_to_rect(center: Vector2, ray: Vector2, rect: Rect2) -> Vector2:
 	if ray.y != 0.0:
 		t = minf(t, ((rect.end.y if ray.y > 0.0 else rect.position.y) - center.y) / ray.y)
 	return center + ray * t
+
+
+## Nombre d'exemplaires en inventaire d'un slot "item" (toutes piles confondues, voir
+## Hotbar._refresh_item_quantities) : -1 = pas de compteur ; 0 = épuisé, compteur masqué et
+## icône grisée (le slot reste en place pour le prochain achat, comme dans L2).
+func set_quantity(quantity: int) -> void:
+	_quantity_label.visible = quantity > 0
+	if quantity > 0:
+		_quantity_label.text = _short_quantity(quantity)
+	_icon.modulate = INSUFFICIENT_MANA_MODULATE if quantity == 0 else Color(1, 1, 1, 1)
+
+
+## Même format que InventoryWindow._short_quantity ("15200" -> "15k").
+static func _short_quantity(quantity: int) -> String:
+	if quantity >= 1000000:
+		return "%dM" % (quantity / 1000000)
+	if quantity >= 10000:
+		return "%dk" % (quantity / 1000)
+	return str(quantity)
 
 
 ## Grise l'icône (mais pas le voile de recharge) quand la mana manque pour ce sort.

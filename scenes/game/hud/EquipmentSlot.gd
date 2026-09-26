@@ -45,7 +45,7 @@ func setup(key: String) -> void:
 ## `item` : une entrée telle que reçue dans Inventory.payload.items (voir GameState.inventory).
 func set_item(item: Dictionary) -> void:
 	_item_id = str(item.get("id", ""))
-	_icon.texture = IconFactory.slot_icon("item", str(item.get("name", "")), str(item.get("type", "")))
+	_icon.texture = IconFactory.item_icon(item)
 	_icon.modulate = Color.WHITE
 	_set_grade_badge(str(item.get("grade", "NOGRADE")))
 	tooltip_text = "%s\n%s" % [
