@@ -1,103 +1,157 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene format=3]
 
 [ext_resource type="Script" path="res://scenes/game/hud/ShopWindow.gd" id="1"]
 
 [node name="ShopWindow" type="Control"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(460, 0)
-offset_left = 520.0
-offset_top = 120.0
-offset_right = 980.0
-offset_bottom = 560.0
+custom_minimum_size = Vector2(380, 0)
+layout_mode = 3
+offset_left = 560
+offset_top = 120
+offset_right = 940
+offset_bottom = 320
 script = ExtResource("1")
 
 [node name="Panel" type="PanelContainer" parent="."]
+layout_mode = 1
 anchor_right = 1.0
 anchor_bottom = 1.0
+theme_type_variation = &"WindowPanel"
 
-[node name="MarginContainer" type="MarginContainer" parent="Panel"]
+[node name="VBox" type="VBoxContainer" parent="Panel"]
 layout_mode = 2
-theme_override_constants/margin_left = 20
-theme_override_constants/margin_top = 16
-theme_override_constants/margin_right = 20
-theme_override_constants/margin_bottom = 20
+theme_override_constants/separation = 0
 
-[node name="VBoxContainer" type="VBoxContainer" parent="Panel/MarginContainer"]
-layout_mode = 2
-theme_override_constants/separation = 10
-
-[node name="TitleBar" type="HBoxContainer" parent="Panel/MarginContainer/VBoxContainer"]
+[node name="TitleBar" type="PanelContainer" parent="Panel/VBox"]
 unique_name_in_owner = true
 layout_mode = 2
+theme_type_variation = &"TitleBar"
 
-[node name="TitleLabel" type="Label" parent="Panel/MarginContainer/VBoxContainer/TitleBar"]
+[node name="TitleRow" type="HBoxContainer" parent="Panel/VBox/TitleBar"]
+layout_mode = 2
+mouse_filter = 2
+
+[node name="TitleLabel" type="Label" parent="Panel/VBox/TitleBar/TitleRow"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
-theme_override_font_sizes/font_size = 22
+theme_type_variation = &"WindowTitle"
 text = "Boutique"
+vertical_alignment = 1
 
-[node name="CloseButton" type="Button" parent="Panel/MarginContainer/VBoxContainer/TitleBar"]
+[node name="CloseButton" type="Button" parent="Panel/VBox/TitleBar/TitleRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(16, 16)
+layout_mode = 2
+size_flags_vertical = 4
+theme_type_variation = &"CloseButton"
+
+[node name="BodyMargin" type="MarginContainer" parent="Panel/VBox"]
+layout_mode = 2
+theme_override_constants/margin_left = 8
+theme_override_constants/margin_top = 8
+theme_override_constants/margin_right = 8
+theme_override_constants/margin_bottom = 8
+
+[node name="Body" type="VBoxContainer" parent="Panel/VBox/BodyMargin"]
 unique_name_in_owner = true
 layout_mode = 2
-custom_minimum_size = Vector2(30, 30)
-theme_override_font_sizes/font_size = 16
-text = "×"
+theme_override_constants/separation = 6
 
-[node name="NpcNameLabel" type="Label" parent="Panel/MarginContainer/VBoxContainer"]
+[node name="NpcNameLabel" type="Label" parent="Panel/VBox/BodyMargin/Body"]
 unique_name_in_owner = true
 layout_mode = 2
-theme_override_font_sizes/font_size = 16
-theme_override_colors/font_color = Color(0.85, 0.75, 0.55, 1)
+theme_type_variation = &"HeaderLabel"
 text = "Marchand"
 
-[node name="HSeparator" type="HSeparator" parent="Panel/MarginContainer/VBoxContainer"]
+[node name="ListInset" type="PanelContainer" parent="Panel/VBox/BodyMargin/Body"]
 layout_mode = 2
+theme_type_variation = &"InsetPanel"
 
-[node name="Body" type="VBoxContainer" parent="Panel/MarginContainer/VBoxContainer"]
-unique_name_in_owner = true
+[node name="ScrollContainer" type="ScrollContainer" parent="Panel/VBox/BodyMargin/Body/ListInset"]
+custom_minimum_size = Vector2(0, 280)
 layout_mode = 2
-theme_override_constants/separation = 10
+horizontal_scroll_mode = 0
 
-[node name="GoldLabel" type="Label" parent="Panel/MarginContainer/VBoxContainer/Body"]
-unique_name_in_owner = true
-layout_mode = 2
-theme_override_colors/font_color = Color(0.88, 0.74, 0.44, 1)
-text = "Or : 0"
-
-[node name="ScrollContainer" type="ScrollContainer" parent="Panel/MarginContainer/VBoxContainer/Body"]
-layout_mode = 2
-custom_minimum_size = Vector2(0, 300)
-
-[node name="ItemsContainer" type="VBoxContainer" parent="Panel/MarginContainer/VBoxContainer/Body/ScrollContainer"]
+[node name="ItemsContainer" type="VBoxContainer" parent="Panel/VBox/BodyMargin/Body/ListInset/ScrollContainer"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
-theme_override_constants/separation = 8
+theme_override_constants/separation = 0
 
-[node name="HSeparator2" type="HSeparator" parent="Panel/MarginContainer/VBoxContainer/Body"]
+[node name="MessageLabel" type="Label" parent="Panel/VBox/BodyMargin/Body"]
+unique_name_in_owner = true
+visible = false
 layout_mode = 2
+theme_type_variation = &"MessageLabel"
+autowrap_mode = 3
 
-[node name="FooterBar" type="HBoxContainer" parent="Panel/MarginContainer/VBoxContainer/Body"]
+[node name="Footer" type="PanelContainer" parent="Panel/VBox/BodyMargin/Body"]
 layout_mode = 2
-theme_override_constants/separation = 10
+theme_type_variation = &"InsetPanel"
 
-[node name="TotalLabel" type="Label" parent="Panel/MarginContainer/VBoxContainer/Body/FooterBar"]
+[node name="FooterGrid" type="GridContainer" parent="Panel/VBox/BodyMargin/Body/Footer"]
+layout_mode = 2
+theme_override_constants/h_separation = 6
+theme_override_constants/v_separation = 2
+columns = 3
+
+[node name="GoldTag" type="Label" parent="Panel/VBox/BodyMargin/Body/Footer/FooterGrid"]
+layout_mode = 2
+theme_type_variation = &"StatLabel"
+text = "Adena"
+
+[node name="GoldCoin" type="TextureRect" parent="Panel/VBox/BodyMargin/Body/Footer/FooterGrid"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(14, 14)
+layout_mode = 2
+size_flags_vertical = 4
+expand_mode = 1
+stretch_mode = 5
+
+[node name="GoldLabel" type="Label" parent="Panel/VBox/BodyMargin/Body/Footer/FooterGrid"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
-vertical_alignment = 1
-text = "Total : 0 or"
+theme_type_variation = &"StatValue"
+text = "0"
+horizontal_alignment = 2
 
-[node name="ConfirmButton" type="Button" parent="Panel/MarginContainer/VBoxContainer/Body/FooterBar"]
+[node name="TotalTag" type="Label" parent="Panel/VBox/BodyMargin/Body/Footer/FooterGrid"]
+layout_mode = 2
+theme_type_variation = &"StatLabel"
+text = "Total"
+
+[node name="TotalCoin" type="TextureRect" parent="Panel/VBox/BodyMargin/Body/Footer/FooterGrid"]
 unique_name_in_owner = true
+custom_minimum_size = Vector2(14, 14)
+layout_mode = 2
+size_flags_vertical = 4
+expand_mode = 1
+stretch_mode = 5
+
+[node name="TotalLabel" type="Label" parent="Panel/VBox/BodyMargin/Body/Footer/FooterGrid"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_type_variation = &"StatValue"
+text = "0"
+horizontal_alignment = 2
+
+[node name="ButtonRow" type="HBoxContainer" parent="Panel/VBox/BodyMargin/Body"]
+layout_mode = 2
+alignment = 2
+theme_override_constants/separation = 6
+
+[node name="ClearButton" type="Button" parent="Panel/VBox/BodyMargin/Body/ButtonRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(90, 0)
+layout_mode = 2
+text = "Réinitialiser"
+
+[node name="ConfirmButton" type="Button" parent="Panel/VBox/BodyMargin/Body/ButtonRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(90, 0)
 layout_mode = 2
 disabled = true
-text = "Confirmer l'achat"
-
-[node name="MessageLabel" type="Label" parent="Panel/MarginContainer/VBoxContainer/Body"]
-unique_name_in_owner = true
-layout_mode = 2
-autowrap_mode = 3
-theme_override_colors/font_color = Color(0.9, 0.75, 0.35, 1)
-visible = false
+text = "Acheter"

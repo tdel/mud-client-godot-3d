@@ -64,12 +64,13 @@ const PORTAL_EDGE_COLOR := Color(0.05, 0.18, 0.65)
 const PORTAL_RING_HEIGHT_Y := 1.05
 const PORTAL_RING_INNER_RADIUS := 0.68
 const PORTAL_RING_OUTER_RADIUS := 0.88
-## Titre optionnel (EntityView.title / GamePlayerStats.Payload.title côté backend, ex. fonction
-## d'un PNJ comme "Blacksmith") affiché au-dessus du nom, voir TITLE_LABEL_OFFSET_Y. Vert saturé
-## volontairement plus soutenu que OTHER_PLAYER_COLOR (0.30, 0.80, 0.55, très clair une fois
-## éclairci par `lightened(0.5)` pour le nom des autres joueurs) pour rester lisible sans être
-## fade — couleur "titre" classique de RPG (vert distinct du blanc du nom).
-const TITLE_LABEL_COLOR := Color(0.15, 0.85, 0.25)
+## Plaques de nom flottantes façon Lineage 2 : nom des joueurs en blanc, des PNJ en bleu
+## clair, des monstres en blanc rosé ; titre (EntityView.title / GamePlayerStats.Payload.title,
+## ex. fonction d'un PNJ comme "Blacksmith") en jaune pâle au-dessus du nom.
+const TITLE_LABEL_COLOR := Color(1.0, 1.0, 0.47)
+const PLAYER_NAME_COLOR := Color(1.0, 1.0, 1.0)
+const NPC_NAME_COLOR := Color(0.62, 0.82, 1.0)
+const MONSTER_NAME_COLOR := Color(1.0, 0.80, 0.76)
 const SELECTION_COLOR := Color(0.92, 0.20, 0.16)
 
 ## Lueur d'arme sur la consommation d'un soulshot/spiritshot (voir _flash_entity, réutilisé
@@ -159,8 +160,8 @@ const LOG_COLOR_GAIN := "#f2e35a"
 ## "#Groupe" (voir _log_chat/_on_chat_tab_changed), contrairement au "say" qui ne va que dans
 ## "Tous".
 const LOG_COLOR_SAY := "#ffffff"
-const LOG_COLOR_PARTY := "#4fd67a"
-const LOG_COLOR_WHISPER := "#c586f5"
+const LOG_COLOR_PARTY := "#5ce65c"
+const LOG_COLOR_WHISPER := "#ff77ff"
 
 ## Transparence des fenêtres de discussion (%ChatLogPanel/%SystemLogPanel) — demande explicite
 ## du 2026-09-06 : quasi invisibles tant que %ChatInput n'a pas le focus (pour ne pas gêner la
@@ -219,8 +220,9 @@ const CAST_BAR_WIDTH := 0.9
 const CAST_BAR_HEIGHT := 0.2
 const HP_BAR_OFFSET_Y := 1.85
 const CAST_BAR_OFFSET_Y := 2.35
-const HP_BAR_COLOR := Color(0.75, 0.15, 0.15)
-const HP_BAR_BG_COLOR := Color(0.05, 0.05, 0.05, 0.85)
+const HP_BAR_COLOR := Color(0.85, 0.17, 0.15)
+const HP_BAR_BG_COLOR := Color(0.12, 0.02, 0.02, 0.9)
+const HP_BAR_BORDER_COLOR := Color(0.0, 0.0, 0.0, 0.95)
 ## Remplacée le 2026-09-03 (troisième passe) par une vraie pilule aux bords arrondis rendue
 ## via shader (_make_rounded_progress_bar) plutôt que les deux quads plats fond+remplissage
 ## de _make_floating_bar : fond bleu nuit OPAQUE (alpha=1, plus de flou de transparence qui
@@ -454,6 +456,8 @@ func _ready() -> void:
 	_chat_log_resize_handle.panel_resized.connect(_on_chat_log_panel_resized)
 	_on_chat_log_panel_resized()
 	_set_chat_windows_interactive(false)
+	# Messages système en gris-bleu clair, distincts du chat entre joueurs (comme dans L2).
+	_system_log_label.add_theme_color_override("default_color", UITheme.TEXT_SYSTEM)
 
 	_chat_tab_bar.add_tab("Tous")
 	_chat_tab_bar.add_tab("#Groupe")
@@ -1284,6 +1288,7 @@ func _make_portal_node(portal_name: String, portal_title: String) -> Node3D:
 	label.font_size = 28
 	label.outline_size = 6
 	label.modulate = PORTAL_COLOR.lightened(0.4)
+	label.font = UITheme.font_bold
 	root.add_child(label)
 
 	var title_label := Label3D.new()
@@ -1295,6 +1300,7 @@ func _make_portal_node(portal_name: String, portal_title: String) -> Node3D:
 	title_label.font_size = 20
 	title_label.outline_size = 5
 	title_label.modulate = TITLE_LABEL_COLOR
+	title_label.font = UITheme.font_bold
 	root.add_child(title_label)
 
 	return root
@@ -1884,7 +1890,8 @@ func _make_entity_node(entity_name: String, color: Color, pickable: bool, humano
 	# uniquement une question de taille de police absolue, pas de zoom/distance.
 	label.font_size = 120
 	label.outline_size = 18
-	label.modulate = color.lightened(0.5)
+	label.modulate = _name_color_for(color)
+	label.font = UITheme.font_bold
 	root.add_child(label)
 
 	# Titre (fonction/rang, voir TITLE_LABEL_COLOR) : au-dessus du nom, pas trop haut. Même
@@ -1902,9 +1909,20 @@ func _make_entity_node(entity_name: String, color: Color, pickable: bool, humano
 	title_label.font_size = 72
 	title_label.outline_size = 14
 	title_label.modulate = TITLE_LABEL_COLOR
+	title_label.font = UITheme.font_bold
 	root.add_child(title_label)
 
 	return root
+
+
+## Couleur du nom flottant selon le type d'entité (voir PLAYER_NAME_COLOR/NPC_NAME_COLOR/
+## MONSTER_NAME_COLOR) — `color` est la couleur de capsule passée à _make_entity_node.
+func _name_color_for(color: Color) -> Color:
+	if color == MONSTER_COLOR:
+		return MONSTER_NAME_COLOR
+	if color == NPC_COLOR:
+		return NPC_NAME_COLOR
+	return PLAYER_NAME_COLOR
 
 
 ## AbstractObject.title côté backend vaut `null` (pas "") quand aucun titre n'est défini —
@@ -2102,13 +2120,17 @@ func _make_floating_bar(
 	fill_color: Color, bg_color: Color, width: float, height: float, emissive_fill: bool
 ) -> Dictionary:
 	var root := Node3D.new()
-	var bg := _make_bar_quad(bg_color, width, height, false)
+	# Liseré noir autour de la jauge (façon jauges L2), un cran derrière le fond.
+	var border := _make_bar_quad(HP_BAR_BORDER_COLOR, width + 0.06, height + 0.06, false, 0)
+	border.position = Vector3(0.0, 0.0, -0.001)
+	root.add_child(border)
+	var bg := _make_bar_quad(bg_color, width, height, false, 1)
 	root.add_child(bg)
 
 	var fill_pivot := Node3D.new()
 	fill_pivot.position = Vector3(-width / 2.0, 0.0, 0.001)
 	root.add_child(fill_pivot)
-	var fill := _make_bar_quad(fill_color, width, height, emissive_fill)
+	var fill := _make_bar_quad(fill_color, width, height, emissive_fill, 2)
 	fill.position = Vector3(width / 2.0, 0.0, 0.0)
 	fill_pivot.add_child(fill)
 
@@ -2117,7 +2139,9 @@ func _make_floating_bar(
 	return {"root": root, "fill_pivot": fill_pivot}
 
 
-func _make_bar_quad(color: Color, width: float, height: float, emissive: bool) -> MeshInstance3D:
+## `priority` : ordre de dessin (liseré 0 < fond 1 < remplissage 2) — tous les quads passent
+## en transparence pour être triés par render_priority plutôt que par distance (égale).
+func _make_bar_quad(color: Color, width: float, height: float, emissive: bool, priority: int = 0) -> MeshInstance3D:
 	var mesh_instance := MeshInstance3D.new()
 	var quad := QuadMesh.new()
 	quad.size = Vector2(width, height)
@@ -2133,8 +2157,8 @@ func _make_bar_quad(color: Color, width: float, height: float, emissive: bool) -
 		mat.emission_enabled = true
 		mat.emission = color
 		mat.emission_energy_multiplier = 1.4
-	if color.a < 1.0:
-		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.render_priority = priority
 	quad.material = mat
 	mesh_instance.mesh = quad
 	return mesh_instance
@@ -2291,6 +2315,7 @@ func _show_damage_number(node: Node3D, amount: int, critical: bool) -> void:
 	var label := Label3D.new()
 	label.text = str(amount)
 	label.font_size = 46 if critical else 36
+	label.font = UITheme.font_bold
 	label.outline_size = 8
 	label.modulate = DAMAGE_NUMBER_COLOR_CRITICAL if critical else DAMAGE_NUMBER_COLOR_NORMAL
 	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED

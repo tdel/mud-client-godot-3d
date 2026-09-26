@@ -82,6 +82,7 @@ mouse_filter = 2
 unique_name_in_owner = true
 anchor_right = 1.0
 anchor_bottom = 1.0
+theme_type_variation = &"ChatPanel"
 
 [node name="ChatLogContent" type="VBoxContainer" parent="HUD/ChatLogPanel/ChatLogBackground"]
 layout_mode = 2
@@ -158,6 +159,7 @@ mouse_filter = 2
 unique_name_in_owner = true
 anchor_right = 1.0
 anchor_bottom = 1.0
+theme_type_variation = &"ChatPanel"
 
 [node name="SystemLogLabel" type="RichTextLabel" parent="HUD/SystemLogPanel/SystemLogBackground"]
 unique_name_in_owner = true
@@ -188,7 +190,7 @@ offset_bottom = -12.0
 unique_name_in_owner = true
 custom_minimum_size = Vector2(420, 0)
 size_flags_horizontal = 3
-placeholder_text = "Entrée pour parler... (#nom pour chuchoter, % pour le groupe)"
+placeholder_text = "Entrée pour parler — #nom : chuchoter, % : groupe"
 
 [node name="TargetStatusBar" parent="HUD" instance=ExtResource("2")]
 

@@ -33,18 +33,27 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 
 func _open_with_dialogue(payload: Dictionary) -> void:
 	_npc_id = str(payload.get("npcId", ""))
-	_npc_name_label.text = str(payload.get("npcName", "PNJ"))
+	var npc_name := str(payload.get("npcName", "PNJ"))
+	# Comme la fenêtre de discussion PNJ de L2 : le nom du PNJ sert de titre de fenêtre.
+	set_window_title(npc_name)
+	_npc_name_label.visible = false
 	_text_label.text = str(payload.get("greeting", ""))
 	_build_options(payload.get("options", []))
 	show_window()
 
 
+## Chaque option est un lien de texte cliquable (variation "DialogLink"), comme les liens
+## des dialogues PNJ de L2, plutôt qu'un gros bouton.
 func _build_options(options: Array) -> void:
 	for child in _options_container.get_children():
 		child.queue_free()
 	for option in options:
 		var button := Button.new()
-		button.text = str(option.get("label", "..."))
+		button.theme_type_variation = &"DialogLink"
+		button.text = "› %s" % str(option.get("label", "..."))
+		button.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		button.focus_mode = Control.FOCUS_NONE
+		button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 		button.pressed.connect(_on_option_pressed.bind(option))
 		_options_container.add_child(button)
 

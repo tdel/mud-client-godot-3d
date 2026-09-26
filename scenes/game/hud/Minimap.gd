@@ -26,7 +26,7 @@ extends Control
 ## même shader de découpe circulaire + bandeau doré.
 
 ## Diamètre à l'écran du disque de minimap, en pixels.
-const CIRCLE_SIZE := 168.0
+const CIRCLE_SIZE := 176.0
 
 ## Nombre de tuiles visibles sur le diamètre du disque à la taille de caméra par défaut —
 ## choisi égal à la portée de perception serveur (AWARENESS_RANGE, voir CLAUDE.md, session
@@ -46,7 +46,7 @@ var _pixels_per_tile := CIRCLE_SIZE / DEFAULT_VISIBLE_TILES_DIAMETER
 var _map_width := 1
 var _map_height := 1
 
-const RING_COLOR := Color(0.72, 0.58, 0.28, 1.0)
+const RING_COLOR := Color(0.58, 0.51, 0.37, 1.0)
 
 ## Points de connaissance (%EntityDots, voir set_known_entities) — monstres/PNJ/autres
 ## joueurs de la KnownList affichés sur le disque, le joueur restant lui le point bleu
@@ -55,7 +55,7 @@ const MONSTER_DOT_RADIUS := 2.5
 const NPC_DOT_RADIUS := 2.5
 const PLAYER_DOT_RADIUS := 2.5
 const MONSTER_DOT_COLOR := Color(0.9, 0.15, 0.1, 1.0)
-const NPC_DOT_COLOR := Color(0.05, 0.05, 0.05, 1.0)
+const NPC_DOT_COLOR := Color(0.40, 0.92, 0.45, 1.0)
 ## Joueur hors groupe : blanc. Membre du groupe (party) : jaune, pour le repérer d'un
 ## coup d'œil pendant un combat de groupe.
 const OTHER_PLAYER_DOT_COLOR := Color(0.95, 0.95, 0.95, 1.0)
@@ -69,6 +69,9 @@ const SELECTION_RING_RADIUS := 5.0
 const SELECTION_RING_WIDTH := 1.2
 const SELECTION_RING_COLOR := Color(1.0, 1.0, 1.0, 1.0)
 
+## Découpe circulaire + anneau de métal biseauté façon radar L2 : filet noir extérieur,
+## bronze éclairé en haut à gauche et assombri en bas à droite, ombre portée vers
+## l'intérieur de la carte, et quatre petits repères dorés aux points cardinaux.
 const CIRCLE_MASK_SHADER_CODE := """
 shader_type canvas_item;
 
@@ -77,12 +80,28 @@ uniform vec4 ring_color : source_color = vec4(0.72, 0.58, 0.28, 1.0);
 void fragment() {
 	vec2 centered = (UV - vec2(0.5)) * 2.0;
 	float dist = length(centered);
+	float aa = fwidth(dist) * 1.5;
 	if (dist > 1.0) {
 		discard;
 	}
-	vec4 tex_color = texture(TEXTURE, UV);
-	float ring_mix = smoothstep(0.90, 1.0, dist);
-	COLOR = mix(tex_color, ring_color, ring_mix);
+	vec4 map_color = texture(TEXTURE, UV);
+	// Ombre intérieure : la carte s'assombrit juste avant l'anneau.
+	map_color.rgb *= mix(1.0, 0.45, smoothstep(0.74, 0.87, dist));
+	float light = dot(normalize(centered + vec2(0.0001)), normalize(vec2(-1.0, -1.0))) * 0.5 + 0.5;
+	vec3 metal = mix(ring_color.rgb * 0.35, ring_color.rgb * 1.35, light);
+	// Arête centrale plus claire (effet d'anneau bombé).
+	float ridge = 1.0 - abs((dist - 0.935) / 0.05);
+	metal = mix(metal, vec3(1.0, 0.93, 0.72), clamp(ridge, 0.0, 1.0) * 0.35 * light);
+	// Repères cardinaux.
+	float angle = atan(centered.y, centered.x);
+	float notch = smoothstep(0.985, 1.0, abs(cos(angle * 2.0)));
+	metal = mix(metal, vec3(1.0, 0.86, 0.5), notch * 0.8);
+	vec3 color = map_color.rgb;
+	color = mix(color, vec3(0.0), smoothstep(0.87 - aa, 0.87, dist));
+	color = mix(color, metal, smoothstep(0.885 - aa, 0.885, dist));
+	color = mix(color, vec3(0.0), smoothstep(0.975 - aa, 0.975, dist));
+	float alpha = 1.0 - smoothstep(1.0 - aa, 1.0, dist);
+	COLOR = vec4(color, alpha);
 }
 """
 
@@ -125,7 +144,7 @@ func _ready() -> void:
 
 ## Appelé par Game3D._rebuild_map à chaque nouvelle carte/changement de carte.
 func set_map(ground_texture: Texture2D, map_width: int, map_height: int, map_name: String) -> void:
-	_map_name_label.text = map_name
+	_map_name_label.text = map_name.replace("_", " ")
 	_map_layer.texture = ground_texture
 	_map_width = maxi(map_width, 1)
 	_map_height = maxi(map_height, 1)
@@ -149,7 +168,7 @@ func set_camera_zoom(camera_size: float) -> void:
 ## (voir en-tête de fichier : le joueur reste toujours au centre du disque).
 func set_player_tile_position(x: float, z: float) -> void:
 	_map_layer.position = Vector2(CIRCLE_SIZE, CIRCLE_SIZE) / 2.0 - Vector2(x, z) * _pixels_per_tile
-	_coords_label.text = "%.1f, %.1f" % [x, z]
+	_coords_label.text = "%d, %d" % [roundi(x), roundi(z)]
 	_player_tile_pos = Vector2(x, z)
 	_entity_dots.queue_redraw()
 

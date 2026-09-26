@@ -16,34 +16,39 @@ extends WindowFrame
 ## vérification qu'il n'existait pas encore (voir CombatFormulas.castSpeed()).
 
 const ATTRIBUTE_KEYS := ["strength", "dexterity", "constitution", "intelligence", "wit", "men"]
+## Abréviations façon L2 (STR/DEX/CON/INT/WIT/MEN), nom complet en infobulle.
+const ATTRIBUTE_SHORT := {
+	"strength": "FOR", "dexterity": "DEX", "constitution": "CON",
+	"intelligence": "INT", "wit": "SAG", "men": "MEN",
+}
 const ATTRIBUTE_LABELS := {
 	"strength": "Force", "dexterity": "Dextérité", "constitution": "Constitution",
 	"intelligence": "Intelligence", "wit": "Sagesse (WIT)", "men": "Mental (MEN)",
 }
 
-## Colonnes de %CombatColumns (voir CharacterSheetWindow.tscn) : gauche physique, droite
-## magique — même groupement que l'écran de statut Lineage 2 d'origine. "Vitesse" (mouvement,
-## champ `speed` de GamePlayerStats.Payload, jusqu'ici jamais affiché dans aucune fenêtre du
-## HUD) comble la 4e ligne de droite ; "Vit.Incant" (`castSpd`, ajouté côté backend le
-## 2026-09-06 — voir CombatFormulas.castSpeed()/ModifiedStat.CASTSPD, dérivé de WIT comme
-## m.crit, façon L2J : durée d'incantation réelle = durée d'auteur du sort *
-## BASE_CAST_SPD/castSpd, voir SkillCastEngine.beginCast côté backend) comble la 5e.
-const COMBAT_LEFT_KEYS := ["pAtk", "pDef", "accuracy", "criticalRate", "atkSpd"]
-const COMBAT_RIGHT_KEYS := ["mAtk", "mDef", "evasion", "speed", "castSpd"]
+## Deux colonnes "physique | magique", même groupement que la fenêtre Status de L2 :
+## chaque ligne de %CombatGrid = libellé, valeur, libellé, valeur.
+const COMBAT_ROWS := [
+	["pAtk", "mAtk"], ["pDef", "mDef"], ["accuracy", "evasion"],
+	["criticalRate", "speed"], ["atkSpd", "castSpd"],
+]
 const COMBAT_STAT_LABELS := {
-	"pAtk": "P.Atk", "mAtk": "M.Atk", "pDef": "P.Def", "mDef": "M.Def",
-	"accuracy": "Précision", "evasion": "Esquive", "criticalRate": "Critique", "atkSpd": "Vit.Atk",
-	"speed": "Vitesse", "castSpd": "Vit.Incant",
+	"pAtk": "P. Atk.", "mAtk": "M. Atk.", "pDef": "P. Déf.", "mDef": "M. Déf.",
+	"accuracy": "Précision", "evasion": "Esquive", "criticalRate": "Critique", "atkSpd": "Vit. Atk.",
+	"speed": "Vitesse", "castSpd": "Vit. Incant.",
 }
-## Suffixe "%" uniquement pour le taux critique — les autres stats de combat sont des scores
-## bruts (voir CombatFormulas côté backend).
+## Suffixe "%" uniquement pour le taux critique — les autres stats sont des scores bruts.
 const COMBAT_STAT_SUFFIX := {"criticalRate": "%"}
 
-## %SocialGrid : karma/PvP/PK (champs karma/pvpCount/pkCount de GamePlayerStats.Payload) — pas
-## de "Clan"/"Eval Score"/"Rec Remaining" comme sur la capture Lineage 2, absents du backend.
+## Karma/PvP/PK (champs karma/pvpCount/pkCount de GamePlayerStats.Payload).
 const SOCIAL_KEYS := ["karma", "pvpCount", "pkCount"]
 const SOCIAL_LABELS := {"karma": "Karma", "pvpCount": "PvP", "pkCount": "PK"}
 
+const RACE_LABELS := {"HUMAN": "Humain"}
+const CLASS_LABELS := {"FIGHTER": "Guerrier", "MYSTIC": "Mystique"}
+const GENDER_LABELS := {"man": "Homme", "woman": "Femme", "MALE": "Homme", "FEMALE": "Femme"}
+
+@onready var _level_label: Label = %LevelLabel
 @onready var _name_label: Label = %NameLabel
 @onready var _player_title_label: Label = %PlayerTitleLabel
 @onready var _class_level_label: Label = %ClassLevelLabel
@@ -53,8 +58,7 @@ const SOCIAL_LABELS := {"karma": "Karma", "pvpCount": "PvP", "pkCount": "PK"}
 @onready var _mana_label: Label = %ManaLabel
 @onready var _exp_bar: ProgressBar = %ExpBar
 @onready var _exp_label: Label = %ExpLabel
-@onready var _combat_left_column: VBoxContainer = %CombatLeftColumn
-@onready var _combat_right_column: VBoxContainer = %CombatRightColumn
+@onready var _combat_grid: GridContainer = %CombatGrid
 @onready var _attributes_grid: GridContainer = %AttributesGrid
 @onready var _social_grid: GridContainer = %SocialGrid
 
@@ -63,6 +67,12 @@ func _ready() -> void:
 	super._ready()
 	set_window_title("Statut")
 	Net.message_received.connect(_on_message_received)
+	UITheme.style_progress_bar(_health_bar, "hp")
+	UITheme.style_progress_bar(_mana_bar, "mp")
+	UITheme.style_progress_bar(_exp_bar, "exp")
+	UITheme.style_bar_label(_health_label, 11)
+	UITheme.style_bar_label(_mana_label, 11)
+	UITheme.style_bar_label(_exp_label, 9)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -88,15 +98,12 @@ func _on_message_received(type: String, _payload: Dictionary) -> void:
 		return
 	match type:
 		"GamePlayerStats", "XpGained":
-			# XpGained (voir GameState.gd) ne renvoie pas lui-même un GamePlayerStats — sans
-			# réagir aussi à ce message, %ExpBar resterait figée jusqu'à la prochaine
-			# ouverture de cette fenêtre après un gain d'XP survenu pendant qu'elle est ouverte.
+			# XpGained ne renvoie pas de GamePlayerStats : sans ça la jauge d'EXP resterait
+			# figée tant que la fenêtre reste ouverte.
 			_refresh()
 		"ItemEquipped", "ItemUnequipped":
-			# equip/unequip ne renvoient pas eux-mêmes de GamePlayerStats à jour (voir
-			# app.network.command.ingame.Equip/Unequip côté backend) — sans ce redemande
-			# explicite, p.atk/p.def/m.atk/m.def resteraient figés sur les valeurs d'avant
-			# le changement d'arme/armure tant que cette fenêtre reste ouverte.
+			# equip/unequip ne renvoient pas de GamePlayerStats à jour : on le redemande pour
+			# rafraîchir P./M. Atk. et Déf. après un changement d'arme/armure.
 			Net.send_command("stats")
 
 
@@ -105,81 +112,87 @@ func _refresh() -> void:
 	if stats.is_empty():
 		return
 
+	_level_label.text = str(stats.get("level", "?"))
 	_name_label.text = str(stats.get("name", ""))
 	var title := str(stats.get("title", ""))
 	_player_title_label.text = title
 	_player_title_label.visible = not title.is_empty()
-	_class_level_label.text = "Niveau %s — %s (%s)" % [
-		stats.get("level", "?"), stats.get("characterClass", "?"), stats.get("gender", "?"),
+	var char_class := str(stats.get("characterClass", ""))
+	var gender := str(stats.get("gender", ""))
+	var race := str(stats.get("race", "HUMAN"))
+	_class_level_label.text = "%s · %s · %s" % [
+		RACE_LABELS.get(race, race.capitalize()),
+		CLASS_LABELS.get(char_class, char_class.capitalize()), GENDER_LABELS.get(gender, gender.capitalize()),
 	]
 
 	var current_health := int(stats.get("currentHealth", 0))
 	var max_health := int(stats.get("maxHealth", 0))
 	_health_bar.max_value = max(max_health, 1)
 	_health_bar.value = current_health
-	_health_label.text = "PV %s/%s" % [current_health, max_health]
+	_health_label.text = "%s / %s" % [current_health, max_health]
 
 	var current_mana := int(stats.get("currentMana", 0))
 	var max_mana := int(stats.get("maxMana", 0))
 	_mana_bar.max_value = max(max_mana, 1)
 	_mana_bar.value = current_mana
-	_mana_label.text = "Mana %s/%s" % [current_mana, max_mana]
+	_mana_label.text = "%s / %s" % [current_mana, max_mana]
 
-	# xp/xpForCurrentLevel/xpForNextLevel vivent dans GameState (voir PlayerFrame.set_xp, même
-	# calcul) plutôt que dans `stats` : GameState les tient à jour aussi bien depuis
-	# GamePlayerStats que XpGained, `stats` (dernier GamePlayerStats brut) ne l'est que par le
-	# premier.
+	# xp/xpForCurrentLevel/xpForNextLevel vivent dans GameState (tenus à jour par
+	# GamePlayerStats ET XpGained), pas dans `stats`.
 	var xp_span := GameState.xp_for_next_level - GameState.xp_for_current_level
 	if xp_span <= 0:
 		_exp_bar.max_value = 1.0
 		_exp_bar.value = 1.0
-		_exp_label.text = "Exp 100%"
+		_exp_label.text = "100.00%"
 	else:
 		_exp_bar.max_value = xp_span
 		var xp_progress := clampf(GameState.xp - GameState.xp_for_current_level, 0.0, xp_span)
 		_exp_bar.value = xp_progress
-		_exp_label.text = "Exp %d%%" % roundi(xp_progress / xp_span * 100.0)
+		_exp_label.text = "%.2f%%" % (xp_progress / xp_span * 100.0)
 
-	for child in _combat_left_column.get_children():
-		child.queue_free()
-	for child in _combat_right_column.get_children():
-		child.queue_free()
-	_populate_stat_column(_combat_left_column, COMBAT_LEFT_KEYS, stats)
-	_populate_stat_column(_combat_right_column, COMBAT_RIGHT_KEYS, stats)
+	_clear(_combat_grid)
+	for pair in COMBAT_ROWS:
+		for stat_key in pair:
+			_add_stat(_combat_grid, COMBAT_STAT_LABELS.get(stat_key, stat_key), _format_stat(stats, stat_key), "")
 
-	# Score brut uniquement : le modificateur DnD5e (score-10)/2 affiché ici jusqu'au
-	# 2026-09-03 était un reliquat de l'ancien système de combat, sans rôle dans les
-	# formules Lineage2 actuelles (voir CombatFormulas côté backend, qui consomme le score
-	# directement via statBonus()) — retiré à la demande de l'utilisateur ("on n'a plus de
-	# modifiers"), plutôt que de garder un nombre qui ne correspond plus à rien en jeu.
-	for child in _attributes_grid.get_children():
-		child.queue_free()
+	# Score brut uniquement (pas de modificateur) : c'est lui qu'utilisent les formules de
+	# combat côté backend.
+	_clear(_attributes_grid)
 	for attr_key in ATTRIBUTE_KEYS:
 		var attr = stats.get(attr_key, {})
-		if typeof(attr) != TYPE_DICTIONARY:
-			continue
-		var score = attr.get("score", 0)
-		var row := Label.new()
-		row.text = "%s : %s" % [ATTRIBUTE_LABELS.get(attr_key, attr_key.capitalize()), score]
-		_attributes_grid.add_child(row)
+		var score = attr.get("score", 0) if typeof(attr) == TYPE_DICTIONARY else 0
+		_add_stat(_attributes_grid, ATTRIBUTE_SHORT[attr_key], str(score), ATTRIBUTE_LABELS[attr_key])
 
-	for child in _social_grid.get_children():
+	_clear(_social_grid)
+	for stat_key in SOCIAL_KEYS:
+		_add_stat(_social_grid, SOCIAL_LABELS[stat_key], _format_stat(stats, stat_key), "")
+
+
+func _clear(grid: Container) -> void:
+	for child in grid.get_children():
 		child.queue_free()
-	_populate_stat_column(_social_grid, SOCIAL_KEYS, stats, SOCIAL_LABELS)
 
 
-## Ajoute une Label "Label : valeur[suffixe]" par clé de `keys` dans `column` — factorisé
-## entre %CombatLeftColumn/%CombatRightColumn (COMBAT_STAT_LABELS/COMBAT_STAT_SUFFIX) et
-## %SocialGrid (SOCIAL_LABELS, pas de suffixe). `speed` (Vitesse) est un double côté backend
-## (unités/seconde, voir MovementEngine.unitsPerSecond) arrondi ici comme les autres scores
-## entiers plutôt que d'afficher des décimales qui n'apporteraient rien à la lecture.
-func _populate_stat_column(
-	column: Container, keys: Array, stats: Dictionary, labels: Dictionary = COMBAT_STAT_LABELS
-) -> void:
-	for stat_key in keys:
-		var row := Label.new()
-		var value = stats.get(stat_key, 0)
-		if typeof(value) == TYPE_FLOAT:
-			value = roundi(value)
-		row.text = "%s : %s%s" % [labels.get(stat_key, stat_key), value, COMBAT_STAT_SUFFIX.get(stat_key, "")]
-		column.add_child(row)
+## Ajoute la paire "libellé (tan) / valeur (blanche, alignée à droite)" dans `grid`.
+func _add_stat(grid: GridContainer, label_text: String, value_text: String, tooltip: String) -> void:
+	var label := Label.new()
+	label.text = label_text
+	label.theme_type_variation = &"StatLabel"
+	label.tooltip_text = tooltip
+	label.mouse_filter = Control.MOUSE_FILTER_PASS if not tooltip.is_empty() else Control.MOUSE_FILTER_IGNORE
+	grid.add_child(label)
+	var value := Label.new()
+	value.text = value_text
+	value.theme_type_variation = &"StatValue"
+	value.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	value.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	value.custom_minimum_size = Vector2(34, 0)
+	grid.add_child(value)
+
+
+## `speed` est un double côté backend (unités/seconde) : arrondi comme les autres scores.
+func _format_stat(stats: Dictionary, stat_key: String) -> String:
+	var value = stats.get(stat_key, 0)
+	if typeof(value) == TYPE_FLOAT:
+		value = roundi(value)
+	return "%s%s" % [value, COMBAT_STAT_SUFFIX.get(stat_key, "")]

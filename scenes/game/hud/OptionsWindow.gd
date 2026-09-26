@@ -14,7 +14,7 @@ var _pending_action := ""
 
 func _ready() -> void:
 	super._ready()
-	set_window_title("Options")
+	set_window_title("Menu système")
 	_logout_button.pressed.connect(_on_logout_pressed)
 	_quit_button.pressed.connect(_on_quit_pressed)
 	_confirm_dialog.confirmed.connect(_on_confirm_confirmed)

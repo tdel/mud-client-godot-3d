@@ -1,7 +1,8 @@
 extends WindowFrame
-## Emplacements d'équipement porté, arrangés en silhouette (tête en haut, arme/bouclier de
-## part et d'autre du torse, bijoux autour, jambes/pieds en bas — voir EquipmentWindow.tscn)
-## façon L2J : glisser un objet non équipé depuis InventoryWindow ici pour l'équiper, clic
+## Emplacements d'équipement porté, disposés en silhouette façon L2 (boucles d'oreilles et
+## casque en haut, arme/torse/bouclier, gants/jambes/bottes, anneaux et collier en bas —
+## voir EquipmentWindow.tscn), calés contre l'inventaire (voir InventoryWindow._dock_equipment_window) :
+## glisser un objet non équipé depuis InventoryWindow ici pour l'équiper, clic
 ## droit sur un slot rempli pour le retirer. Entièrement nouveau (2026-09-03, demandé
 ## explicitement) — le client 2D n'a qu'une liste texte en lecture seule dans CharacterSheet
 ## (mud-godot/scenes/game/hud/CharacterSheet.gd), jamais de slots interactifs.

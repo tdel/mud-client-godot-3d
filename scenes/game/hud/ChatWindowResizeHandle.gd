@@ -27,7 +27,7 @@ func _ready() -> void:
 
 
 func _draw() -> void:
-	var col := Color(0.86, 0.72, 0.40, 0.85)
+	var col := Color(UITheme.METAL_LIGHT, 0.85)
 	for i in range(3):
 		var off := 3.0 + i * 4.0
 		draw_line(Vector2(off, size.y), Vector2(size.x, off), col, 1.5)

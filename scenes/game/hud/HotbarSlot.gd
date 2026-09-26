@@ -1,46 +1,45 @@
 extends Control
-## Un slot de la hotbar (F1-F12), cible de glisser-déposer. Hotbar.gd pilote entièrement
-## son contenu et ses overlays de cooldown/erreur/mana insuffisante — ce script ne connaît
-## rien du protocole réseau. Port ~verbatim du client 2D
-## (mud-godot/scenes/game/hud/HotbarSlot.gd), Control pur indépendant du rendu 2D/3D ;
-## seule différence : icône générée par ZoneAssets3D plutôt que ZoneAssets.
+## Un slot de la barre de raccourcis (F1-F12), cible de glisser-déposer. Hotbar.gd pilote
+## entièrement son contenu et ses états (recharge, erreur, mana insuffisante, charge armée) —
+## ce script ne connaît rien du protocole réseau.
+##
+## Rendu façon Lineage 2 : slot en creux, touche en petit en haut à gauche, recharge affichée
+## comme un voile sombre qui se retire dans le sens horaire (plus le temps restant au centre),
+## charge soulshot/spiritshot armée signalée par un liseré doré pulsant.
 
 signal slot_drop_requested(
 	slot_index: int, kind: String, ref_id: String, ref_name: String, item_type: String, item_grade: String
 )
-## Clic gauche sur le slot : Hotbar.gd le traite exactement comme un appui sur la touche
-## F1-F12 correspondante (voir Hotbar._trigger_slot).
+## Clic gauche : Hotbar.gd le traite comme un appui sur la touche F1-F12 correspondante.
 signal slot_clicked(slot_index: int)
 
 const KEY_LABELS := ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12"]
-const ATTACK_GLYPH := "⚔"
-const ERROR_FLASH_COLOR := Color(0.9, 0.15, 0.15, 0.55)
 const ERROR_FLASH_DURATION := 0.4
-const INSUFFICIENT_MANA_MODULATE := Color(0.35, 0.35, 0.4, 1.0)
-const NEEDLE_COLOR := Color(1.0, 1.0, 1.0, 0.9)
-const NEEDLE_WIDTH := 2.0
-const NEEDLE_MARGIN := 3.0
+const INSUFFICIENT_MANA_MODULATE := Color(0.40, 0.42, 0.55, 1.0)
+const COOLDOWN_SHADE := Color(0.0, 0.0, 0.0, 0.62)
+const COOLDOWN_EDGE := Color(1.0, 0.92, 0.65, 0.85)
 
+@onready var _background: Panel = $Background
 @onready var _icon: TextureRect = %Icon
-@onready var _glyph_label: Label = %GlyphLabel
+@onready var _overlay: Control = %Overlay
 @onready var _key_label: Label = %KeyLabel
-@onready var _active_overlay: ColorRect = %ActiveOverlay
-@onready var _cooldown_overlay: ColorRect = %CooldownOverlay
 @onready var _cooldown_label: Label = %CooldownLabel
 @onready var _error_overlay: ColorRect = %ErrorOverlay
 
 var slot_index: int = 0
 var _kind: String = ""
 var _ref_name: String = ""
+var _active := false
 var _cooldown_end_msec: float = 0.0
 var _cooldown_total_msec: float = 0.0
 
 
 func _ready() -> void:
-	_active_overlay.visible = false
-	_cooldown_overlay.visible = false
 	_cooldown_label.visible = false
 	_error_overlay.visible = false
+	_overlay.draw.connect(_on_overlay_draw)
+	mouse_entered.connect(func(): _background.theme_type_variation = &"SlotPanelHover")
+	mouse_exited.connect(func(): _background.theme_type_variation = &"SlotPanel")
 	set_process(false)
 
 
@@ -50,20 +49,16 @@ func setup(index: int) -> void:
 	_key_label.text = KEY_LABELS[index] if index < KEY_LABELS.size() else ""
 
 
-## `tooltip` : texte détaillé optionnel (voir Hotbar._build_tooltip, qui va chercher les
-## infos du sort dans GameState.known_skills — ce script reste volontairement ignorant du
-## protocole réseau, voir en-tête de fichier). Vide = tooltip par défaut (nom brut).
+## `tooltip` : texte détaillé optionnel (BBCode accepté, voir Hotbar._build_tooltip).
 func set_content(kind: String, ref_name: String, tooltip: String = "") -> void:
 	_kind = kind
 	_ref_name = ref_name
 	set_insufficient_mana(false)
 	if kind.is_empty():
 		_icon.texture = null
-		_glyph_label.text = ""
 		tooltip_text = ""
 		return
-	_icon.texture = ZoneAssets3D.make_slot_icon_texture(kind, ref_name)
-	_glyph_label.text = ATTACK_GLYPH if kind == "attack" else ""
+	_icon.texture = IconFactory.slot_icon(kind, ref_name)
 	if not tooltip.is_empty():
 		tooltip_text = tooltip
 	else:
@@ -75,13 +70,12 @@ func clear_content() -> void:
 	set_active(false)
 
 
-## Surlignage persistant (contrairement à flash_error, temporaire) pour un slot "item" de
-## charge (soulshot/spiritshot) actuellement armée en auto-use — voir Hotbar._refresh_shot_
-## active_states, seule appelante. Sans rapport avec le cooldown/l'erreur, qui restent
-## indépendants et continuent de s'afficher par-dessus (voir l'ordre des nœuds dans
-## HotbarSlot.tscn).
+## Surlignage persistant d'un slot "item" de charge (soulshot/spiritshot) armée en auto-use
+## — voir Hotbar._refresh_shot_active_states.
 func set_active(active: bool) -> void:
-	_active_overlay.visible = active
+	_active = active
+	_update_processing()
+	_overlay.queue_redraw()
 
 
 func set_cooldown_overlay(remaining_ms: float) -> void:
@@ -89,51 +83,76 @@ func set_cooldown_overlay(remaining_ms: float) -> void:
 		return
 	_cooldown_end_msec = Time.get_ticks_msec() + remaining_ms
 	_cooldown_total_msec = remaining_ms
-	_cooldown_overlay.visible = true
 	_cooldown_label.visible = true
-	set_process(true)
+	_update_processing()
+
+
+func _update_processing() -> void:
+	set_process(_active or _cooldown_remaining() > 0.0)
+
+
+func _cooldown_remaining() -> float:
+	return maxf(_cooldown_end_msec - Time.get_ticks_msec(), 0.0)
 
 
 func _process(_delta: float) -> void:
-	var remaining := _cooldown_end_msec - Time.get_ticks_msec()
+	var remaining := _cooldown_remaining()
 	if remaining <= 0.0:
-		_cooldown_overlay.visible = false
 		_cooldown_label.visible = false
-		set_process(false)
-		queue_redraw()
-		return
-	_cooldown_label.text = "%.1f" % (remaining / 1000.0)
-	queue_redraw()
+	else:
+		_cooldown_label.text = ("%.1f" % (remaining / 1000.0)) if remaining < 10000.0 else str(ceili(remaining / 1000.0))
+	_overlay.queue_redraw()
+	_update_processing()
 
 
-## Aiguille façon horloge : part de midi au début du cooldown, fait un tour complet dans
-## le sens horaire et revient pile à midi quand le cooldown atteint 0.
-func _draw() -> void:
-	if not _cooldown_overlay.visible or _cooldown_total_msec <= 0.0:
-		return
-	var remaining := _cooldown_end_msec - Time.get_ticks_msec()
-	var progress := 1.0 - clampf(remaining / _cooldown_total_msec, 0.0, 1.0)
-	var angle := -PI / 2.0 + progress * TAU
-	var center := size / 2.0
-	var radius := minf(size.x, size.y) / 2.0 - NEEDLE_MARGIN
-	var tip := center + Vector2(cos(angle), sin(angle)) * radius
-	draw_line(center, tip, NEEDLE_COLOR, NEEDLE_WIDTH)
+func _on_overlay_draw() -> void:
+	var rect := Rect2(Vector2(2, 2), size - Vector2(4, 4))
+	var remaining := _cooldown_remaining()
+	if remaining > 0.0 and _cooldown_total_msec > 0.0:
+		# Voile sombre couvrant la fraction restante, qui se retire dans le sens horaire à
+		# partir de midi (secteur de disque découpé au carré du slot).
+		var fraction := clampf(remaining / _cooldown_total_msec, 0.0, 1.0)
+		var center := rect.get_center()
+		var radius := rect.size.length()
+		var start := -PI / 2.0 + (1.0 - fraction) * TAU
+		var points := PackedVector2Array([center])
+		var steps := maxi(3, int(fraction * 48.0))
+		for i in steps + 1:
+			var a := start + fraction * TAU * float(i) / float(steps)
+			points.append(_clip_to_rect(center, Vector2(cos(a), sin(a)) * radius, rect))
+		if points.size() >= 3:
+			_overlay.draw_colored_polygon(points, COOLDOWN_SHADE)
+			_overlay.draw_line(center, points[1], COOLDOWN_EDGE, 1.0, true)
+	if _active:
+		var pulse := 0.55 + 0.45 * sin(Time.get_ticks_msec() / 250.0)
+		_overlay.draw_rect(rect.grow(-0.5), Color(1.0, 0.82, 0.35, pulse), false, 2.0)
 
 
-## Grise l'icône (mais pas l'overlay/aiguille de cooldown, indépendant) quand le joueur
-## n'a pas assez de mana pour ce sort — voir Hotbar._refresh_mana_affordability.
+## Projette le rayon partant de `center` sur le bord du rectangle `rect`.
+func _clip_to_rect(center: Vector2, ray: Vector2, rect: Rect2) -> Vector2:
+	var t := INF
+	if ray.x != 0.0:
+		t = minf(t, ((rect.end.x if ray.x > 0.0 else rect.position.x) - center.x) / ray.x)
+	if ray.y != 0.0:
+		t = minf(t, ((rect.end.y if ray.y > 0.0 else rect.position.y) - center.y) / ray.y)
+	return center + ray * t
+
+
+## Grise l'icône (mais pas le voile de recharge) quand la mana manque pour ce sort.
 func set_insufficient_mana(insufficient: bool) -> void:
 	_icon.modulate = INSUFFICIENT_MANA_MODULATE if insufficient else Color(1, 1, 1, 1)
 
 
-## Feedback bref sur une erreur serveur liée à ce slot (objet/sort qui n'existe plus,
-## etc.) — le slot n'est jamais vidé automatiquement.
+## Retour bref sur une erreur serveur liée à ce slot — le slot n'est jamais vidé.
 func flash_error() -> void:
-	_error_overlay.color = ERROR_FLASH_COLOR
 	_error_overlay.visible = true
 	var tween := create_tween()
 	tween.tween_interval(ERROR_FLASH_DURATION)
 	tween.tween_callback(func(): _error_overlay.visible = false)
+
+
+func _make_custom_tooltip(for_text: String) -> Object:
+	return UITheme.make_rich_tooltip(for_text)
 
 
 func _gui_input(event: InputEvent) -> void:

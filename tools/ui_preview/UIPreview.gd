@@ -1,0 +1,288 @@
+extends Node
+## Outil de développement (hors jeu) : charge un écran avec des données factices, sans
+## serveur, puis enregistre une capture PNG et quitte. Sert à vérifier visuellement l'UI.
+##
+## Usage :
+##   Godot_console.exe --path . res://tools/ui_preview/UIPreview.tscn -- --shot=game --out=C:/tmp/game.png
+## Scénarios : login, charselect, create, game, game_windows, game_shop, game_misc, game_death.
+##
+## user://hotbar.cfg est sauvegardé puis restauré tel quel : la hotbar écrit sa config pour le
+## personnage factice au chargement, ce qui ne doit pas polluer la config réelle du joueur.
+
+const HOTBAR_CFG := "user://hotbar.cfg"
+const MAP_NAME := "Place du village"
+
+var _shot := "game"
+var _out := "user://ui_preview.png"
+var _hotbar_backup: PackedByteArray
+var _hotbar_existed := false
+
+
+func _ready() -> void:
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--shot="):
+			_shot = arg.substr(7)
+		elif arg.begins_with("--out="):
+			_out = arg.substr(6)
+	_hotbar_existed = FileAccess.file_exists(HOTBAR_CFG)
+	if _hotbar_existed:
+		_hotbar_backup = FileAccess.get_file_as_bytes(HOTBAR_CFG)
+	_run.call_deferred()
+
+
+func _run() -> void:
+	match _shot:
+		"login":
+			_open_scene("res://scenes/login/Login.tscn")
+		"charselect":
+			GameState.character_list = [
+				{"name": "Aelwyn", "race": "HUMAN", "characterClass": "FIGHTER", "level": 12},
+				{"name": "Morwen", "race": "HUMAN", "characterClass": "MYSTIC", "level": 27},
+				{"name": "Thorgal", "race": "HUMAN", "characterClass": "FIGHTER", "level": 3},
+			]
+			_open_scene("res://scenes/charselect/CharSelect.tscn")
+		"create":
+			_open_scene("res://scenes/charselect/CharacterCreate.tscn")
+		"icons":
+			_build_icon_sheet()
+		_:
+			_feed_game_state()
+			_open_scene("res://scenes/game/Game.tscn")
+	await _frames(8)
+	if _shot.begins_with("game"):
+		_setup_game_scene()
+	await _frames(20)
+	await RenderingServer.frame_post_draw
+	var image := get_viewport().get_texture().get_image()
+	image.save_png(_out)
+	print("UIPreview: capture enregistrée dans ", _out)
+	_restore_hotbar()
+	get_tree().quit()
+
+
+## Instancie la scène à côté de ce nœud plutôt que via change_scene_to_file, qui libérerait
+## ce nœud (scène principale) avant la capture.
+func _open_scene(path: String) -> void:
+	var scene: Node = load(path).instantiate()
+	get_tree().root.add_child(scene)
+	get_tree().current_scene = scene
+
+
+func _frames(count: int) -> void:
+	for i in count:
+		await get_tree().process_frame
+
+
+func _restore_hotbar() -> void:
+	if _hotbar_existed:
+		var f := FileAccess.open(HOTBAR_CFG, FileAccess.WRITE)
+		f.store_buffer(_hotbar_backup)
+		f.close()
+	elif FileAccess.file_exists(HOTBAR_CFG):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(HOTBAR_CFG))
+
+
+## Planche de toutes les icônes procédurales + quelques widgets du thème.
+func _build_icon_sheet() -> void:
+	var root := PanelContainer.new()
+	root.theme_type_variation = &"WindowPanel"
+	root.position = Vector2(20, 20)
+	get_tree().root.add_child.call_deferred(root)
+	var col := VBoxContainer.new()
+	root.add_child(col)
+	var grid := GridContainer.new()
+	grid.columns = 13
+	col.add_child(grid)
+	var entries := [
+		["attack", "Attaque", ""], ["skill", "Heal", "HEALING"], ["skill", "Wind Strike", "DAMAGE"],
+		["skill", "Might", "BUFF"], ["skill", "Curse", "DEBUFF"], ["skill", "Fire Bolt", "DAMAGE"],
+		["skill", "Ice Bolt", "DAMAGE"], ["skill", "Power Strike", "DAMAGE"],
+		["item", "Bastard Sword", "WEAPON"], ["item", "Iron Helmet", "HELMET"], ["item", "Tunic", "ARMOR"],
+		["item", "Pants", "PANTS"], ["item", "Boots", "BOOTS"], ["item", "Gloves", "GLOVES"],
+		["item", "Shield", "SHIELD"], ["item", "Necklace", "NECKLACE"], ["item", "Earring", "EARRING"],
+		["item", "Ring", "RING"], ["item", "Healing Potion", "POTION"], ["item", "Mana Potion", "POTION"],
+		["item", "Elixir", "POTION"], ["item", "Soulshot", "SOULSHOT"], ["item", "Spiritshot", "SPIRITSHOT"],
+		["item", "Old Key", "KEY"], ["item", "Hammer", "TOOL"], ["item", "Junk", "MISC"],
+	]
+	for e in entries:
+		var slot := Panel.new()
+		slot.theme_type_variation = &"SlotPanel"
+		slot.custom_minimum_size = Vector2(118, 118)
+		var tr := TextureRect.new()
+		tr.texture = IconFactory.slot_icon(e[0], e[1], e[2])
+		tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		tr.stretch_mode = TextureRect.STRETCH_SCALE
+		tr.position = Vector2(4, 4)
+		tr.size = Vector2(110, 110)
+		slot.add_child(tr)
+		grid.add_child(slot)
+	var row := HBoxContainer.new()
+	col.add_child(row)
+	for k in ["character", "inventory", "skills", "options", "coin"]:
+		var b := Button.new()
+		b.theme_type_variation = &"IconButton"
+		b.icon = IconFactory.ui_icon(k, 32)
+		b.custom_minimum_size = Vector2(42, 42)
+		row.add_child(b)
+	for t in ["Bouton", "Désactivé"]:
+		var b := Button.new()
+		b.text = t
+		b.disabled = t == "Désactivé"
+		row.add_child(b)
+	var le := LineEdit.new()
+	le.placeholder_text = "Champ de saisie"
+	le.custom_minimum_size = Vector2(160, 0)
+	row.add_child(le)
+	for k in ["hp", "mp", "cp", "exp", "cast"]:
+		var bar := ProgressBar.new()
+		bar.custom_minimum_size = Vector2(220, 14)
+		bar.value = 65
+		UITheme.style_progress_bar(bar, k)
+		col.add_child(bar)
+
+
+func _emit(type: String, payload: Dictionary) -> void:
+	Net.message_received.emit(type, payload)
+
+
+func _feed_game_state() -> void:
+	_emit("GamePlayerStats", {
+		"id": "p1", "name": "Aelwyn", "title": "Gardien", "level": 12,
+		"characterClass": "FIGHTER", "gender": "man",
+		"currentHealth": 342, "maxHealth": 480, "currentMana": 120, "maxMana": 210,
+		"xp": 5400, "xpForCurrentLevel": 4000, "xpForNextLevel": 7000,
+		"pAtk": 128, "mAtk": 64, "pDef": 97, "mDef": 71, "accuracy": 38, "evasion": 35,
+		"criticalRate": 8, "atkSpd": 330, "speed": 2.4, "castSpd": 213,
+		"strength": {"score": 40}, "dexterity": {"score": 30}, "constitution": {"score": 43},
+		"intelligence": {"score": 21}, "wit": {"score": 11}, "men": {"score": 25},
+		"karma": 0, "pvpCount": 3, "pkCount": 0,
+	})
+	_emit("Inventory", {
+		"gold": 1254300,
+		"items": [
+			{"id": "i1", "name": "Healing Potion", "grade": "NOGRADE", "type": "POTION", "quantity": 1, "description": "Rend 50 PV."},
+			{"id": "i2", "name": "Mana Potion", "grade": "NOGRADE", "type": "POTION", "quantity": 1},
+			{"id": "i3", "name": "Soulshot", "grade": "NOGRADE", "type": "SOULSHOT", "quantity": 1520},
+			{"id": "i4", "name": "Spiritshot", "grade": "D", "type": "SPIRITSHOT", "quantity": 340},
+			{"id": "i5", "name": "Bastard Sword", "grade": "C", "type": "WEAPON", "pAtk": 107, "atkSpd": 379, "critBonus": 8, "enchant": 3},
+			{"id": "i6", "name": "Mithril Tunic", "grade": "D", "type": "ARMOR", "armorCategory": "LIGHT", "pDef": 64},
+			{"id": "i7", "name": "Old Key", "grade": "NOGRADE", "type": "KEY"},
+			{"id": "i8", "name": "Ring of Wisdom", "grade": "B", "type": "RING", "mDef": 21},
+			{"id": "e1", "name": "Iron Helmet", "grade": "D", "type": "HELMET", "slot": "HEAD", "pDef": 27},
+			{"id": "e2", "name": "Saber", "grade": "NOGRADE", "type": "WEAPON", "slot": "WEAPON", "pAtk": 32},
+			{"id": "e3", "name": "Leather Boots", "grade": "NOGRADE", "type": "BOOTS", "slot": "FEET", "pDef": 9},
+			{"id": "e4", "name": "Necklace of Magic", "grade": "S", "type": "NECKLACE", "slot": "NECKLACE", "mDef": 40},
+		],
+	})
+	_emit("KnownSkills", {"skills": [
+		{"id": "s1", "name": "Heal", "level": 3, "skillType": "HEALING", "manaCost": 24, "cooldownSeconds": 4, "range": 6, "description": "Rend des PV à la cible."},
+		{"id": "s2", "name": "Wind Strike", "level": 5, "skillType": "DAMAGE", "manaCost": 18, "cooldownSeconds": 2, "range": 8},
+		{"id": "s3", "name": "Might", "level": 1, "skillType": "BUFF", "manaCost": 12, "cooldownSeconds": 10, "durationSeconds": 1200},
+		{"id": "s4", "name": "Power Strike", "level": 2, "skillType": "DAMAGE", "manaCost": 10, "cooldownSeconds": 5, "granted": true},
+	]})
+	var size := _map_size(MAP_NAME)
+	var width := size.x
+	var height := size.y
+	var rows := []
+	for y in height:
+		rows.append("1".repeat(width))
+	_emit("MapView", {"mapName": MAP_NAME, "grid": {"width": width, "height": height, "walkableRows": rows}})
+	var cx := width / 2.0
+	var cy := height / 2.0
+	_emit("MapEnter", {"selfX": cx, "selfY": cy, "selfHeading": 0.0})
+	_emit("EntityAppeared", {"entities": [
+		{"id": "m1", "name": "Loup gris", "kind": "monster", "x": cx + 3, "y": cy + 1, "currentHealth": 64, "maxHealth": 120, "level": 14},
+		{"id": "m2", "name": "Gobelin", "kind": "monster", "x": cx - 4, "y": cy + 3, "currentHealth": 80, "maxHealth": 80, "level": 9},
+		{"id": "n1", "name": "Lector", "kind": "npc", "title": "Marchand", "x": cx - 2, "y": cy - 3, "hasShop": true},
+		{"id": "c1", "name": "Kaelis", "kind": "character", "title": "Chevalier", "x": cx + 1, "y": cy - 4, "currentHealth": 300, "maxHealth": 300, "level": 20},
+	]})
+
+
+func _setup_game_scene() -> void:
+	var game := get_tree().current_scene
+	var hud := game.get_node("HUD")
+	var hotbar := hud.get_node("Hotbar")
+	var slot_nodes: Array = hotbar._slot_nodes
+	slot_nodes[1].set_content("skill", "Heal")
+	slot_nodes[2].set_content("skill", "Wind Strike")
+	slot_nodes[3].set_content("skill", "Might")
+	slot_nodes[4].set_content("item", "Healing Potion")
+	slot_nodes[5].set_content("item", "Mana Potion")
+	slot_nodes[6].set_content("item", "Soulshot")
+	slot_nodes[6].set_active(true)
+	slot_nodes[2].set_cooldown_overlay(6000.0)
+
+	game._log("Vous infligez 42 dégâts à Loup gris.")
+	game._log("[color=%s]Vous gagnez 120 points d'expérience.[/color]" % game.LOG_COLOR_GAIN)
+	game._log("Loup gris vous inflige 12 dégâts.")
+	game._log_chat("Kaelis : Quelqu'un pour la chasse aux loups ?")
+	game._log_chat("[color=%s](Groupe) Morwen : j'arrive[/color]" % game.LOG_COLOR_PARTY, "party")
+	game._log_chat("[color=%s]Thorgal chuchote : salut ![/color]" % game.LOG_COLOR_WHISPER, "whisper")
+
+	match _shot:
+		"game":
+			game._apply_selection("m1", "Loup gris")
+			hud.get_node("ChatBar/ChatInput").grab_focus()
+		"game_windows":
+			hud.get_node("InventoryWindow").open()
+			hud.get_node("CharacterSheetWindow").open()
+		"game_shop":
+			_emit("ShopCatalog", {"npcId": "n1", "npcName": "Lector", "gold": 1254300, "entries": [
+				{"itemTemplateId": "t1", "itemName": "Healing Potion", "grade": "NOGRADE", "price": 40},
+				{"itemTemplateId": "t2", "itemName": "Mana Potion", "grade": "NOGRADE", "price": 60},
+				{"itemTemplateId": "t3", "itemName": "Soulshot", "grade": "NOGRADE", "price": 7},
+				{"itemTemplateId": "t4", "itemName": "Bastard Sword", "grade": "C", "price": 125000},
+			]})
+			_emit("DialogueOptions", {"npcId": "n1", "npcName": "Lector", "greeting": "Bienvenue, voyageur ! Les routes sont dangereuses ces temps-ci. Que puis-je faire pour vous ?", "options": [
+				{"label": "Parler des loups", "type": "RESPONSE", "response": "..."},
+				{"label": "Voir la boutique", "type": "SHOP"},
+				{"label": "Au revoir", "type": "LEAVE"},
+			]})
+			var dialogue: Control = hud.get_node("DialogueWindow")
+			dialogue.position = Vector2(60, 160)
+		"game_misc":
+			hud.get_node("SkillBook").open()
+			hud.get_node("OptionsWindow").open()
+			game._apply_selection("n1", "Lector")
+			game._open_npc_menu(true)
+		"game_death":
+			hud.get_node("DeathPopup").open("Loup gris")
+		"game_tooltip":
+			var inventory: Control = hud.get_node("InventoryWindow")
+			inventory.open()
+			await _frames(6)
+			# Survole la 5e case (l'épée) pour faire apparaître son infobulle.
+			var grid: GridContainer = inventory.get_node("%ItemsContainer")
+			var cell: Control = grid.get_child(4)
+			get_viewport().warp_mouse(cell.get_global_rect().get_center())
+			# Le survol simulé ne déclenche pas l'infobulle native : on reproduit son rendu
+			# (même StyleBox "TooltipPanel" + contenu de _make_custom_tooltip) à côté.
+			for i in 2:
+				var item: Dictionary = GameState.inventory["items"][4 if i == 0 else 3]
+				var tip := PanelContainer.new()
+				tip.add_theme_stylebox_override("panel", UITheme.theme.get_stylebox("panel", "TooltipPanel"))
+				var footer := ["Clic droit : utiliser", "Glisser hors de la fenêtre : jeter"]
+				tip.add_child(UITheme.make_rich_tooltip(ItemTooltip.build(item, footer)))
+				tip.position = cell.get_global_rect().end + Vector2(8 + 230 * i, 8)
+				hud.add_child(tip)
+		"game_dialog":
+			var inventory: Control = hud.get_node("InventoryWindow")
+			inventory.open()
+			inventory._on_drop_pressed("i5", "Bastard Sword")
+
+
+## Dimensions de la carte lues sur le GridMap "Terrain" de sa scène (voir
+## ZoneAssets3D.get_map_scene_path), 40x40 par défaut si introuvable.
+func _map_size(map_name: String) -> Vector2i:
+	var path := ZoneAssets3D.get_map_scene_path(map_name)
+	if path.is_empty():
+		return Vector2i(40, 40)
+	var map_instance: Node = load(path).instantiate()
+	var grid_map := map_instance.get_node_or_null("Terrain") as GridMap
+	var result := Vector2i(40, 40)
+	if grid_map != null and not grid_map.get_used_cells().is_empty():
+		result = Vector2i.ZERO
+		for cell in grid_map.get_used_cells():
+			result = Vector2i(maxi(result.x, cell.x + 1), maxi(result.y, cell.z + 1))
+	map_instance.free()
+	return result

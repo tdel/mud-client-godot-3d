@@ -1,7 +1,7 @@
 extends Control
-## Cadre "vitaux du joueur" en haut à gauche du HUD, façon status bar MMO : icône ronde du
-## niveau + nom, barre de vie (rouge) et de mana (bleue) sous le nom, barre d'XP (avec son
-## pourcentage sur le niveau courant) sous l'ensemble. Entièrement piloté par Game3D.gd (pas
+## Fenêtre de statut en haut à gauche du HUD, façon Lineage 2 : niveau dans un petit
+## cartouche + nom, puis jauges HP (rouge) / MP (bleue) / EXP (dorée, pourcentage à deux
+## décimales) étiquetées à gauche. Entièrement piloté par Game3D.gd (pas
 ## d'abonnement Net propre), même principe que TargetStatusBar.gd — Game3D.gd est seul à
 ## savoir agréger nos PV courants (_entity_vitals_by_key[PLAYER_KEY], alimenté par
 ## GamePlayerStats/RegenTick/AttackResult/CastResult/SkillCastAnnounced/PlayerRespawned) et
@@ -28,7 +28,13 @@ signal self_clicked
 
 func _ready() -> void:
 	_panel.gui_input.connect(_on_panel_gui_input)
-	UITheme.decorate_corners(self)
+	_panel.tooltip_text = "Cliquer pour se cibler soi-même"
+	UITheme.style_progress_bar(_health_bar, "hp")
+	UITheme.style_progress_bar(_mana_bar, "mp")
+	UITheme.style_progress_bar(_xp_bar, "exp")
+	for label in [_health_label, _mana_label]:
+		UITheme.style_bar_label(label, 11)
+	UITheme.style_bar_label(_xp_label, 9)
 
 
 func _on_panel_gui_input(event: InputEvent) -> void:
@@ -45,26 +51,25 @@ func set_identity(character_name: String, level: int) -> void:
 func set_health(current: int, max_value: int) -> void:
 	_health_bar.max_value = max(max_value, 1)
 	_health_bar.value = current
-	_health_label.text = "%s/%s" % [current, max_value]
+	_health_label.text = "%s / %s" % [current, max_value]
 
 
 func set_mana(current: int, max_value: int) -> void:
 	_mana_bar.max_value = max(max_value, 1)
 	_mana_bar.value = current
-	_mana_label.text = "%s/%s" % [current, max_value]
+	_mana_label.text = "%s / %s" % [current, max_value]
 
 
-## `xp_for_next_level <= xp_for_current_level` : niveau maximum atteint (voir
-## GamePlayerStats.Payload côté backend, LevelCatalog n'a pas de seuil au-delà) — barre
-## pleine plutôt qu'une division par zéro, "100%" affiché plutôt qu'une valeur illisible.
+## `xp_for_next_level <= xp_for_current_level` : niveau maximum atteint — barre pleine
+## plutôt qu'une division par zéro. Pourcentage à deux décimales, comme dans L2.
 func set_xp(xp: int, xp_for_current_level: int, xp_for_next_level: int) -> void:
 	var span := xp_for_next_level - xp_for_current_level
 	if span <= 0:
 		_xp_bar.max_value = 1.0
 		_xp_bar.value = 1.0
-		_xp_label.text = "100%"
+		_xp_label.text = "100.00%"
 		return
 	_xp_bar.max_value = span
 	var progress := clampf(xp - xp_for_current_level, 0.0, span)
 	_xp_bar.value = progress
-	_xp_label.text = "%d%%" % roundi(progress / span * 100.0)
+	_xp_label.text = "%.2f%%" % (progress / span * 100.0)

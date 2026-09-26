@@ -55,3 +55,8 @@ func _gui_input(event: InputEvent) -> void:
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_DRAG_END:
 		drag_finished.emit(get_viewport().gui_is_drag_successful())
+
+
+## Infobulle riche façon L2 (tooltip_text peut contenir du BBCode, voir ItemTooltip).
+func _make_custom_tooltip(for_text: String) -> Object:
+	return UITheme.make_rich_tooltip(for_text)

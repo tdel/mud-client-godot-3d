@@ -76,6 +76,7 @@ func _set_mode(mode: String) -> void:
 	_mode = mode
 	var is_register := mode == "register"
 	_confirm_password_field.visible = is_register
+	%ConfirmTag.visible = is_register
 	_submit_button.text = "Créer le compte" if is_register else "Se connecter"
 	_title_label.text = "Créer un compte" if is_register else "Connexion"
 	_login_tab_button.button_pressed = not is_register

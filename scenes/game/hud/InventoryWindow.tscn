@@ -1,84 +1,124 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene format=3]
 
 [ext_resource type="Script" path="res://scenes/game/hud/InventoryWindow.gd" id="1"]
 
 [node name="InventoryWindow" type="Control"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(444, 0)
-offset_left = 500.0
-offset_top = 130.0
-offset_right = 944.0
-offset_bottom = 510.0
+custom_minimum_size = Vector2(0, 0)
+layout_mode = 3
+offset_left = 800
+offset_top = 110
+offset_right = 800
+offset_bottom = 310
 script = ExtResource("1")
 
 [node name="Panel" type="PanelContainer" parent="."]
+layout_mode = 1
 anchor_right = 1.0
 anchor_bottom = 1.0
+theme_type_variation = &"WindowPanel"
 
-[node name="MarginContainer" type="MarginContainer" parent="Panel"]
+[node name="VBox" type="VBoxContainer" parent="Panel"]
 layout_mode = 2
-theme_override_constants/margin_left = 20
-theme_override_constants/margin_top = 16
-theme_override_constants/margin_right = 20
-theme_override_constants/margin_bottom = 20
+theme_override_constants/separation = 0
 
-[node name="VBoxContainer" type="VBoxContainer" parent="Panel/MarginContainer"]
-layout_mode = 2
-theme_override_constants/separation = 10
-
-[node name="TitleBar" type="HBoxContainer" parent="Panel/MarginContainer/VBoxContainer"]
+[node name="TitleBar" type="PanelContainer" parent="Panel/VBox"]
 unique_name_in_owner = true
 layout_mode = 2
+theme_type_variation = &"TitleBar"
 
-[node name="TitleLabel" type="Label" parent="Panel/MarginContainer/VBoxContainer/TitleBar"]
+[node name="TitleRow" type="HBoxContainer" parent="Panel/VBox/TitleBar"]
+layout_mode = 2
+mouse_filter = 2
+
+[node name="TitleLabel" type="Label" parent="Panel/VBox/TitleBar/TitleRow"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
-theme_override_font_sizes/font_size = 22
+theme_type_variation = &"WindowTitle"
 text = "Inventaire"
+vertical_alignment = 1
 
-[node name="CloseButton" type="Button" parent="Panel/MarginContainer/VBoxContainer/TitleBar"]
+[node name="CloseButton" type="Button" parent="Panel/VBox/TitleBar/TitleRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(16, 16)
+layout_mode = 2
+size_flags_vertical = 4
+theme_type_variation = &"CloseButton"
+
+[node name="BodyMargin" type="MarginContainer" parent="Panel/VBox"]
+layout_mode = 2
+theme_override_constants/margin_left = 8
+theme_override_constants/margin_top = 8
+theme_override_constants/margin_right = 8
+theme_override_constants/margin_bottom = 8
+
+[node name="Body" type="VBoxContainer" parent="Panel/VBox/BodyMargin"]
 unique_name_in_owner = true
 layout_mode = 2
-custom_minimum_size = Vector2(30, 30)
-theme_override_font_sizes/font_size = 16
-text = "×"
+theme_override_constants/separation = 6
 
-[node name="HSeparator" type="HSeparator" parent="Panel/MarginContainer/VBoxContainer"]
-layout_mode = 2
-
-[node name="Body" type="VBoxContainer" parent="Panel/MarginContainer/VBoxContainer"]
+[node name="TabRow" type="HBoxContainer" parent="Panel/VBox/BodyMargin/Body"]
 unique_name_in_owner = true
 layout_mode = 2
-theme_override_constants/separation = 10
+theme_override_constants/separation = 2
 
-[node name="GoldLabel" type="Label" parent="Panel/MarginContainer/VBoxContainer/Body"]
+[node name="GridInset" type="PanelContainer" parent="Panel/VBox/BodyMargin/Body"]
+layout_mode = 2
+theme_type_variation = &"InsetPanel"
+
+[node name="ScrollContainer" type="ScrollContainer" parent="Panel/VBox/BodyMargin/Body/GridInset"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 238)
+layout_mode = 2
+horizontal_scroll_mode = 0
+
+[node name="ItemsContainer" type="GridContainer" parent="Panel/VBox/BodyMargin/Body/GridInset/ScrollContainer"]
 unique_name_in_owner = true
 layout_mode = 2
-theme_override_colors/font_color = Color(0.88, 0.74, 0.44, 1)
-text = "Or : 0"
+theme_override_constants/h_separation = 2
+theme_override_constants/v_separation = 2
+columns = 8
 
-[node name="MessageLabel" type="Label" parent="Panel/MarginContainer/VBoxContainer/Body"]
+[node name="MessageLabel" type="Label" parent="Panel/VBox/BodyMargin/Body"]
 unique_name_in_owner = true
-layout_mode = 2
-autowrap_mode = 3
-theme_override_colors/font_color = Color(0.9, 0.75, 0.35, 1)
 visible = false
-
-[node name="ScrollContainer" type="ScrollContainer" parent="Panel/MarginContainer/VBoxContainer/Body"]
+custom_minimum_size = Vector2(300, 0)
 layout_mode = 2
-custom_minimum_size = Vector2(0, 320)
+theme_type_variation = &"MessageLabel"
+autowrap_mode = 3
 
-[node name="ItemsContainer" type="GridContainer" parent="Panel/MarginContainer/VBoxContainer/Body/ScrollContainer"]
+[node name="Footer" type="PanelContainer" parent="Panel/VBox/BodyMargin/Body"]
+layout_mode = 2
+theme_type_variation = &"InsetPanel"
+
+[node name="FooterRow" type="HBoxContainer" parent="Panel/VBox/BodyMargin/Body/Footer"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="CoinIcon" type="TextureRect" parent="Panel/VBox/BodyMargin/Body/Footer/FooterRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(16, 16)
+layout_mode = 2
+size_flags_vertical = 4
+expand_mode = 1
+stretch_mode = 5
+
+[node name="GoldLabel" type="Label" parent="Panel/VBox/BodyMargin/Body/Footer/FooterRow"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
-theme_override_constants/h_separation = 6
-theme_override_constants/v_separation = 6
-columns = 6
+theme_type_variation = &"StatValue"
+text = "0"
+
+[node name="CountLabel" type="Label" parent="Panel/VBox/BodyMargin/Body/Footer/FooterRow"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"StatLabel"
+text = "0 objet"
 
 [node name="DropConfirmDialog" type="ConfirmationDialog" parent="."]
 unique_name_in_owner = true
-title = "Confirmer"
+title = "Détruire l'objet"
 ok_button_text = "Détruire"
 cancel_button_text = "Annuler"

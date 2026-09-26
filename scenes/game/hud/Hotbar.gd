@@ -189,7 +189,14 @@ func _start_attack_cooldown(index: int) -> void:
 	_slot_nodes[index].set_cooldown_overlay(500000.0 / atk_spd)
 
 
+## Infobulle BBCode (voir UITheme.make_rich_tooltip) : caractéristiques du sort, ou de
+## l'objet s'il est encore dans l'inventaire.
 func _build_tooltip(kind: String, ref_name: String) -> String:
+	if kind == "item":
+		for item in GameState.inventory.get("items", []):
+			if str(item.get("name", "")) == ref_name:
+				return ItemTooltip.build(item)
+		return ""
 	if kind != "skill":
 		return ""
 	for entry in GameState.known_skills.get("skills", []):
@@ -201,19 +208,21 @@ func _build_tooltip(kind: String, ref_name: String) -> String:
 func _skill_tooltip(skill: Dictionary) -> String:
 	var effect := str(skill.get("skillType", ""))
 	var lines := PackedStringArray()
-	lines.append(str(skill.get("name", "")))
-	lines.append("Niveau %s — %s" % [skill.get("level", "?"), EFFECT_LABELS.get(effect, effect)])
-	lines.append("Coût : %s mana — Recharge : %ss" % [skill.get("manaCost", 0), skill.get("cooldownSeconds", 0)])
+	lines.append("[b]%s[/b]  [color=#%s]Niv. %s[/color]" % [skill.get("name", ""), UITheme.TEXT_LABEL.to_html(false), skill.get("level", "?")])
+	lines.append("[color=#%s]%s[/color]" % [UITheme.TEXT_DIM.to_html(false), EFFECT_LABELS.get(effect, effect)])
+	lines.append(UITheme.tooltip_stat("MP consommés :", str(skill.get("manaCost", 0))))
+	lines.append(UITheme.tooltip_stat("Recharge :", "%s s" % skill.get("cooldownSeconds", 0)))
 	if int(skill.get("range", 0)) > 0:
-		lines.append("Portée : %s" % skill.get("range", 0))
+		lines.append(UITheme.tooltip_stat("Portée :", str(skill.get("range", 0))))
 	if int(skill.get("durationSeconds", 0)) > 0:
-		lines.append("Durée : %ss" % skill.get("durationSeconds", 0))
-	if skill.get("granted", false):
-		lines.append("(octroyé par un objet équipé)")
+		lines.append(UITheme.tooltip_stat("Durée :", "%s s" % skill.get("durationSeconds", 0)))
 	var description := str(skill.get("description", ""))
 	if not description.is_empty():
 		lines.append("")
 		lines.append(description)
+	if skill.get("granted", false):
+		lines.append("")
+		lines.append("[color=#%s]Octroyée par un objet équipé.[/color]" % UITheme.TEXT_DIM.to_html(false))
 	return "\n".join(lines)
 
 
