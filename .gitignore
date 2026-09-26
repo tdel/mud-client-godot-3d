@@ -20,3 +20,6 @@ mono_crash.*.json
 
 # Python
 __pycache__/
+
+# Caches de téléchargement des outils de génération
+.cache/

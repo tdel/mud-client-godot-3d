@@ -57,7 +57,7 @@ render_target_update_mode = 4
 offset_right = 176.0
 offset_bottom = 176.0
 mouse_filter = 2
-color = Color(0.04, 0.045, 0.05, 1.0)
+color = Color(0.3, 0.305, 0.32, 1.0)
 
 [node name="MapLayer" type="TextureRect" parent="VBox/CircleCenter/CircleViewportContainer/CircleViewport"]
 unique_name_in_owner = true

@@ -40,8 +40,8 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 62, 0, 18)
 script = ExtResource("4_d23yq")
 direction = "E"
 target_map_id = "9a884ac7-b954-4cd6-ab67-c677d472cb0f"
-target_x = 192.0
-target_y = 576.0
+target_x = 256.0
+target_y = 4320.0
 
 [node name="MonsterSpawn_8d3b7335" type="Marker3D" parent="Objects" unique_id=101282771]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 22, 0, 10)

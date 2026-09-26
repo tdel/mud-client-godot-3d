@@ -226,7 +226,7 @@ func _on_create_pressed() -> void:
 
 
 func _go_to_game() -> void:
-	get_tree().change_scene_to_file("res://scenes/game/Game.tscn")
+	LoadingScreen.change_scene_to_file("res://scenes/game/Game.tscn")
 
 
 ## Même geste que OptionsWindow._on_confirm_confirmed (cas "logout", en jeu) : prévient le

@@ -68,6 +68,8 @@ static func ui_icon(kind: String, size: int = 32) -> Texture2D:
 			_ui_gear(img)
 		"coin":
 			_ui_coin(img)
+		"map":
+			_ui_map(img)
 	if size != BASE_SIZE:
 		img.resize(size, size, Image.INTERPOLATE_LANCZOS)
 	var tex := ImageTexture.create_from_image(img)
@@ -864,6 +866,22 @@ static func _ui_gear(img: Image) -> void:
 		var r := (0.27 + 0.08 * teeth) * BASE_SIZE
 		return maxf(rel.length() - r, -(rel.length() - 0.12 * BASE_SIZE))
 	_draw(img, sdf, _lit_shade(UI_LIGHT, UI_DARK), 2.0)
+
+
+## Carte pliée en trois volets, route pointillée rouge jusqu'à une croix.
+static func _ui_map(img: Image) -> void:
+	var folds := [Vector2(0.16, 0.25), Vector2(0.38, 0.18), Vector2(0.62, 0.25), Vector2(0.84, 0.18),
+		Vector2(0.84, 0.76), Vector2(0.62, 0.83), Vector2(0.38, 0.76), Vector2(0.16, 0.83)]
+	_draw(img, func(p): return _sd_poly(p, folds), _lit_shade(UI_LIGHT, UI_DARK), 2.0)
+	for fold in [[Vector2(0.38, 0.19), Vector2(0.38, 0.75)], [Vector2(0.62, 0.26), Vector2(0.62, 0.82)]]:
+		_draw(img, func(p): return _sd_capsule(p, fold[0], fold[1], 0.012), _flat(Color(0.45, 0.37, 0.24, 0.8)), 0.0)
+	var route := [Vector2(0.24, 0.68), Vector2(0.33, 0.58), Vector2(0.45, 0.60), Vector2(0.53, 0.48), Vector2(0.64, 0.42)]
+	for i in route.size() - 1:
+		var a: Vector2 = route[i].lerp(route[i + 1], 0.2)
+		var b: Vector2 = route[i].lerp(route[i + 1], 0.75)
+		_draw(img, func(p): return _sd_capsule(p, a, b, 0.022), _flat(Color(0.62, 0.14, 0.08)), 0.0)
+	for cross in [[Vector2(0.66, 0.30), Vector2(0.78, 0.42)], [Vector2(0.78, 0.30), Vector2(0.66, 0.42)]]:
+		_draw(img, func(p): return _sd_capsule(p, cross[0], cross[1], 0.028), _flat(Color(0.62, 0.14, 0.08)), 0.0)
 
 
 static func _ui_coin(img: Image) -> void:

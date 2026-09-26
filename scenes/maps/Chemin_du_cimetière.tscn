@@ -32,8 +32,8 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6, 0, 18)
 script = ExtResource("4_ehwwg")
 direction = "O"
 target_map_id = "5e4ada37-37e1-438c-9233-581f10c055c7"
-target_x = 2640.0
-target_y = 2160.0
+target_x = 4064.0
+target_y = 1472.0
 
 [node name="Portal_E" type="Marker3D" parent="Objects" unique_id=875469052]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 54, 0, 18)

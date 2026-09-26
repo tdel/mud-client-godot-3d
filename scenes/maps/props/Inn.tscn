@@ -1,0 +1,29 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scenes/maps/props/House.gd" id="1"]
+[ext_resource type="PackedScene" path="res://assets/environment/models/village/inn.glb" id="2"]
+[ext_resource type="Script" path="res://map_objects/ObstacleFootprint3D.gd" id="3"]
+
+[node name="Inn" type="Node3D"]
+script = ExtResource("1")
+lantern_offset = Vector3(0, 2.2, 5.9)
+lantern_energy = 2.0
+
+[node name="Model" parent="." instance=ExtResource("2")]
+
+[node name="Footprint" type="Node3D" parent="."]
+script = ExtResource("3")
+shape = 0
+size = Vector2(12.2, 8.2)
+
+[node name="FootprintPostL" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.55, 0, 6.1)
+script = ExtResource("3")
+shape = 1
+radius = 0.2
+
+[node name="FootprintPostR" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.55, 0, 6.1)
+script = ExtResource("3")
+shape = 1
+radius = 0.2

@@ -4,7 +4,9 @@ extends Node
 ##
 ## Usage :
 ##   Godot_console.exe --path . res://tools/ui_preview/UIPreview.tscn -- --shot=game --out=C:/tmp/game.png
-## Scénarios : login, charselect, create, game, game_select_self, game_select_party, game_windows, game_2h, game_shop, game_misc, game_death, game_options[_sound|_system].
+## Scénarios : login, charselect, create, game, game_select_self, game_select_party, game_windows, game_2h, game_shop, game_misc, game_death, game_options[_sound|_system], game_worldmap, loading.
+## game_worldmap accepte --map=<nom de carte> (autre carte que la Place du village) et
+## --map-size=LxH (taille du parchemin, pour vérifier le redimensionnement).
 ## Suffixe _menu sur login/charselect/create : ouvre le Menu système hors jeu (SystemMenu).
 ##
 ## user://hotbar.cfg est sauvegardé puis restauré tel quel : la hotbar écrit sa config pour le
@@ -17,6 +19,8 @@ const MAP_NAME := "Place du village"
 
 var _shot := "game"
 var _out := "user://ui_preview.png"
+var _map_override := ""
+var _map_canvas_size := Vector2.ZERO
 var _hotbar_backup: PackedByteArray
 var _hotbar_existed := false
 
@@ -27,6 +31,11 @@ func _ready() -> void:
 			_shot = arg.substr(7)
 		elif arg.begins_with("--out="):
 			_out = arg.substr(6)
+		elif arg.begins_with("--map="):
+			_map_override = arg.substr(6)
+		elif arg.begins_with("--map-size="):
+			var dims := arg.substr(11).split("x")
+			_map_canvas_size = Vector2(float(dims[0]), float(dims[1]))
 	WindowFrame.persist_positions = false
 	_hotbar_existed = FileAccess.file_exists(HOTBAR_CFG)
 	if _hotbar_existed:
@@ -63,11 +72,17 @@ func _run() -> void:
 			_open_scene("res://scenes/charselect/CharacterCreate.tscn")
 		"icons":
 			_build_icon_sheet()
+		"loading":
+			LoadingScreen.begin(MAP_NAME)
+			LoadingScreen.set_progress(0.42)
 		_:
 			_feed_game_state()
 			_open_scene("res://scenes/game/Game.tscn")
 	await _frames(8)
 	if _shot.begins_with("game"):
+		# La carte ne s'affiche qu'une fois l'écran de chargement refermé (voir LoadingScreen).
+		while LoadingScreen.is_active():
+			await get_tree().process_frame
 		_setup_game_scene()
 	elif _shot.ends_with("_menu"):
 		get_tree().current_scene.get_node("SystemMenu/OptionsWindow").open()
@@ -212,8 +227,9 @@ func _feed_game_state() -> void:
 	for y in height:
 		rows.append("1".repeat(width))
 	_emit("MapView", {"mapName": MAP_NAME, "grid": {"width": width, "height": height, "walkableRows": rows}})
-	var cx := width / 2.0
-	var cy := height / 2.0
+	# Au sud de la fontaine de la Place du village (72, 46, voir generate_place_du_village.gd).
+	var cx := 72.5
+	var cy := 53.0
 	_emit("MapEnter", {"selfX": cx, "selfY": cy, "selfHeading": 0.0})
 	_emit("EntityAppeared", {"entities": [
 		{"id": "m1", "name": "Loup gris", "kind": "monster", "x": cx + 3, "y": cy + 1, "currentHealth": 64, "maxHealth": 120, "level": 14},
@@ -324,6 +340,20 @@ func _setup_game_scene() -> void:
 				tip.add_child(UITheme.make_rich_tooltip(ItemTooltip.build(item, footer)))
 				tip.position = cell.get_global_rect().end + Vector2(8 + 230 * i, 8)
 				hud.add_child(tip)
+		"game_worldmap":
+			if not _map_override.is_empty():
+				var map_size := _map_size(_map_override)
+				var rows := []
+				for y in map_size.y:
+					rows.append("1".repeat(map_size.x))
+				_emit("MapView", {"mapName": _map_override, "grid": {"width": map_size.x, "height": map_size.y, "walkableRows": rows}})
+				_emit("MapEnter", {"selfX": map_size.x / 2.0, "selfY": map_size.y / 2.0, "selfHeading": 0.0})
+				await _frames(4)
+			var world_map: Control = hud.get_node("WorldMapWindow")
+			world_map.open()
+			if _map_canvas_size != Vector2.ZERO:
+				world_map._set_canvas_size(_map_canvas_size)
+			world_map.position = Vector2(40, 60)
 		"game_dialog":
 			var inventory: Control = hud.get_node("InventoryWindow")
 			inventory.open()

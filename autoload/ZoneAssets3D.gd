@@ -37,6 +37,17 @@ const TERRAIN_COLORS := {
 	"rockWall": Color(0.30, 0.28, 0.27), "caveFloor": Color(0.32, 0.28, 0.26),
 	"rubble": Color(0.40, 0.38, 0.36),
 }
+## Terrains non franchissables : reprend telle quelle la propriété "walkable" des tilesets
+## des .tmx historiques (aucun terrain n'y était praticable dans une carte et bloquant dans
+## une autre). Sert à l'export scène -> .tmx (tools/export_map_to_tmx.gd), le serveur restant
+## seul juge une fois la carte exportée (MapView.grid.walkableRows).
+const BLOCKING_TERRAINS := {
+	"rampart": true, "fountain": true, "auberge": true, "forge": true, "tree": true,
+	"fence": true, "hedge": true, "bramble": true, "deadTree": true, "denseTallGrass": true,
+	"grave": true, "mausoleum": true, "rockWall": true, "rubble": true,
+	"__blocked_fallback__": true,
+}
+
 const WALKABLE_FALLBACK_COLOR := Color(0.40, 0.60, 0.35)
 const BLOCKED_FALLBACK_COLOR := Color(0.25, 0.25, 0.28)
 
@@ -51,6 +62,9 @@ const TALL_OBSTACLE_TERRAINS := {
 ## map_name (propriété "name" exportée par MapData.gd sur la racine de la scène) -> chemin
 ## de la scène res://scenes/maps/*.tscn correspondante — voir _scan_map_scenes.
 var _map_scene_path_by_name: Dictionary = {}
+## map_id (propriété "map_id" de MapData, UUID) -> map_name : les PortalMarker3D d'une scène
+## ne connaissent leur destination que par cet id (voir get_map_name_by_id).
+var _map_name_by_id: Dictionary = {}
 
 
 func _ready() -> void:
@@ -62,6 +76,12 @@ func _ready() -> void:
 ## Game3D._rebuild_map, qui instancie cette scène pour le rendu du sol.
 func get_map_scene_path(map_name: String) -> String:
 	return _map_scene_path_by_name.get(map_name, "")
+
+
+## Nom de la carte d'id `map_id` (cible d'un PortalMarker3D, voir la carte du monde), ou ""
+## si aucune scène ne porte cet id.
+func get_map_name_by_id(map_id: String) -> String:
+	return _map_name_by_id.get(map_id, "")
 
 
 ## Construit une texture de sol simplifiée pour la minimap (une passe, un seul quad à
@@ -144,8 +164,11 @@ func _index_map_scene(path: String) -> void:
 		return
 	var root: Node3D = packed.instantiate()
 	var map_name: String = root.map_name
+	var map_id: String = root.map_id
 	root.free()
 	if map_name.is_empty():
 		push_warning("ZoneAssets3D: pas de map_name dans %s" % path)
 		return
 	_map_scene_path_by_name[map_name] = path
+	if not map_id.is_empty():
+		_map_name_by_id[map_id] = map_name

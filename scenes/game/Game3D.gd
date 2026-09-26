@@ -66,20 +66,6 @@ const NPC_COLOR := Color(0.85, 0.75, 0.30)
 const CHARACTER_SCENE := preload("res://scenes/game/entities/Character.tscn")
 ## Périmètre runique du cercle de portée des skills (voir show_skill_range).
 const RANGE_RING_SHADER := preload("res://scenes/game/vfx/range_ring.gdshader")
-## Bleu façon "portail d'énergie" (au lieu du violet précédent) — voir _make_portal_node,
-## qui recouvre désormais l'ancien disque plat au sol d'un anneau vertical + tourbillon
-## animé, demande explicite du 2026-09-06 pour se rapprocher d'un portail bleu tourbillonnant
-## façon jeu vidéo plutôt qu'un simple disque plat coloré.
-const PORTAL_COLOR := Color(0.25, 0.55, 0.95)
-## Cœur clair et bord profond du tourbillon (voir PORTAL_VORTEX_SHADER_CODE) — dégradé
-## indépendant de PORTAL_COLOR (qui reste la teinte de l'anneau/halo/étiquette) pour un effet
-## plus riche qu'une simple couleur unie.
-const PORTAL_CORE_COLOR := Color(0.78, 0.95, 1.0)
-const PORTAL_EDGE_COLOR := Color(0.05, 0.18, 0.65)
-## Hauteur du centre de l'anneau vertical au-dessus du sol.
-const PORTAL_RING_HEIGHT_Y := 1.05
-const PORTAL_RING_INNER_RADIUS := 0.68
-const PORTAL_RING_OUTER_RADIUS := 0.88
 ## Plaques de nom flottantes façon Lineage 2 : nom des joueurs en blanc, des PNJ en bleu
 ## clair, des monstres en blanc rosé ; titre (EntityView.title / GamePlayerStats.Payload.title,
 ## ex. fonction d'un PNJ comme "Blacksmith") en jaune pâle au-dessus du nom.
@@ -190,28 +176,24 @@ const LOG_COLOR_WHISPER := "#ff77ff"
 const CHAT_WINDOW_IDLE_ALPHA := 0.0
 const CHAT_WINDOW_MESSAGE_ALPHA := 0.85
 const CHAT_WINDOW_FOCUSED_ALPHA := 1.0
-const CHAT_WINDOW_MESSAGE_HOLD_SEC := 4.0
-## Fenêtre de statut (%SystemLogPanel) : maintenue visible plus longtemps que le chat à chaque
-## nouveau message, pour laisser le temps de lire — demande explicite du 2026-09-26.
+## Durée pendant laquelle la fenêtre de chat reste opaque après un nouveau message avant de
+## commencer son fondu — portée de 4 s à 10 s (demande explicite du 2026-09-27 : trop rapide).
+const CHAT_WINDOW_MESSAGE_HOLD_SEC := 10.0
+## Fenêtre de statut (%SystemLogPanel) : maintenue visible 10 s à chaque nouveau message, pour
+## laisser le temps de lire — demande explicite du 2026-09-26.
 const SYSTEM_WINDOW_MESSAGE_HOLD_SEC := 10.0
 const CHAT_WINDOW_FADE_SEC := 1.5
 
 const PLAYER_KEY := "player"
 
-## Rayon du halo au sol marquant la zone d'activation du portail (voir _make_portal_node) —
-## sert uniquement de repère visuel désormais : la sélection au clic passe par un vrai rayon
-## physique 3D sur tout l'objet (voir PORTAL_PICK_COLLISION_LAYER/_pick_portal_id_at_mouse),
-## comme pour les entités, depuis la demande explicite du 2026-09-06 ("je veux que l'objet
-## entier soit sélectionnable, pas juste la base").
-const PORTAL_PICK_RADIUS := 0.7
-
 ## Nom/titre par défaut si le serveur ne les transmet pas encore (PortalView.name/title, voir
 ## _apply_appeared_portal) — même dégradation gracieuse que targetMapName ci-dessous.
 const PORTAL_NAME_DEFAULT := "Clairière"
 const PORTAL_TITLE_DEFAULT := "Téléporteur"
-## Portée de téléportation si le serveur ne transmet pas triggerRadius — reprend PORTAL_PICK_RADIUS
-## (même rayon que le halo au sol, cohérent avec l'ancienne zone d'activation).
-const PORTAL_RANGE_DEFAULT := PORTAL_PICK_RADIUS
+## Portée de téléportation si le serveur ne transmet pas triggerRadius (ancienne zone
+## d'activation). La sélection au clic passe par un vrai rayon physique 3D sur tout l'objet
+## (voir PORTAL_PICK_COLLISION_LAYER/_pick_portal_id_at_mouse), comme pour les entités.
+const PORTAL_RANGE_DEFAULT := 0.7
 
 ## Sélectionner une entité ou un portail se fait par un vrai rayon physique caméra→souris
 ## contre sa zone de collision (voir _pick_entity_id_at_mouse/_make_entity_node pour les
@@ -295,6 +277,8 @@ const KILL_SOUND_MEMO_MSEC := 3000
 @onready var _camera_rig: Node3D = $CameraRig
 @onready var _camera: Camera3D = $CameraRig/Camera3D
 @onready var _minimap: Control = %Minimap
+## Carte entière de la zone (touche M), voir WorldMapWindow.gd.
+@onready var _world_map: Control = %WorldMapWindow
 @onready var _player_frame: Control = %PlayerFrame
 ## Journal système (arrivée/départ de carte, dégâts, XP, loot, incantations, erreurs...) —
 ## voir _log — distinct du chat entre joueurs (_chat_log_label/_log_chat), demande explicite
@@ -344,11 +328,32 @@ var _current_map_name := ""
 var _map_width := 0
 var _map_height := 0
 var _walkable_rows: Array = []
+## false pour une carte décorée (MapData.render_obstacle_blocks) : ses obstacles (arbres,
+## props) sont déjà dessinés, pas de bloc gris par case non praticable.
+var _render_obstacle_blocks := true
 ## Nom de terrain par case de la carte courante (Array[Array[String]]), lu sur le GridMap
 ## "Terrain" de la scène instanciée dans _map_scene_root — voir _read_terrain_grid.
 ## Alimente le rendu de la minimap et le choix de hauteur des obstacles/lumières de nuit ;
 ## la marchabilité réelle reste dans _walkable_rows (source de vérité : le serveur).
 var _terrain_grid: Array = []
+## Voile gris sur le décor hors de la grille, enfant de la caméra (voir MapBoundsVeil).
+var _map_bounds_veil: MapBoundsVeil
+## Chargement de la scène de carte en cours, derrière LoadingScreen (voir _rebuild_map, qui
+## le lance, et _advance_map_load, qui le fait avancer d'une étape par image depuis
+## _process pour que la barre de progression reste animée).
+enum MapLoadStep { NONE, LOADING, INSTANTIATE, BUILD, WARMUP }
+## Images rendues avec la nouvelle carte (toujours masquée) avant d'atteindre 100 % :
+## compilation des shaders/pipelines de ses matériaux hors de la vue du joueur.
+const MAP_LOAD_WARMUP_FRAMES := 4
+var _map_load_step := MapLoadStep.NONE
+var _map_load_payload: Dictionary = {}
+var _map_load_scene_path := ""
+var _map_load_packed: PackedScene
+var _map_load_instance: Node3D
+## Progression déjà acquise quand le chargement de carte a démarré (chargement de Game.tscn
+## lui-même à l'entrée en jeu, voir LoadingScreen.change_scene_to_file).
+var _map_load_base := 0.0
+var _map_load_frames := 0
 
 ## Toutes les entités (joueur compris, sous la clé PLAYER_KEY) sont traitées de façon
 ## générique par _step_movement : key -> Node3D / {"target": Vector3} / vitesse (tuiles/s).
@@ -482,6 +487,8 @@ func _ready() -> void:
 
 	_make_move_marker()
 	_make_selection_ring()
+	_map_bounds_veil = MapBoundsVeil.new()
+	_camera.add_child(_map_bounds_veil)
 	_update_celestial_lights()
 	_log("Prototype 3D isométrique — connecté.")
 
@@ -497,6 +504,10 @@ func _ready() -> void:
 	# MapEnter — voir CLAUDE.md, commit acfb970) est ce qui peuple désormais les entités à
 	# portée au chargement de carte : sans ce rejeu, un joueur/monstre/PNJ déjà présent au
 	# moment du spawn n'apparaîtrait qu'à son prochain déplacement (refresh() suivant).
+	# L'écran de chargement (déjà affiché par LoadingScreen.change_scene_to_file depuis
+	# CharSelect/CharacterCreate) reste en place jusqu'à la fin du chargement de la première
+	# carte (voir _advance_map_load), même si son MapView n'est pas encore arrivé.
+	LoadingScreen.begin()
 	if not GameState.map_view.is_empty():
 		_rebuild_map(GameState.map_view)
 	if not GameState.map_enter.is_empty():
@@ -519,9 +530,11 @@ func _exit_tree() -> void:
 	# Retour à l'écran de connexion (déconnexion, Menu système) : la musique de zone
 	# s'efface pendant que MenuMusic repart.
 	ZoneMusic.stop()
+	LoadingScreen.cancel()
 
 
 func _process(delta: float) -> void:
+	_advance_map_load()
 	_advance_day_night_clock(delta)
 	_step_movement(delta)
 	_advance_casting(delta)
@@ -551,6 +564,7 @@ func _process(delta: float) -> void:
 
 	_update_minimap()
 	_update_player_frame()
+	_update_occlusion_globals()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -1002,21 +1016,102 @@ func _rebuild_map(payload: Dictionary) -> void:
 
 	_clear_entities()
 	_hide_move_marker()
+	_clear_portals()
+	_release_input_for_loading()
 
 	for child in _map_scene_root.get_children():
 		child.queue_free()
 
-	var scene_path := ZoneAssets3D.get_map_scene_path(_current_map_name)
-	var grid_map: GridMap = null
-	var biome := MapData.Biome.NONE
-	if scene_path.is_empty():
+	# La scène de carte (sol, décor, props) est chargée en tâche de fond derrière l'écran de
+	# chargement puis construite étape par étape (_advance_map_load) : la carte n'apparaît
+	# qu'une fois entièrement prête. Tout ce qui précède reste immédiat pour que les messages
+	# qui suivent MapView (MapEnter, EntityAppeared, PortalAppeared) s'appliquent pendant le
+	# chargement sur un état déjà remis à zéro.
+	_map_load_base = LoadingScreen.begin(_current_map_name)
+	_map_load_payload = payload
+	_map_load_packed = null
+	_map_load_instance = null
+	_map_load_scene_path = ZoneAssets3D.get_map_scene_path(_current_map_name)
+	_map_load_step = MapLoadStep.BUILD
+	if _map_load_scene_path.is_empty():
 		push_warning("Game3D: aucune scène convertie pour la carte '%s'" % _current_map_name)
 	else:
-		var map_instance: Node3D = load(scene_path).instantiate()
-		_map_scene_root.add_child(map_instance)
+		var err := ResourceLoader.load_threaded_request(_map_load_scene_path, "", true)
+		if err == OK:
+			_map_load_step = MapLoadStep.LOADING
+		else:
+			push_warning("Game3D: chargement impossible de %s (%s)" % [_map_load_scene_path, error_string(err)])
+
+
+## Fait avancer le chargement lancé par _rebuild_map d'une étape par image (appelé en tête
+## de _process) : chargement de la scène en tâche de fond (0 → 70 % de la part de barre du
+## chargement de carte), instanciation (80 %), construction minimap/obstacles/lumières
+## (90 %), puis quelques images de rendu masqué (100 %) avant de rendre la main au joueur.
+func _advance_map_load() -> void:
+	match _map_load_step:
+		MapLoadStep.LOADING:
+			var progress := []
+			var status := ResourceLoader.load_threaded_get_status(_map_load_scene_path, progress)
+			if status == ResourceLoader.THREAD_LOAD_IN_PROGRESS:
+				_set_map_load_progress(0.7 * (float(progress[0]) if not progress.is_empty() else 0.0))
+				return
+			if status == ResourceLoader.THREAD_LOAD_LOADED:
+				_map_load_packed = ResourceLoader.load_threaded_get(_map_load_scene_path)
+			else:
+				push_warning("Game3D: échec du chargement de %s" % _map_load_scene_path)
+			_set_map_load_progress(0.7)
+			_map_load_step = MapLoadStep.INSTANTIATE
+		MapLoadStep.INSTANTIATE:
+			if _map_load_packed != null:
+				_map_load_instance = _map_load_packed.instantiate()
+				_map_scene_root.add_child(_map_load_instance)
+			_map_load_packed = null
+			_set_map_load_progress(0.8)
+			_map_load_step = MapLoadStep.BUILD
+		MapLoadStep.BUILD:
+			_build_loaded_map(_map_load_payload, _map_load_instance)
+			_map_load_payload = {}
+			_map_load_instance = null
+			_set_map_load_progress(0.9)
+			_map_load_frames = 0
+			_map_load_step = MapLoadStep.WARMUP
+		MapLoadStep.WARMUP:
+			_map_load_frames += 1
+			_set_map_load_progress(0.9 + 0.1 * float(_map_load_frames) / MAP_LOAD_WARMUP_FRAMES)
+			if _map_load_frames >= MAP_LOAD_WARMUP_FRAMES:
+				_map_load_step = MapLoadStep.NONE
+				LoadingScreen.finish()
+
+
+func _set_map_load_progress(ratio: float) -> void:
+	LoadingScreen.set_progress(lerpf(_map_load_base, 1.0, ratio))
+
+
+## Début d'un chargement de carte : lâche tout ce qui pourrait rester « tenu » pendant que
+## LoadingScreen avale les entrées (relâchement du clic droit jamais reçu -> souris restée
+## capturée en rotation caméra, champ de chat encore focalisé, menu PNJ ouvert).
+func _release_input_for_loading() -> void:
+	_right_click_active = false
+	if _camera_orbiting:
+		_camera_orbiting = false
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	_chat_input.release_focus()
+	_npc_menu.hide()
+
+
+## Fin de _rebuild_map, une fois la scène de carte instanciée (`map_instance` null si aucune
+## scène n'existe pour cette carte ou si son chargement a échoué).
+func _build_loaded_map(payload: Dictionary, map_instance: Node3D) -> void:
+	var grid_map: GridMap = null
+	var map_portals: Array = []
+	var biome := MapData.Biome.NONE
+	_render_obstacle_blocks = true
+	if map_instance != null:
 		grid_map = map_instance.get_node("Terrain")
+		map_portals = _read_map_portals(map_instance)
 		if map_instance is MapData:
 			biome = map_instance.biome
+			_render_obstacle_blocks = map_instance.render_obstacle_blocks
 	_terrain_grid = _read_terrain_grid(grid_map)
 	# Même biome que la carte précédente : la musique continue sans coupure.
 	ZoneMusic.play_for_biome(biome)
@@ -1024,10 +1119,11 @@ func _rebuild_map(payload: Dictionary) -> void:
 	var texture := ZoneAssets3D.build_ground_texture(payload, _terrain_grid)
 
 	_rebuild_obstacles()
-	_clear_portals()
 	_rebuild_night_lights()
 	_minimap.set_map(texture, _map_width, _map_height, _current_map_name)
-	_log("Carte : %s (%dx%d)" % [_current_map_name, _map_width, _map_height])
+	_map_bounds_veil.set_map_size(Vector2(_map_width, _map_height))
+	_world_map.set_map(_current_map_name, _map_width, _map_height, _terrain_grid, _walkable_rows, map_portals)
+	_log("Carte :%s (%dx%d)" % [_current_map_name, _map_width, _map_height])
 
 
 ## Nom de terrain par case (voir _terrain_grid) lu directement sur le GridMap de la scène
@@ -1052,8 +1148,28 @@ func _read_terrain_grid(grid_map: GridMap) -> Array:
 	return terrain_grid
 
 
+## Téléporteurs de la carte entière pour la carte (voir WorldMapWindow), lus sur les
+## PortalMarker3D de la scène plutôt que sur _portals : le serveur ne pousse que ceux à portée
+## de perception. [{position: Vector2 (cases), target_map_name}].
+func _read_map_portals(map_instance: Node) -> Array:
+	var portals: Array = []
+	var objects := map_instance.get_node_or_null("Objects")
+	if objects == null:
+		return portals
+	for child in objects.get_children():
+		if child is Node3D and "target_map_id" in child:
+			portals.append({
+				"position": Vector2(child.position.x, child.position.z),
+				"target_map_name": ZoneAssets3D.get_map_name_by_id(str(child.target_map_id)),
+			})
+	return portals
+
+
 func _rebuild_obstacles() -> void:
 	var transforms: Array[Transform3D] = []
+	if not _render_obstacle_blocks:
+		_obstacles.multimesh = null
+		return
 	for y in _map_height:
 		var row: String = _walkable_rows[y] if y < _walkable_rows.size() else ""
 		var terrain_row: Array = _terrain_grid[y] if y < _terrain_grid.size() else []
@@ -1096,7 +1212,9 @@ func _rebuild_night_lights() -> void:
 	for child in _night_lights.get_children():
 		child.queue_free()
 
-	for terrain_name in LANDMARK_LIGHTS:
+	# Carte décorée : ses bâtiments (auberge, forge...) portent leurs propres lumières (voir
+	# scenes/maps/props/House.gd), pas de lueur procédurale par-dessus.
+	for terrain_name in (LANDMARK_LIGHTS if _render_obstacle_blocks else {}):
 		var props: Dictionary = LANDMARK_LIGHTS[terrain_name]
 		for cluster_center in _terrain_clusters(_terrain_grid, terrain_name):
 			var light := OmniLight3D.new()
@@ -1154,19 +1272,36 @@ func _update_night_lights_energy(t: float) -> void:
 	for child in _night_lights.get_children():
 		if child is OmniLight3D:
 			child.light_energy = float(child.get_meta("base_energy", 1.0)) * factor
+	# Lampadaires, fontaine... posés dans la scène de carte (voir LampPost.NIGHT_GROUP).
+	get_tree().call_group(LampPost.NIGHT_GROUP, "set_night_factor", factor)
 
 
+## Position du joueur et direction de la caméra pour le tramage des arbres/props qui le
+## cachent (voir scenes/maps/common/occlusion_fade.gdshaderinc).
+func _update_occlusion_globals() -> void:
+	var player_pos := Vector3(0.0, -1000.0, 0.0)
+	if _player_node != null:
+		player_pos = _player_node.global_position
+	RenderingServer.global_shader_parameter_set(&"player_world_position", player_pos)
+	RenderingServer.global_shader_parameter_set(&"main_camera_direction", -_camera.global_basis.z)
+
+
+## Hors de la grille (décor de lisière sous le voile, voir MapBoundsVeil) : jamais
+## praticable, le serveur n'y trouverait aucun chemin.
 func _is_walkable(target: Vector2) -> bool:
 	if _walkable_rows.is_empty():
 		return true
 	var cx := int(floor(target.x))
 	var cy := int(floor(target.y))
-	if cy < 0 or cy >= _walkable_rows.size():
+	if cx < 0 or cy < 0 or cx >= _map_width or cy >= _map_height:
+		return false
+	if cy >= _walkable_rows.size():
 		return true
 	var row: String = _walkable_rows[cy]
-	if cx < 0 or cx >= row.length():
+	if cx >= row.length():
 		return true
 	return row[cx] == "1"
+
 
 
 ## Vide tous les portails actuellement affichés (voir _portals) — appelé à chaque _rebuild_map
@@ -1204,7 +1339,6 @@ func _apply_appeared_portal(entry: Dictionary) -> void:
 		"position": pos, "target_map_name": target_map_name, "portal_name": portal_name,
 		"portal_title": portal_title, "range": portal_range, "node": portal_node,
 	}
-	_orient_portal_to_camera(portal_node)
 
 
 ## Portail sortant de notre KnownList — hors de portée après un déplacement, ou retiré de la
@@ -1222,127 +1356,31 @@ func _on_portal_disappeared(portal_id: String) -> void:
 	_portals.erase(portal_id)
 
 
-## Shader du "voile" d'énergie tourbillonnant à l'intérieur de l'anneau (voir
-## _make_portal_node) — motif spiralé + anneaux concentriques générés uniquement à partir de
-## TIME et de la distance au centre (pas de texture externe : aucun asset image n'est
-## disponible/généré pour ce projet, voir échange avec l'utilisateur du 2026-09-06).
-## cull_disabled : le voile reste visible quel que soit le côté d'où on le regarde, ce qui
-## dispense _orient_portal_to_camera d'un calcul d'orientation exact (voir cette fonction).
-const PORTAL_VORTEX_SHADER_CODE := """
-shader_type spatial;
-render_mode unshaded, cull_disabled, blend_mix, depth_draw_opaque, shadows_disabled, specular_disabled;
-
-uniform vec4 core_color : source_color = vec4(0.78, 0.95, 1.0, 1.0);
-uniform vec4 edge_color : source_color = vec4(0.05, 0.18, 0.65, 1.0);
-uniform float highlight : hint_range(0.0, 1.0) = 0.0;
-
-void fragment() {
-	vec2 centered = (UV - vec2(0.5)) * 2.0;
-	float radius = length(centered);
-	if (radius > 1.0) {
-		discard;
-	}
-	float angle = atan(centered.y, centered.x);
-	float swirl = angle * 3.0 + radius * 6.0 - TIME * 2.2;
-	float bands = sin(swirl) * 0.5 + 0.5;
-	float rings = sin(radius * 16.0 - TIME * 3.4) * 0.5 + 0.5;
-	float pattern = mix(bands, rings, 0.35);
-	vec4 base_color = mix(core_color, edge_color, smoothstep(0.0, 1.0, radius));
-	vec3 glow = base_color.rgb * (0.55 + 0.45 * pattern) * (1.0 + highlight * 0.9);
-	ALBEDO = glow;
-	EMISSION = glow * (1.3 + highlight);
-	ALPHA = smoothstep(1.0, 0.55, radius);
-}
-"""
-
-
-## Anneau vertical + voile tourbillonnant (au lieu de l'ancien simple disque plat au sol) —
-## un halo au sol subsiste pour repérer la zone d'activation (voir PORTAL_PICK_RADIUS), le
-## reste ("Facing", voir _orient_portal_to_camera) se dresse verticalement façon "portail
-## d'énergie".
+## Portail : effet PortalVfx (cercle de runes, colonne d'énergie torsadée, couronnes qui
+## s'élèvent, étincelles — symétrique autour de Y, donc juste sous tout angle de caméra) +
+## zone de clic englobant toute la colonne + nom/titre au-dessus.
 func _make_portal_node(portal_name: String, portal_title: String) -> Node3D:
 	var root := Node3D.new()
 	root.name = "Portal"
+	var vfx := PortalVfx.new()
+	root.add_child(vfx)
+	root.set_meta("vfx", vfx)
 
-	var ground_glow := MeshInstance3D.new()
-	var ground_disc := CylinderMesh.new()
-	ground_disc.top_radius = PORTAL_PICK_RADIUS
-	ground_disc.bottom_radius = PORTAL_PICK_RADIUS
-	ground_disc.height = 0.02
-	var ground_mat := StandardMaterial3D.new()
-	ground_mat.albedo_color = Color(PORTAL_COLOR.r, PORTAL_COLOR.g, PORTAL_COLOR.b, 0.35)
-	ground_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	ground_mat.emission_enabled = true
-	ground_mat.emission = PORTAL_COLOR
-	ground_mat.emission_energy_multiplier = 0.8
-	ground_disc.material = ground_mat
-	ground_glow.mesh = ground_disc
-	ground_glow.position = Vector3(0.0, 0.02, 0.0)
-	root.add_child(ground_glow)
-
-	# Zone de collision englobant tout l'objet (halo au sol + anneau + voile), pas juste la
-	# "base" — voir _pick_portal_id_at_mouse, même mécanisme que PickArea dans
-	# _make_entity_node (couche physique dédiée PORTAL_PICK_COLLISION_LAYER). Un cylindre
-	# suffit et reste correct quel que soit l'angle de caméra (contrairement à "Facing", il
-	# n'a pas besoin d'être réorienté) : il est symétrique par rotation autour de Y, comme
-	# l'ancien test au sol qu'il remplace.
+	# Zone de collision englobant tout l'objet, pas juste la base — voir
+	# _pick_portal_id_at_mouse, même mécanisme que PickArea dans _make_entity_node (couche
+	# physique dédiée PORTAL_PICK_COLLISION_LAYER).
 	var pick_area := Area3D.new()
 	pick_area.name = "PickArea"
 	pick_area.collision_layer = PORTAL_PICK_COLLISION_LAYER
 	pick_area.collision_mask = 0
 	var pick_shape := CollisionShape3D.new()
 	var pick_cylinder := CylinderShape3D.new()
-	pick_cylinder.radius = PORTAL_RING_OUTER_RADIUS + 0.05
-	pick_cylinder.height = PORTAL_RING_HEIGHT_Y + PORTAL_RING_OUTER_RADIUS + 0.1
+	pick_cylinder.radius = PortalVfx.COLUMN_RADIUS + 0.15
+	pick_cylinder.height = PortalVfx.HEIGHT
 	pick_shape.shape = pick_cylinder
 	pick_area.position = Vector3(0.0, pick_cylinder.height / 2.0, 0.0)
 	pick_area.add_child(pick_shape)
 	root.add_child(pick_area)
-
-	# "Facing" ne tourne qu'autour de Y (voir _orient_portal_to_camera) : contrairement au
-	# halo au sol ci-dessus (un disque à plat, donc symétrique quel que soit l'angle de vue),
-	# un anneau dressé verticalement présenterait sa tranche (quasi invisible) sous certains
-	# angles de caméra s'il restait figé — d'où ce "billboard" limité à l'axe Y, qui garde le
-	# portail toujours bien droit (jamais penché) tout en le gardant face à la caméra.
-	var facing := Node3D.new()
-	facing.name = "Facing"
-	facing.position = Vector3(0.0, PORTAL_RING_HEIGHT_Y, 0.0)
-	root.add_child(facing)
-
-	var ring := MeshInstance3D.new()
-	var torus := TorusMesh.new()
-	torus.inner_radius = PORTAL_RING_INNER_RADIUS
-	torus.outer_radius = PORTAL_RING_OUTER_RADIUS
-	var ring_mat := StandardMaterial3D.new()
-	ring_mat.albedo_color = PORTAL_COLOR
-	ring_mat.emission_enabled = true
-	ring_mat.emission = PORTAL_COLOR
-	ring_mat.emission_energy_multiplier = 1.4
-	torus.material = ring_mat
-	ring.mesh = torus
-	# TorusMesh est par défaut un anneau À PLAT (axe du trou = Y, comme l'ancien halo au sol) ;
-	# cette rotation de 90° autour de X redresse son axe sur Z (celui vers lequel "Facing"
-	# regarde), pour un anneau dressé façon "porte" plutôt que posé au sol.
-	ring.rotation.x = PI / 2.0
-	facing.add_child(ring)
-	root.set_meta("ring_material", ring_mat)
-
-	var vortex := MeshInstance3D.new()
-	var quad := QuadMesh.new()
-	quad.size = Vector2.ONE * PORTAL_RING_INNER_RADIUS * 2.0
-	var vortex_shader := Shader.new()
-	vortex_shader.code = PORTAL_VORTEX_SHADER_CODE
-	var vortex_mat := ShaderMaterial.new()
-	vortex_mat.shader = vortex_shader
-	vortex_mat.set_shader_parameter("core_color", PORTAL_CORE_COLOR)
-	vortex_mat.set_shader_parameter("edge_color", PORTAL_EDGE_COLOR)
-	quad.material = vortex_mat
-	vortex.mesh = quad
-	facing.add_child(vortex)
-	root.set_meta("vortex_material", vortex_mat)
-
-	root.add_child(_make_portal_particles())
-	root.set_meta("facing", facing)
 
 	# Nom/titre façon personnage (voir _make_entity_node/TITLE_LABEL_COLOR) plutôt que l'ancien
 	# libellé unique affichant la carte cible : "Clairière"/"Téléporteur" identifient l'objet
@@ -1350,19 +1388,19 @@ func _make_portal_node(portal_name: String, portal_title: String) -> Node3D:
 	var label := Label3D.new()
 	label.name = "NameLabel"
 	label.text = portal_name
-	label.position = Vector3(0.0, PORTAL_RING_HEIGHT_Y + PORTAL_RING_OUTER_RADIUS + 0.35, 0.0)
+	label.position = Vector3(0.0, PortalVfx.HEIGHT + 0.3, 0.0)
 	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	label.no_depth_test = true
 	label.font_size = 28
 	label.outline_size = 6
-	label.modulate = PORTAL_COLOR.lightened(0.4)
+	label.modulate = PortalVfx.COLOR.lightened(0.4)
 	label.font = UITheme.font_bold
 	root.add_child(label)
 
 	var title_label := Label3D.new()
 	title_label.name = "TitleLabel"
 	title_label.text = portal_title
-	title_label.position = Vector3(0.0, PORTAL_RING_HEIGHT_Y + PORTAL_RING_OUTER_RADIUS + 0.68, 0.0)
+	title_label.position = Vector3(0.0, PortalVfx.HEIGHT + 0.63, 0.0)
 	title_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	title_label.no_depth_test = true
 	title_label.font_size = 20
@@ -1374,78 +1412,11 @@ func _make_portal_node(portal_name: String, portal_title: String) -> Node3D:
 	return root
 
 
-## Petites étincelles d'énergie flottant près de l'anneau — rattachées à root (pas à
-## "Facing") pour ne jamais suivre son "billboard" en Y : une sphère de particules est
-## indifférente à l'angle de vue de toute façon, autant éviter le moindre à-coup au moment où
-## la caméra s'oriente (voir _orient_portal_to_camera).
-func _make_portal_particles() -> GPUParticles3D:
-	var particles := GPUParticles3D.new()
-	particles.position = Vector3(0.0, PORTAL_RING_HEIGHT_Y, 0.0)
-	particles.amount = 20
-	particles.lifetime = 2.2
-	particles.local_coords = false
-
-	var quad := QuadMesh.new()
-	quad.size = Vector2.ONE * 0.08
-	var particle_mat := StandardMaterial3D.new()
-	particle_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	particle_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	particle_mat.emission_enabled = true
-	particle_mat.emission = PORTAL_CORE_COLOR
-	particle_mat.emission_energy_multiplier = 2.0
-	particle_mat.albedo_color = Color(PORTAL_CORE_COLOR.r, PORTAL_CORE_COLOR.g, PORTAL_CORE_COLOR.b, 0.85)
-	particle_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
-	quad.material = particle_mat
-	particles.draw_pass_1 = quad
-
-	var process_mat := ParticleProcessMaterial.new()
-	process_mat.direction = Vector3(0.0, 1.0, 0.0)
-	process_mat.spread = 180.0
-	process_mat.initial_velocity_min = 0.05
-	process_mat.initial_velocity_max = 0.18
-	process_mat.gravity = Vector3(0.0, 0.05, 0.0)
-	process_mat.damping_min = 0.05
-	process_mat.damping_max = 0.15
-	process_mat.angular_velocity_min = -90.0
-	process_mat.angular_velocity_max = 90.0
-	process_mat.scale_min = 0.6
-	process_mat.scale_max = 1.4
-	process_mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE_SURFACE
-	process_mat.emission_sphere_radius = PORTAL_RING_INNER_RADIUS
-	process_mat.color = PORTAL_CORE_COLOR
-	particles.process_material = process_mat
-
-	return particles
-
-
-## Rappelée par _apply_camera_orbit à chaque changement d'angle (et une fois à la création du
-## portail, voir _apply_appeared_portal) : ne tourne "Facing" qu'autour de Y, à partir de la
-## direction horizontale vers la caméra — jamais de tangage, pour que l'anneau reste toujours
-## vertical peu importe l'angle de vue.
-func _orient_portal_to_camera(root: Node3D) -> void:
-	var facing = root.get_meta("facing", null)
-	if facing == null:
-		return
-	var to_camera: Vector3 = _camera.global_position - facing.global_position
-	to_camera.y = 0.0
-	if to_camera.length_squared() < 0.0001:
-		return
-	facing.look_at(facing.global_position + to_camera, WORLD_UP)
-
-
-func _orient_all_portals() -> void:
-	for entry in _portals.values():
-		_orient_portal_to_camera(entry.node)
-
-
 func _set_portal_highlight(portal_id: String, on: bool) -> void:
 	if not _portals.has(portal_id):
 		return
 	var node: Node3D = _portals[portal_id].node
-	var ring_mat: StandardMaterial3D = node.get_meta("ring_material")
-	ring_mat.emission_energy_multiplier = 2.6 if on else 1.4
-	var vortex_mat: ShaderMaterial = node.get_meta("vortex_material")
-	vortex_mat.set_shader_parameter("highlight", 1.0 if on else 0.0)
+	(node.get_meta("vfx") as PortalVfx).set_highlight(on)
 
 
 # ---------------------------------------------------------------------------
@@ -1569,7 +1540,6 @@ func _apply_camera_orbit() -> void:
 	_camera.position = Vector3(horizontal_radius * cos(angle), base.y, horizontal_radius * sin(angle))
 	_camera.look_at(_camera_rig.global_position, WORLD_UP)
 	_minimap.set_camera_forward(Vector2(-cos(angle), -sin(angle)))
-	_orient_all_portals()
 
 
 ## has_shop : EntityView.hasShop côté backend — désactive "Boutique" pour un PNJ qui ne
@@ -2961,6 +2931,11 @@ func _selection_color_for(target_id: String, key: String) -> Color:
 func _update_minimap() -> void:
 	if _player_node != null:
 		_minimap.set_player_tile_position(_player_node.position.x, _player_node.position.z)
+		if _world_map.visible:
+			# Le corps regarde vers son -Z local (voir _face_heading, look_at).
+			var forward := -_player_node.global_transform.basis.z
+			_world_map.set_player(Vector2(_player_node.position.x, _player_node.position.z),
+					Vector2(forward.x, forward.z))
 	_minimap.set_game_time(_game_minutes_of_day)
 	var selected_key: String = _key_by_entity_id.get(_selected_target_id, "")
 	var party_member_ids: Dictionary = GameState.party.get("members", {})

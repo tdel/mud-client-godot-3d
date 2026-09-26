@@ -106,7 +106,7 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 			_fail(str(payload.get("usage", "Commande invalide.")))
 		"NowPlaying":
 			_busy = false
-			get_tree().change_scene_to_file("res://scenes/game/Game.tscn")
+			LoadingScreen.change_scene_to_file("res://scenes/game/Game.tscn")
 		"Error":
 			_fail(str(payload.get("message", "Erreur inconnue.")))
 		_:

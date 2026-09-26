@@ -1,0 +1,22 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scenes/maps/props/EnvProp.gd" id="1"]
+[ext_resource type="PackedScene" path="res://assets/environment/models/village/gatehouse.glb" id="2"]
+[ext_resource type="Script" path="res://map_objects/ObstacleFootprint3D.gd" id="3"]
+
+[node name="Gatehouse" type="Node3D"]
+script = ExtResource("1")
+
+[node name="Model" parent="." instance=ExtResource("2")]
+
+[node name="FootprintLeft" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4.4, 0, 0.0)
+script = ExtResource("3")
+shape = 0
+size = Vector2(4.6, 5.2)
+
+[node name="FootprintRight" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.4, 0, 0.0)
+script = ExtResource("3")
+shape = 0
+size = Vector2(4.6, 5.2)
