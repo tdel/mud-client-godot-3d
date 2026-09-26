@@ -12,8 +12,13 @@ extends Control
 ## qu'un second widget dédié, pour rester cohérent avec la sélection d'une entité (et parce
 ## que les deux sélections sont déjà mutuellement exclusives côté client, voir
 ## Game3D._select_portal/_handle_left_click).
+##
+## Croix de fermeture à droite de la ligne du nom (%CloseButton, variation "CloseButton" comme
+## les fenêtres) : `close_requested`, Game3D.gd désélectionne comme avec Échap. Un espaceur de
+## même largeur à gauche (NameRow/LeftSpacer) garde le nom centré.
 
 signal teleport_requested
+signal close_requested
 
 @onready var _panel: Control = %Panel
 @onready var _name_label: Label = %NameLabel
@@ -23,6 +28,7 @@ signal teleport_requested
 @onready var _health_label: Label = %HealthLabel
 @onready var _destination_label: Label = %DestinationLabel
 @onready var _teleport_button: Button = %TeleportButton
+@onready var _close_button: Button = %CloseButton
 
 var _entity_name := ""
 var _level := 1
@@ -31,9 +37,17 @@ var _level := 1
 func _ready() -> void:
 	visible = false
 	UITheme.style_progress_bar(_health_bar, "hp")
-	UITheme.style_bar_label(_health_label, 10)
+	UITheme.style_bar_label(_health_label, 11)
+	# Nom, niveau et PV en gras avec contour noir (2026-09-26) : le panneau HUD est
+	# semi-transparent, un nom clair (blanc/gris selon le niveau) se perdait sur un sol clair.
+	_health_label.add_theme_font_override("font", UITheme.font_bold)
+	for label in [_name_label, _level_label]:
+		label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 1))
+		label.add_theme_constant_override("outline_size", 4)
 	_panel.minimum_size_changed.connect(_fit_to_content)
 	_teleport_button.pressed.connect(func(): teleport_requested.emit())
+	_close_button.tooltip_text = "Désélectionner (Échap)"
+	_close_button.pressed.connect(func(): close_requested.emit())
 
 
 ## La fenêtre garde son centre horizontal et s'ajuste en hauteur au contenu (barre de vie

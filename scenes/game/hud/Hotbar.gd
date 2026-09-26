@@ -175,6 +175,10 @@ func _on_slot_drop_requested(
 ## calcul serveur en direct, donc peut légèrement dévier d'un effet qui modifie la recharge ;
 ## corrigée par SkillOnCooldown s'il arrive.
 func _start_skill_cooldown(index: int, skill_name: String) -> void:
+	# Recharge déjà lancée (SkillOnCooldown reçu dès la fin de l'incantation, avant ce
+	# CastResult qui n'arrive qu'à l'impact du projectile) : l'estimation la décalerait.
+	if _slot_nodes[index].is_cooling_down():
+		return
 	for entry in GameState.known_skills.get("skills", []):
 		if str(entry.get("name", "")) == skill_name:
 			var cooldown_seconds := int(entry.get("cooldownSeconds", 0))
@@ -187,6 +191,8 @@ func _start_skill_cooldown(index: int, skill_name: String) -> void:
 ## serveur (500000/atkSpd ms, voir mud-godot/CLAUDE.md — commit backend "atk.spd Lineage2 +
 ## recalibrage des vitesses") ; corrigée par AttackOnCooldown s'il arrive.
 func _start_attack_cooldown(index: int) -> void:
+	if _slot_nodes[index].is_cooling_down():
+		return
 	var atk_spd := float(GameState.player_stats.get("atkSpd", 0))
 	if atk_spd <= 0.0:
 		return
@@ -412,17 +418,22 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 			var index := _find_slot_index("attack", "")
 			if index != -1:
 				_slot_nodes[index].set_cooldown_overlay(float(payload.get("remainingMillis", 0)))
+				if bool(payload.get("rejected", false)):
+					_slot_nodes[index].flash_error()
 		"SkillOnCooldown":
 			var index := _find_skill_slot_index("", str(payload.get("skillName", "")))
 			if index != -1:
 				_slot_nodes[index].set_cooldown_overlay(float(payload.get("remainingMillis", 0)))
+				# rejected : relance refusée car encore en recharge (sinon : recharge qui démarre).
+				if bool(payload.get("rejected", false)):
+					_slot_nodes[index].flash_error()
 		"ItemNotCarried":
 			var item_id := str(payload.get("itemId", ""))
 			for i in SLOT_COUNT:
 				if _slots[i].get("kind", "") == "item" and _last_used_item_id_by_slot.get(i, "") == item_id:
 					_slot_nodes[i].flash_error()
 					break
-		"ItemNotUsable":
+		"ItemNotUsable", "HealthAlreadyFull", "ManaAlreadyFull":
 			var index := _find_slot_index("item", str(payload.get("name", "")))
 			if index != -1:
 				_slot_nodes[index].flash_error()

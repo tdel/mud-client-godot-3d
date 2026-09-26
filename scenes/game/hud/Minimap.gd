@@ -76,6 +76,9 @@ const CIRCLE_MASK_SHADER_CODE := """
 shader_type canvas_item;
 
 uniform vec4 ring_color : source_color = vec4(0.72, 0.58, 0.28, 1.0);
+// Rotation courante de la carte (voir set_camera_forward) : les repères cardinaux tournent
+// avec elle pour continuer de pointer vers les vrais N/E/S/O du monde.
+uniform float notch_rotation = 0.0;
 
 void fragment() {
 	vec2 centered = (UV - vec2(0.5)) * 2.0;
@@ -93,7 +96,7 @@ void fragment() {
 	float ridge = 1.0 - abs((dist - 0.935) / 0.05);
 	metal = mix(metal, vec3(1.0, 0.93, 0.72), clamp(ridge, 0.0, 1.0) * 0.35 * light);
 	// Repères cardinaux.
-	float angle = atan(centered.y, centered.x);
+	float angle = atan(centered.y, centered.x) - notch_rotation;
 	float notch = smoothstep(0.985, 1.0, abs(cos(angle * 2.0)));
 	metal = mix(metal, vec3(1.0, 0.86, 0.5), notch * 0.8);
 	vec3 color = map_color.rgb;
@@ -105,7 +108,13 @@ void fragment() {
 }
 """
 
+## Distance (en pixels) entre le centre du disque et le centre du label "N", qui glisse le
+## long de l'anneau quand la carte tourne (voir _place_north_label).
+const NORTH_LABEL_RADIUS := 74.0
+
 @onready var _circle_container: SubViewportContainer = %CircleViewportContainer
+@onready var _circle_viewport: SubViewport = %CircleViewport
+@onready var _north_label: Label = %NorthLabel
 @onready var _map_layer: TextureRect = %MapLayer
 @onready var _entity_dots: Control = %EntityDots
 @onready var _map_name_label: Label = %MapNameLabel
@@ -121,6 +130,9 @@ var _portal_tile_positions: Array[Vector2] = []
 ## Position tuile du monstre sélectionné, null si aucun monstre n'est sélectionné (voir
 ## set_known_entities, appelé depuis Game3D._update_minimap).
 var _selected_monster_tile_pos = null
+## Rotation (radians, sens horaire à l'écran) appliquée à tout le contenu du disque pour que
+## le haut de la minimap corresponde au haut de l'écran 3D (voir set_camera_forward).
+var _map_rotation := 0.0
 
 
 func _ready() -> void:
@@ -140,6 +152,32 @@ func _ready() -> void:
 	_map_layer.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 
 	_entity_dots.draw.connect(_on_entity_dots_draw)
+	resized.connect(_place_north_label)
+
+
+## Appelé par Game3D._apply_camera_orbit à chaque changement d'angle de la caméra, avec la
+## direction "haut de l'écran" projetée au sol (x, z monde). La minimap tourne pour que
+## cette direction pointe vers le haut du disque : ce qui est sous le joueur à l'écran est
+## aussi sous lui sur la minimap, quelle que soit la rotation caméra (clic droit maintenu).
+## Toute la scène du SubViewport tourne d'un bloc autour du centre (canvas_transform) —
+## carte, points d'entités et point du joueur — plutôt que chaque élément séparément ; le
+## fond carré de 176 px couvre toujours le disque inscrit quel que soit l'angle.
+func set_camera_forward(forward: Vector2) -> void:
+	if forward.is_zero_approx():
+		return
+	_map_rotation = -PI / 2.0 - forward.angle()
+	var center := Vector2(CIRCLE_SIZE, CIRCLE_SIZE) / 2.0
+	_circle_viewport.canvas_transform = \
+			Transform2D(_map_rotation, center) * Transform2D(0.0, -center)
+	(_circle_container.material as ShaderMaterial).set_shader_parameter("notch_rotation", _map_rotation)
+	_place_north_label()
+
+
+## Le nord du monde (-z) tourne avec la carte : le label "N" suit sur l'anneau.
+func _place_north_label() -> void:
+	var circle_center := Vector2(size.x / 2.0, CIRCLE_SIZE / 2.0)
+	var north_dir := Vector2(0.0, -1.0).rotated(_map_rotation)
+	_north_label.position = circle_center + north_dir * NORTH_LABEL_RADIUS - _north_label.size / 2.0
 
 
 ## Appelé par Game3D._rebuild_map à chaque nouvelle carte/changement de carte.

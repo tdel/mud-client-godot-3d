@@ -1,0 +1,19 @@
+[gd_resource type="Resource" script_class="MonsterModel" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scenes/game/entities/MonsterModel.gd" id="1"]
+[ext_resource type="PackedScene" uid="uid://cg7ay7x7jyq2d" path="res://assets/monsters/fox/fox.glb" id="2"]
+
+[resource]
+script = ExtResource("1")
+scene = ExtResource("2")
+model_scale = 0.25
+yaw_degrees = 180.0
+idle_anim = &"Idle"
+run_anim = &"Gallop"
+attack_anim = &"Attack"
+death_anim = &"Death"
+run_speed_scale = 1.0
+attack_speed_scale = 1.0
+head_height = 0.7
+pick_radius = 0.45
+pick_height = 0.9

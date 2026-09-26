@@ -17,3 +17,6 @@ mono_crash.*.json
 
 # System/tooling
 .claude/
+
+# Python
+__pycache__/

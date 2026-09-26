@@ -31,10 +31,21 @@ theme_override_constants/separation = 3
 [node name="NameRow" type="HBoxContainer" parent="Panel/VBox"]
 layout_mode = 2
 mouse_filter = 2
+theme_override_constants/separation = 4
+
+[node name="LeftSpacer" type="Control" parent="Panel/VBox/NameRow"]
+custom_minimum_size = Vector2(16, 0)
+layout_mode = 2
+mouse_filter = 2
+
+[node name="NameBox" type="HBoxContainer" parent="Panel/VBox/NameRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+mouse_filter = 2
 theme_override_constants/separation = 6
 alignment = 1
 
-[node name="LevelLabel" type="Label" parent="Panel/VBox/NameRow"]
+[node name="LevelLabel" type="Label" parent="Panel/VBox/NameRow/NameBox"]
 unique_name_in_owner = true
 layout_mode = 2
 mouse_filter = 2
@@ -42,7 +53,7 @@ theme_type_variation = &"HeaderLabel"
 theme_override_font_sizes/font_size = 11
 vertical_alignment = 1
 
-[node name="NameLabel" type="Label" parent="Panel/VBox/NameRow"]
+[node name="NameLabel" type="Label" parent="Panel/VBox/NameRow/NameBox"]
 unique_name_in_owner = true
 layout_mode = 2
 mouse_filter = 2
@@ -50,9 +61,17 @@ theme_type_variation = &"NameLabel"
 theme_override_font_sizes/font_size = 13
 vertical_alignment = 1
 
+[node name="CloseButton" type="Button" parent="Panel/VBox/NameRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(16, 16)
+layout_mode = 2
+size_flags_vertical = 4
+focus_mode = 0
+theme_type_variation = &"CloseButton"
+
 [node name="HealthBarBox" type="Control" parent="Panel/VBox"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 13)
+custom_minimum_size = Vector2(0, 16)
 layout_mode = 2
 mouse_filter = 2
 

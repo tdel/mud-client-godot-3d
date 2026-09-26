@@ -23,6 +23,9 @@ const SLOT_PLACEHOLDER_TYPES := {
 	"LEFT_EARRING": "EARRING", "RIGHT_EARRING": "EARRING", "LEFT_RING": "RING", "RIGHT_RING": "RING",
 }
 const PLACEHOLDER_MODULATE := Color(0.55, 0.55, 0.55, 0.22)
+## Slot condamné (voir set_blocked) : tout le slot, cadre compris, passe en grisé.
+const BLOCKED_MODULATE := Color(0.4, 0.4, 0.4, 0.8)
+const BLOCKED_ICON_MODULATE := Color(0.7, 0.7, 0.7, 0.5)
 
 @onready var _background: Panel = $Background
 @onready var _icon: TextureRect = %Icon
@@ -30,10 +33,13 @@ const PLACEHOLDER_MODULATE := Color(0.55, 0.55, 0.55, 0.22)
 
 var slot_key := ""
 var _item_id := ""
+var _blocked := false
 
 
 func _ready() -> void:
-	mouse_entered.connect(func(): _background.theme_type_variation = &"SlotPanelHover")
+	mouse_entered.connect(func():
+		if not _blocked:
+			_background.theme_type_variation = &"SlotPanelHover")
 	mouse_exited.connect(func(): _background.theme_type_variation = &"SlotPanel")
 
 
@@ -62,6 +68,22 @@ func clear_item() -> void:
 	tooltip_text = "%s [color=#%s](vide)[/color]" % [SLOT_LABELS.get(slot_key, slot_key), UITheme.TEXT_DIM.to_html(false)]
 
 
+## Main secondaire sous une arme à deux mains (champ `offHandBlocked` d'Inventory, décidé par
+## le serveur) : grisé et refuse le dépôt ; comme dans L2, l'icône de l'arme (`blocking_item`)
+## y apparaît en fantôme. À appeler après set_item/clear_item. Un objet encore présent
+## (sauvegarde antérieure à la règle) reste affiché et retirable au clic droit.
+func set_blocked(blocked: bool, blocking_item: Dictionary = {}) -> void:
+	_blocked = blocked
+	modulate = BLOCKED_MODULATE if blocked else Color.WHITE
+	mouse_default_cursor_shape = Control.CURSOR_FORBIDDEN if blocked else Control.CURSOR_POINTING_HAND
+	if blocked and _item_id.is_empty():
+		if not blocking_item.is_empty():
+			_icon.texture = IconFactory.item_icon(blocking_item)
+			_icon.modulate = BLOCKED_ICON_MODULATE
+		tooltip_text = "%s [color=#%s](indisponible : arme à deux mains)[/color]" % [
+			SLOT_LABELS.get(slot_key, slot_key), UITheme.TEXT_DIM.to_html(false)]
+
+
 func _set_grade_badge(grade: String) -> void:
 	for child in _grade_badge_holder.get_children():
 		child.queue_free()
@@ -80,7 +102,7 @@ func _gui_input(event: InputEvent) -> void:
 
 
 func _can_drop_data(_pos: Vector2, data) -> bool:
-	return typeof(data) == TYPE_DICTIONARY and data.get("kind") == "item" \
+	return not _blocked and typeof(data) == TYPE_DICTIONARY and data.get("kind") == "item" \
 		and not str(data.get("ref_id", "")).is_empty()
 
 

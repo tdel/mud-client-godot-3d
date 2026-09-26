@@ -76,6 +76,8 @@ func show_window() -> void:
 	if not _position_restored:
 		_position_restored = true
 		_restore_position()
+	if not visible:
+		Sfx.play_ui("window_open")
 	visible = true
 	_bring_to_front()
 	_fit_to_content.call_deferred()
@@ -84,6 +86,7 @@ func show_window() -> void:
 func close_window() -> void:
 	if visible:
 		_save_position()
+		Sfx.play_ui("window_close")
 	visible = false
 	WindowFrame._open_stack.erase(self)
 

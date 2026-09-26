@@ -3,6 +3,7 @@
 [ext_resource type="Script" path="res://scenes/charselect/CharSelect.gd" id="1"]
 [ext_resource type="Script" path="res://scenes/common/HeroSilhouettes.gd" id="2"]
 [ext_resource type="Script" path="res://scenes/charselect/CharacterStage.gd" id="3"]
+[ext_resource type="PackedScene" path="res://scenes/common/SystemMenu.tscn" id="4"]
 
 [sub_resource type="Gradient" id="Gradient_vignette"]
 offsets = PackedFloat32Array(0, 0.55, 1)
@@ -237,3 +238,6 @@ unique_name_in_owner = true
 title = "Supprimer le personnage"
 ok_button_text = "Supprimer"
 cancel_button_text = "Annuler"
+
+[node name="SystemMenu" parent="." instance=ExtResource("4")]
+layout_mode = 1

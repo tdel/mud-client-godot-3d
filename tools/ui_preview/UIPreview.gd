@@ -4,7 +4,8 @@ extends Node
 ##
 ## Usage :
 ##   Godot_console.exe --path . res://tools/ui_preview/UIPreview.tscn -- --shot=game --out=C:/tmp/game.png
-## Scénarios : login, charselect, create, game, game_windows, game_shop, game_misc, game_death.
+## Scénarios : login, charselect, create, game, game_select_self, game_select_party, game_windows, game_2h, game_shop, game_misc, game_death, game_options[_sound|_system].
+## Suffixe _menu sur login/charselect/create : ouvre le Menu système hors jeu (SystemMenu).
 ##
 ## user://hotbar.cfg est sauvegardé puis restauré tel quel : la hotbar écrit sa config pour le
 ## personnage factice au chargement, ce qui ne doit pas polluer la config réelle du joueur.
@@ -34,7 +35,7 @@ func _ready() -> void:
 
 
 func _run() -> void:
-	match _shot:
+	match _shot.trim_suffix("_menu"):
 		"login":
 			_open_scene("res://scenes/login/Login.tscn")
 		"charselect":
@@ -68,6 +69,8 @@ func _run() -> void:
 	await _frames(8)
 	if _shot.begins_with("game"):
 		_setup_game_scene()
+	elif _shot.ends_with("_menu"):
+		get_tree().current_scene.get_node("SystemMenu/OptionsWindow").open()
 	if _shot == "game_spells":
 		await _play_spell_scenario()
 	await _frames(20)
@@ -256,9 +259,24 @@ func _setup_game_scene() -> void:
 		"game":
 			game._apply_selection("m1", "Loup gris")
 			hud.get_node("ChatBar/ChatInput").grab_focus()
+		"game_select_self":
+			game._apply_selection("p1", "Aelwyn")
+		"game_select_party":
+			GameState.party = {"leader_id": "p1", "loot_mode": "ROUND_ROBIN", "members": {
+				"c1": {"name": "Kaelis", "currentHealth": 300, "maxHealth": 300}}}
+			game._apply_selection("c1", "Kaelis")
 		"game_windows":
 			hud.get_node("InventoryWindow").open()
 			hud.get_node("CharacterSheetWindow").open()
+		"game_2h":
+			# Arme à deux mains équipée : la main secondaire doit apparaître grisée.
+			var inventory_payload: Dictionary = GameState.inventory.duplicate(true)
+			for item in inventory_payload["items"]:
+				if item["id"] == "e2":
+					item.merge({"name": "Tsurugi", "grade": "C", "weaponType": "BIG_SWORD", "pAtk": 140}, true)
+			inventory_payload["offHandBlocked"] = true
+			_emit("Inventory", inventory_payload)
+			hud.get_node("InventoryWindow").open()
 		"game_shop":
 			_emit("ShopCatalog", {"npcId": "n1", "npcName": "Lector", "gold": 1254300, "entries": [
 				{"itemTemplateId": "t1", "itemName": "Healing Potion", "grade": "NOGRADE", "price": 40},
@@ -273,6 +291,13 @@ func _setup_game_scene() -> void:
 			]})
 			var dialogue: Control = hud.get_node("DialogueWindow")
 			dialogue.position = Vector2(60, 160)
+		"game_options", "game_options_sound", "game_options_system":
+			var options: Control = hud.get_node("OptionsWindow")
+			options.open()
+			var tab: int = {"game_options": 0, "game_options_sound": 1, "game_options_system": 2}[_shot]
+			(options._tab_row.get_child(tab) as Button).button_pressed = true
+			options._show_page(tab)
+			options.position = Vector2(620, 240)
 		"game_misc":
 			hud.get_node("SkillBook").open()
 			hud.get_node("OptionsWindow").open()

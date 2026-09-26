@@ -47,6 +47,7 @@ mouse_filter = 2
 stretch = true
 
 [node name="CircleViewport" type="SubViewport" parent="VBox/CircleCenter/CircleViewportContainer"]
+unique_name_in_owner = true
 transparent_bg = true
 handle_input_locally = false
 size = Vector2i(176, 176)
@@ -114,6 +115,7 @@ theme_override_font_sizes/font_size = 11
 text = "00:00"
 
 [node name="NorthLabel" type="Label" parent="."]
+unique_name_in_owner = true
 layout_mode = 1
 anchor_left = 0.5
 anchor_right = 0.5

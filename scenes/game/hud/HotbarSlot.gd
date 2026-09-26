@@ -33,6 +33,8 @@ var _ref_name: String = ""
 var _active := false
 var _cooldown_end_msec: float = 0.0
 var _cooldown_total_msec: float = 0.0
+## Une recharge est en cours et n'a pas encore été signalée comme terminée (voir _process).
+var _cooldown_pending := false
 
 
 func _ready() -> void:
@@ -80,13 +82,25 @@ func set_active(active: bool) -> void:
 	_overlay.queue_redraw()
 
 
+## Démarre la recharge, ou la recale si elle est déjà en cours : seule l'heure de fin est
+## alors corrigée, la durée totale est conservée pour que l'aiguille reprenne là où elle en
+## est au lieu de repartir de midi (SkillOnCooldown arrive dès la fin de l'incantation,
+## CastResult seulement à l'impact du projectile, et un refus serveur renvoie le temps restant).
 func set_cooldown_overlay(remaining_ms: float) -> void:
 	if remaining_ms <= 0.0:
 		return
+	if not is_cooling_down():
+		_cooldown_total_msec = remaining_ms
+	else:
+		_cooldown_total_msec = maxf(_cooldown_total_msec, remaining_ms)
 	_cooldown_end_msec = Time.get_ticks_msec() + remaining_ms
-	_cooldown_total_msec = remaining_ms
+	_cooldown_pending = true
 	_cooldown_label.visible = true
 	_update_processing()
+
+
+func is_cooling_down() -> bool:
+	return _cooldown_remaining() > 0.0
 
 
 func _update_processing() -> void:
@@ -101,6 +115,12 @@ func _process(_delta: float) -> void:
 	var remaining := _cooldown_remaining()
 	if remaining <= 0.0:
 		_cooldown_label.visible = false
+		if _cooldown_pending:
+			_cooldown_pending = false
+			# Petit "tic" quand un skill redevient disponible (pas pour l'attaque de base,
+			# dont la recharge de quelques dixièmes de seconde en ferait un crépitement).
+			if _kind == "skill":
+				Sfx.play_ui("cooldown_ready")
 	else:
 		_cooldown_label.text = ("%.1f" % (remaining / 1000.0)) if remaining < 10000.0 else str(ceili(remaining / 1000.0))
 	_overlay.queue_redraw()
@@ -164,8 +184,10 @@ func set_insufficient_mana(insufficient: bool) -> void:
 	_icon.modulate = INSUFFICIENT_MANA_MODULATE if insufficient else Color(1, 1, 1, 1)
 
 
-## Retour bref sur une erreur serveur liée à ce slot — le slot n'est jamais vidé.
+## Retour bref sur une action refusée (erreur serveur ou verrou local) — voile rouge et
+## "bang" sourd ; le slot n'est jamais vidé.
 func flash_error() -> void:
+	Sfx.play_ui("action_denied")
 	_error_overlay.visible = true
 	var tween := create_tween()
 	tween.tween_interval(ERROR_FLASH_DURATION)

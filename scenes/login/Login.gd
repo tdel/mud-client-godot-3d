@@ -33,6 +33,7 @@ var _pending_argument := ""
 
 func _ready() -> void:
 	_backdrop.texture = UITheme.get_hero_backdrop_texture()
+	MenuMusic.play()
 	Net.message_received.connect(_on_message_received)
 	Net.connection_failed.connect(_on_connection_failed)
 	Net.disconnected.connect(_on_disconnected)

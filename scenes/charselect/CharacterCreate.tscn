@@ -2,6 +2,7 @@
 
 [ext_resource type="Script" path="res://scenes/charselect/CharacterCreate.gd" id="1"]
 [ext_resource type="Script" path="res://scenes/common/HeroSilhouettes.gd" id="2"]
+[ext_resource type="PackedScene" path="res://scenes/common/SystemMenu.tscn" id="3"]
 
 [sub_resource type="Gradient" id="Gradient_vignette"]
 offsets = PackedFloat32Array(0, 0.55, 1)
@@ -166,3 +167,6 @@ layout_mode = 2
 theme_type_variation = &"BigButton"
 theme_override_font_sizes/font_size = 16
 text = "Créer"
+
+[node name="SystemMenu" parent="." instance=ExtResource("3")]
+layout_mode = 1

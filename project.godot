@@ -21,6 +21,10 @@ Net="*res://autoload/Net.gd"
 GameState="*res://autoload/GameState.gd"
 UITheme="*res://autoload/UITheme.gd"
 ZoneAssets3D="*res://autoload/ZoneAssets3D.gd"
+Settings="*res://autoload/Settings.gd"
+Sfx="*res://autoload/Sfx.gd"
+MenuMusic="*res://autoload/MenuMusic.gd"
+ZoneMusic="*res://autoload/ZoneMusic.gd"
 
 [display]
 

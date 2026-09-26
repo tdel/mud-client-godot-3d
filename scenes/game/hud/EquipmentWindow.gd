@@ -73,6 +73,9 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 			Net.send_command("inventory")
 		"ItemNotEquippable":
 			_show_message("« %s » ne peut pas être équipé." % str(payload.get("name", "?")))
+		"OffHandBlocked":
+			_show_message("« %s » : main secondaire indisponible avec une arme à deux mains."
+				% str(payload.get("name", "?")))
 		"ItemNotEquipped":
 			_show_message("« %s » n'est pas équipé." % str(payload.get("name", "?")))
 		"ItemNotCarried":
@@ -91,6 +94,12 @@ func _refresh() -> void:
 		var slot_key := str(slot)
 		if _slots_by_key.has(slot_key):
 			_slots_by_key[slot_key].set_item(item)
+	# Arme à deux mains : le serveur refuse tout en main secondaire (Inventory.offHandBlocked).
+	var weapon: Dictionary = {}
+	for item in GameState.inventory.get("items", []):
+		if str(item.get("slot", "")) == "WEAPON":
+			weapon = item
+	_slots_by_key["OFF_HAND"].set_blocked(bool(GameState.inventory.get("offHandBlocked", false)), weapon)
 
 
 func _on_item_dropped(_slot_key: String, ref_id: String, _ref_name: String) -> void:

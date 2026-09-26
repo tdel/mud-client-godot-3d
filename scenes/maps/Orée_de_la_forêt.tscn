@@ -12,6 +12,7 @@ script = ExtResource("1_fbjp8")
 map_id = "9a884ac7-b954-4cd6-ab67-c677d472cb0f"
 map_name = "Orée de la forêt"
 description = "Les derniers champs cultivés cèdent la place aux premiers arbres, immenses et silencieux."
+biome = 1
 
 [node name="Terrain" type="GridMap" parent="." unique_id=1643705879]
 mesh_library = ExtResource("2_7o7n6")

@@ -14,12 +14,25 @@ extends Node3D
 ## Les personnages (joueur + autres joueurs, kind="character") utilisent le mannequin low-poly
 ## homme/femme (scenes/game/entities/Character.gd, voir _make_entity_node/CHARACTER_SCENE) :
 ## animations idle/course/attaque 1 ou 2 mains/incantation/lancer/mort, équipement porté
-## visible (voir _apply_player_equipment). PNJ/monstres restent de simples capsules colorées,
-## faute de modèle dédié.
+## visible (voir _apply_player_equipment). Les monstres qui ont un modèle (MonsterCatalog)
+## sont animés par scenes/game/entities/Monster.gd (idle/course/attaque/mort) ; PNJ et autres
+## monstres restent de simples capsules colorées, faute de modèle dédié.
 
 const WORLD_UP := Vector3.UP
 const DEFAULT_SPEED_TILES_PER_SEC := 2.4
-const CAMERA_DISTANCE := 20.0
+## Recul de la caméra orthographique (sans effet sur la taille apparente, fixée par `size`) :
+## à 20 u, au dézoom maximal (size 30, demi-hauteur 15) le bas du cadre partait sous le sol —
+## le plan near coupait les blocs du premier plan et laissait voir le fond bleu de
+## l'Environment en bas de l'écran. À 60 u, même au dézoom maximal, l'origine des rayons du bas
+## du cadre reste ~22 u au-dessus du sol.
+const CAMERA_DISTANCE := 60.0
+## Plan near repoussé d'autant : le plus proche élément visible (sommet d'un bloc en bas du
+## cadre au dézoom maximal) reste à ~30 u de la caméra ; ne pas démarrer à 0.1 garde la
+## précision de profondeur et les cascades d'ombre du soleil sur la partie utile.
+const CAMERA_NEAR := 20.0
+## L'écouteur audio reste à l'ancienne distance du pivot (voir Sfx.UNIT_SIZE, calé dessus) :
+## reculer la caméra ne change pas le volume des sons spatialisés.
+const AUDIO_LISTENER_DISTANCE := 20.0
 const CAMERA_SIZE_MIN := 6.0
 const CAMERA_SIZE_MAX := 30.0
 const CAMERA_ZOOM_STEP := 1.5
@@ -51,6 +64,8 @@ const NPC_COLOR := Color(0.85, 0.75, 0.30)
 ## plus rien pour ces entités (le nom flottant/l'anneau de sélection suffisent à les distinguer),
 ## seuls les monstres/PNJ (toujours des capsules) restent colorés.
 const CHARACTER_SCENE := preload("res://scenes/game/entities/Character.tscn")
+## Périmètre runique du cercle de portée des skills (voir show_skill_range).
+const RANGE_RING_SHADER := preload("res://scenes/game/vfx/range_ring.gdshader")
 ## Bleu façon "portail d'énergie" (au lieu du violet précédent) — voir _make_portal_node,
 ## qui recouvre désormais l'ancien disque plat au sol d'un anneau vertical + tourbillon
 ## animé, demande explicite du 2026-09-06 pour se rapprocher d'un portail bleu tourbillonnant
@@ -72,12 +87,15 @@ const TITLE_LABEL_COLOR := Color(1.0, 1.0, 0.47)
 const PLAYER_NAME_COLOR := Color(1.0, 1.0, 1.0)
 const NPC_NAME_COLOR := Color(0.62, 0.82, 1.0)
 const MONSTER_NAME_COLOR := Color(1.0, 0.80, 0.76)
-const SELECTION_COLOR := Color(0.92, 0.20, 0.16)
+const SELECTION_COLOR := Color(0.95, 0.22, 0.18)
+const SELECTION_SELF_COLOR := Color(0.96, 0.96, 0.92)
+const SELECTION_PARTY_COLOR := Color(0.36, 0.92, 0.36)
+const SELECTION_NPC_COLOR := Color(0.55, 0.78, 1.0)
 
 ## Lueur d'arme sur la consommation d'un soulshot/spiritshot (voir _flash_entity, réutilisé
 ## avec une durée plus longue que le flash de dégâts pour rester bien visible) — orange pour
-## le soulshot (physique), cyan pour le spiritshot (magique, cohérent avec CAST_BAR_COLOR déjà
-## bleu). Déclenché par ShotUsed (nous-même) et SoulshotUsed/SpiritshotUsed (les autres,
+## le soulshot (physique), cyan pour le spiritshot (magique, cohérent avec la barre
+## d'incantation déjà bleue). Déclenché par ShotUsed (nous-même) et SoulshotUsed/SpiritshotUsed (les autres,
 ## diffusés à toute la zone sauf à l'auteur — voir commit backend "Ajoute le système
 ## soulshot/spiritshot" du 2026-09-04).
 const SOULSHOT_GLOW_COLOR := Color(1.0, 0.55, 0.15)
@@ -173,6 +191,9 @@ const CHAT_WINDOW_IDLE_ALPHA := 0.0
 const CHAT_WINDOW_MESSAGE_ALPHA := 0.85
 const CHAT_WINDOW_FOCUSED_ALPHA := 1.0
 const CHAT_WINDOW_MESSAGE_HOLD_SEC := 4.0
+## Fenêtre de statut (%SystemLogPanel) : maintenue visible plus longtemps que le chat à chaque
+## nouveau message, pour laisser le temps de lire — demande explicite du 2026-09-26.
+const SYSTEM_WINDOW_MESSAGE_HOLD_SEC := 10.0
 const CHAT_WINDOW_FADE_SEC := 1.5
 
 const PLAYER_KEY := "player"
@@ -206,30 +227,42 @@ const ENTITY_PICK_COLLISION_LAYER := 1 << 5
 const PORTAL_PICK_COLLISION_LAYER := 1 << 6
 const ENTITY_PICK_RAY_LENGTH := 1000.0
 
-## Barres flottantes génériques (vie/incantation), voir _make_floating_bar. Toutes deux
-## réagrandies le 2026-09-03 (encore signalées trop petites, vie y compris cette fois) en
-## se calant sur la taille réelle du nom flottant : `Label3D.get_aabb()` mesuré en isolation
-## dans ce projet donne une hauteur de 0.825 unité pour NameLabel.font_size=120 (voir
-## NAME_LABEL_OFFSET_Y plus bas pour le calcul complet de l'empilement vertical).
-const BAR_WIDTH := 1.1
+## Barre de vie flottante (voir _make_gauge_bar) : même rendu que la jauge HP du cadre
+## joueur (UITheme.BAR_COLORS["hp"], dégradé "tube" + liseré), demandé le 2026-09-26.
+## Celle de la cible sélectionnée est "en gras" (2026-09-26, on la voyait mal sur un sol
+## clair) : plus grande (TARGET_BAR_*), opaque et entourée d'un contour noir extérieur en plus
+## du liseré (voir GAUGE_BAR_SHADER_CODE/_layout_overhead).
+const BAR_WIDTH := 1.15
 const BAR_HEIGHT := 0.22
-## Redimensionnée en petit format le 2026-09-03 (troisième passe) : la barre d'incantation
-## agrandie deux fois de suite (2026-09-02 puis plus tôt le 2026-09-03) a fini par être jugée
-## trop sombre plutôt que trop petite — voir CAST_BAR_COLOR/CAST_BAR_BG_COLOR juste en dessous
-## et _make_rounded_progress_bar pour le rendu (pilule bleue pleine, sans transparence).
-const CAST_BAR_WIDTH := 0.9
-const CAST_BAR_HEIGHT := 0.2
-const HP_BAR_OFFSET_Y := 1.85
-const CAST_BAR_OFFSET_Y := 2.35
-const HP_BAR_COLOR := Color(0.85, 0.17, 0.15)
-const HP_BAR_BG_COLOR := Color(0.12, 0.02, 0.02, 0.9)
-const HP_BAR_BORDER_COLOR := Color(0.0, 0.0, 0.0, 0.95)
-## Remplacée le 2026-09-03 (troisième passe) par une vraie pilule aux bords arrondis rendue
-## via shader (_make_rounded_progress_bar) plutôt que les deux quads plats fond+remplissage
-## de _make_floating_bar : fond bleu nuit OPAQUE (alpha=1, plus de flou de transparence qui
-## la faisait paraître trop sombre sur le fond du monde) + remplissage bleu vif émissif.
-const CAST_BAR_COLOR := Color(0.3, 0.6, 1.0)
-const CAST_BAR_BG_COLOR := Color(0.08, 0.22, 0.5, 1.0)
+const TARGET_BAR_WIDTH := 1.25
+const TARGET_BAR_HEIGHT := 0.3
+const TARGET_BAR_OUTLINE_PX := 2.0
+## La barre d'incantation (2026-09-26 : l'ancienne pilule bleue détonnait à côté des jauges)
+## reprend exactement ce rendu et ce gabarit, aux couleurs UITheme.BAR_COLORS["cast"] (celles
+## de la jauge d'incantation du HUD), et se range avec la barre de vie sous le nom.
+
+## Empilement au-dessus de la tête (recalculé chaque frame dans _layout_overhead, 2026-09-26 :
+## le nom flottait bien trop haut) : sommet de la silhouette (mannequin, capsule 1.6),
+## puis un petit espace, la barre de vie si elle est affichée, le nom, le titre, et enfin la
+## barre d'incantation pendant un sort. Les Label3D sont alignés par le bas, leur hauteur
+## vient de la police elle-même (voir _world_label_height).
+const HEAD_HEIGHT_HUMANOID := 1.72
+const HEAD_HEIGHT_CAPSULE := 1.6
+const OVERHEAD_GAP := 0.2
+const OVERHEAD_SPACING := 0.05
+## Noms/titres flottants : police de l'UI (UITheme.font_world, graisse normale) rendue à une
+## taille de police plus grande que sa taille à l'écran puis réduite via `pixel_size` — le
+## suréchantillonnage + mipmaps (voir _style_world_label) lisse nettement les contours.
+const NAME_FONT_SIZE := 64
+const NAME_PIXEL_SIZE := 0.0062
+const NAME_OUTLINE_SIZE := 9
+const NAME_OUTLINE_COLOR := Color(0.0, 0.0, 0.0, 0.85)
+## Nom de la cible sélectionnée (2026-09-26 : illisible sur un sol clair) : en gras
+## (UITheme.font_world_bold) avec un contour noir opaque deux fois plus épais.
+const TARGET_NAME_OUTLINE_SIZE := 18
+const TARGET_NAME_OUTLINE_COLOR := Color(0.0, 0.0, 0.0, 1.0)
+const TITLE_FONT_SIZE := 52
+const TITLE_OUTLINE_SIZE := 8
 
 const DAMAGE_NUMBER_RISE := 0.8
 const DAMAGE_NUMBER_DURATION := 0.9
@@ -240,11 +273,20 @@ const DAMAGE_NUMBER_COLOR_CRITICAL := Color(1.0, 0.88, 0.15)
 const MONSTER_DEATH_GREY_DELAY := 0.5
 const MONSTER_DEATH_FADE_DURATION := 0.6
 const MONSTER_DEATH_GREY_COLOR := Color(0.42, 0.42, 0.42)
+## Monstre animé (voir Monster.gd) : temps passé au sol une fois le clip de mort fini, avant le
+## fondu.
+const MONSTER_CORPSE_LINGER := 0.8
 
 ## Sorts à dégâts sans projectile (portée "toucher" côté backend) : impact direct de leur
 ## élément sur la cible plutôt qu'un projectile lancé, voir _play_skill_animation. L'élément
 ## (et donc la couleur/forme des effets) de chaque sort est défini dans SpellVfx.
 const NON_PROJECTILE_DAMAGE_SKILLS := ["Twister", "Prominence"]
+
+## Son de cible abattue (voir _play_kill_sound) : léger retard pour qu'il se détache du son
+## d'impact du coup fatal plutôt que de s'y fondre ; une même cible ne le rejoue pas dans
+## KILL_SOUND_MEMO_MSEC (sa mort est annoncée par plusieurs messages).
+const KILL_SOUND_DELAY := 0.15
+const KILL_SOUND_MEMO_MSEC := 3000
 
 @onready var _world: Node3D = $World
 @onready var _map_scene_root: Node3D = $World/MapScene
@@ -319,7 +361,7 @@ var _moving: Dictionary = {}
 ## _apply_appeared_entity) quand ces champs sont présents, et par
 ## AttackResult/CastResult/SkillCastAnnounced ensuite.
 var _entity_vitals_by_key: Dictionary = {}
-## Barres flottantes (vie + incantation) par entité, voir _ensure_bars/_make_floating_bar.
+## Barres flottantes (vie + incantation) par entité, voir _ensure_bars/_make_gauge_bar.
 var _entity_bars_by_key: Dictionary = {}
 ## Incantations en cours, indexées par la même clé que _entities_by_key :
 ## {elapsed_ms, total_ms}. Alimenté par SkillCastStarted, vidé par SkillCastCancelled/
@@ -333,6 +375,9 @@ var _spell_vfx: SpellVfx
 ## cible de combat courante).
 var _selected_target_id := ""
 var _selection_ring: MeshInstance3D
+## Dernière cible dont la mort a été sonnée (voir _play_kill_sound).
+var _kill_sound_target_id := ""
+var _kill_sound_msec := 0
 
 ## Portails actuellement à portée de perception (KnownList côté backend, voir CLAUDE.md),
 ## indexés par UUID de portail — poussés séparément de MapView par PortalAppeared/
@@ -350,6 +395,7 @@ var _selected_portal_id := ""
 var _range_indicator: MeshInstance3D
 
 var _move_marker: MeshInstance3D
+var _move_marker_tween: Tween
 var _camera_size := 16.0
 var _position_query_timer := 0.0
 
@@ -392,6 +438,9 @@ func _ready() -> void:
 	# Permet à Hotbar.gd (autre branche de l'arbre, sous HUD) de retrouver cette scène
 	# pour is_player_casting()/show_skill_range()/hide_skill_range().
 	add_to_group("game_root")
+	# Entrée dans le monde : la musique des menus s'éteint doucement (celle de la carte
+	# prend le relais au premier MapView, voir _rebuild_map).
+	MenuMusic.stop()
 	_spell_vfx = SpellVfx.new()
 	_spell_vfx.name = "SpellVfx"
 	_world.add_child(_spell_vfx)
@@ -419,10 +468,17 @@ func _ready() -> void:
 	_npc_menu.id_pressed.connect(_on_npc_menu_id_pressed)
 	_player_frame.self_clicked.connect(_on_player_frame_self_clicked)
 	_target_status_bar.teleport_requested.connect(_on_teleport_button_pressed)
+	_target_status_bar.close_requested.connect(_deselect_all)
 
 	_camera.size = _camera_size
+	_camera.near = CAMERA_NEAR
 	_minimap.set_camera_zoom(_camera_size)
 	_apply_camera_orbit()
+	var listener := AudioListener3D.new()
+	# La caméra regarde vers -Z local : l'écouteur avance vers le pivot.
+	listener.position = Vector3(0.0, 0.0, -(CAMERA_DISTANCE - AUDIO_LISTENER_DISTANCE))
+	_camera.add_child(listener)
+	listener.make_current()
 
 	_make_move_marker()
 	_make_selection_ring()
@@ -457,6 +513,12 @@ func _ready() -> void:
 		_death_popup.open("")
 		_ensure_player_node()
 		_play_body_death(_player_node)
+
+
+func _exit_tree() -> void:
+	# Retour à l'écran de connexion (déconnexion, Menu système) : la musique de zone
+	# s'efface pendant que MenuMusic repart.
+	ZoneMusic.stop()
 
 
 func _process(delta: float) -> void:
@@ -508,9 +570,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				get_viewport().set_input_as_handled()
 				return
 			if not _selected_target_id.is_empty() or not _selected_portal_id.is_empty():
-				Net.send_command("select", "")
-				_clear_selection()
-				_clear_portal_selection()
+				_deselect_all()
 				get_viewport().set_input_as_handled()
 			return
 		if event.keycode == KEY_TAB:
@@ -640,7 +700,7 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 				_on_portal_disappeared(str(id))
 		"MonsterDefeated":
 			var defeated_name := str(payload.get("monsterName", ""))
-			_despawn_monster(defeated_name)
+			_despawn_monster(str(payload.get("monsterId", "")), defeated_name)
 			_log("%s est vaincu." % _bbcode_escape(defeated_name))
 		"TargetSelected":
 			_apply_selection(str(payload.get("targetId", "")), str(payload.get("targetName", "")))
@@ -669,6 +729,9 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 						_entity_node_by_id(attack_target_id), attack_damage, bool(payload.get("critical", false))
 					)
 			_apply_target_current_health(attack_target_id, int(payload.get("targetCurrentHealth", 0)))
+			if bool(payload.get("hit", false)) and int(payload.get("targetCurrentHealth", 0)) <= 0 \
+					and str(payload.get("attackerId", "")) == str(GameState.player_stats.get("id", "")):
+				_play_kill_sound(attack_target_id)
 			_log_attack_result(payload)
 		"AttackOutOfRange":
 			_log("[i]%s est hors de portée.[/i]" % _bbcode_escape(
@@ -689,7 +752,23 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 				str(payload.get("reason", ""))
 			))
 		"AlreadyCasting":
+			Sfx.play_ui("action_denied")
 			_log("[i]Vous êtes déjà en train d'incanter un sort.[/i]")
+		"HealthAlreadyFull", "ManaAlreadyFull":
+			# Potion refusée par le serveur, non consommée (voir ConsumableItem côté backend).
+			Sfx.play_ui("action_denied")
+			_log("[i]%s est inutile : vos %s sont déjà au maximum.[/i]" % [
+				_bbcode_escape(str(payload.get("name", "La potion"))),
+				"PV" if type == "HealthAlreadyFull" else "PM",
+			])
+		"SkillOnCooldown":
+			# rejected : relance refusée (sinon simple annonce de la recharge qui démarre) — le
+			# slot de la hotbar clignote et sonne de son côté (Hotbar.gd).
+			if bool(payload.get("rejected", false)):
+				_log("[i]%s n'est pas encore prêt (%.1f s).[/i]" % [
+					_bbcode_escape(str(payload.get("skillName", ""))),
+					float(payload.get("remainingMillis", 0)) / 1000.0,
+				])
 		"SkillProjectileLaunched":
 			_on_skill_projectile_launched(payload)
 		"CastResult":
@@ -749,6 +828,7 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 				_log("[color=%s]Vous passez au niveau %s ![/color]" % [
 					LOG_COLOR_GAIN, str(payload.get("newLevel", "?")),
 				])
+				Sfx.play_event("level_up")
 				# XpGained (déjà reçu juste avant ce message, voir CharacterInstance.gainXp côté
 				# backend) reporte xpForCurrentLevel/xpForNextLevel du niveau D'AVANT cette montée
 				# — la barre d'XP resterait donc bloquée à un seuil obsolète tant qu'un nouveau
@@ -783,7 +863,11 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 			_log("[i]Cet objet n'est plus disponible chez ce marchand.[/i]")
 		"GamePlayerDefeated":
 			_log_player_defeated(payload)
-			_play_body_death(_character_node_by_name(str(payload.get("characterName", ""))))
+			var defeated_node := _character_node_by_name(str(payload.get("characterName", "")))
+			if defeated_node != null and defeated_node != _player_node \
+					and defeated_node == _entity_node_by_id(_selected_target_id):
+				_play_kill_sound(_selected_target_id)
+			_play_body_death(defeated_node)
 			if str(payload.get("characterName", "")) == str(GameState.player_stats.get("name", "")):
 				_death_popup.open(str(payload.get("killerName", "")))
 		"PlayerRespawned":
@@ -802,8 +886,9 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 			# notre propre tenue suit l'Inventory).
 			_set_body_equipment(_entity_node_by_id(str(payload.get("characterId", ""))), payload.get("equipment", []))
 		"ItemEquipped", "ItemUnequipped":
-			# Ces deux messages ne portent que le nom de l'objet : on redemande l'inventaire
-			# complet (slot par objet) pour rhabiller le personnage — même geste qu'EquipmentWindow.
+			Sfx.play_item(_equipment_sound_slot(payload), type == "ItemEquipped")
+			# Ces deux messages ne portent pas l'inventaire complet (slot par objet) : on le
+			# redemande pour rhabiller le personnage — même geste qu'EquipmentWindow.
 			Net.send_command("inventory")
 		"CharacterIsDead":
 			_log("[i]Vous êtes mort — impossible tant que vous n'avez pas réapparu.[/i]")
@@ -923,13 +1008,18 @@ func _rebuild_map(payload: Dictionary) -> void:
 
 	var scene_path := ZoneAssets3D.get_map_scene_path(_current_map_name)
 	var grid_map: GridMap = null
+	var biome := MapData.Biome.NONE
 	if scene_path.is_empty():
 		push_warning("Game3D: aucune scène convertie pour la carte '%s'" % _current_map_name)
 	else:
 		var map_instance: Node3D = load(scene_path).instantiate()
 		_map_scene_root.add_child(map_instance)
 		grid_map = map_instance.get_node("Terrain")
+		if map_instance is MapData:
+			biome = map_instance.biome
 	_terrain_grid = _read_terrain_grid(grid_map)
+	# Même biome que la carte précédente : la musique continue sans coupure.
+	ZoneMusic.play_for_biome(biome)
 
 	var texture := ZoneAssets3D.build_ground_texture(payload, _terrain_grid)
 
@@ -1478,6 +1568,7 @@ func _apply_camera_orbit() -> void:
 	var angle := atan2(base.z, base.x) + _camera_yaw
 	_camera.position = Vector3(horizontal_radius * cos(angle), base.y, horizontal_radius * sin(angle))
 	_camera.look_at(_camera_rig.global_position, WORLD_UP)
+	_minimap.set_camera_forward(Vector2(-cos(angle), -sin(angle)))
 	_orient_all_portals()
 
 
@@ -1603,6 +1694,14 @@ func _apply_selection(target_id: String, target_name: String) -> void:
 	)
 
 
+## Échap ou croix de %TargetStatusBar : désélectionne l'entité (côté serveur aussi) et le portail.
+func _deselect_all() -> void:
+	if not _selected_target_id.is_empty():
+		Net.send_command("select", "")
+		_clear_selection()
+	_clear_portal_selection()
+
+
 func _clear_selection() -> void:
 	if _selected_target_id.is_empty():
 		return
@@ -1620,7 +1719,10 @@ func _update_selection_ring() -> void:
 	if node == null:
 		_selection_ring.visible = false
 		return
-	_selection_ring.position = Vector3(node.position.x, 0.05, node.position.z)
+	_selection_ring.position = Vector3(node.position.x, 0.04, node.position.z)
+	# Réévalué chaque frame : l'entrée/sortie du groupe change la couleur sans resélection.
+	var mat: ShaderMaterial = _selection_ring.get_meta("material")
+	mat.set_shader_parameter("ring_color", _selection_color_for(_selected_target_id, key))
 	_selection_ring.visible = true
 
 
@@ -1635,22 +1737,20 @@ func show_skill_range(range_tiles: float) -> void:
 	if _player_node == null or range_tiles <= 0.0:
 		return
 	if _range_indicator == null:
-		_range_indicator = MeshInstance3D.new()
-		var torus := TorusMesh.new()
-		var mat := StandardMaterial3D.new()
-		mat.albedo_color = Color(0.5, 0.8, 1.0, 0.55)
-		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		mat.emission_enabled = true
-		mat.emission = Color(0.5, 0.8, 1.0)
-		mat.emission_energy_multiplier = 0.6
-		torus.material = mat
-		_range_indicator.mesh = torus
+		_range_indicator = VfxLib.ground_quad(1.0, VfxLib.shader_material(RANGE_RING_SHADER))
+		_range_indicator.visible = false
 		_world.add_child(_range_indicator)
-	var torus_mesh: TorusMesh = _range_indicator.mesh
-	torus_mesh.outer_radius = maxf(range_tiles, 0.1)
-	torus_mesh.inner_radius = maxf(range_tiles - 0.08, 0.02)
+	# Le plan porteur déborde un peu du cercle pour laisser la place au halo du filet extérieur.
+	var radius := maxf(range_tiles, 0.1)
+	var half_size := radius + 0.3
+	(_range_indicator.mesh as PlaneMesh).size = Vector2.ONE * half_size * 2.0
+	var mat := VfxLib.mat_of(_range_indicator)
+	mat.set_shader_parameter("radius", radius)
+	mat.set_shader_parameter("half_size", half_size)
 	_range_indicator.position = Vector3(_player_node.position.x, 0.06, _player_node.position.z)
-	_range_indicator.visible = true
+	if not _range_indicator.visible:
+		_range_indicator.visible = true
+		VfxLib.tween_param(_range_indicator.create_tween(), mat, "alpha", 0.0, 1.0, 0.18).set_ease(Tween.EASE_OUT)
 
 
 func hide_skill_range() -> void:
@@ -1756,8 +1856,10 @@ func _apply_appeared_entity(entry: Dictionary) -> void:
 	var target_y = entry.get("targetY")
 	if target_x != null and target_y != null:
 		_moving[key] = {"target": Vector3(float(target_x), 0.0, float(target_y))}
+		_play_body_state(node, Character.RUN_ANIM)
 	else:
 		_moving.erase(key)
+		_play_body_state(node, Character.IDLE_ANIM)
 
 
 ## Entité sortant de notre KnownList — hors de portée après un déplacement, ou départ
@@ -1793,12 +1895,15 @@ func _ensure_player_node() -> void:
 
 ## `key` porte déjà le "kind" serveur en préfixe ("character:"/"monster:"/"npc:", voir
 ## _apply_appeared_entity et les gestionnaires Character/MovementStarted) : un personnage a
-## toujours le mannequin (voir Character.gd), monstre/PNJ restent des capsules faute de modèle
-## dédié.
+## toujours le mannequin (voir Character.gd), un monstre son modèle animé s'il en a un (voir
+## MonsterCatalog/Monster.gd) ; les autres monstres et les PNJ restent des capsules.
 func _ensure_entity_node(key: String, entity_name: String, color: Color) -> Node3D:
 	if _entities_by_key.has(key):
 		return _entities_by_key[key]
-	var node := _make_entity_node(entity_name, color, true, key.begins_with("character:"))
+	var monster_model: MonsterModel = null
+	if key.begins_with("monster:"):
+		monster_model = MonsterCatalog.model_for(entity_name)
+	var node := _make_entity_node(entity_name, color, true, key.begins_with("character:"), monster_model)
 	_entities_root.add_child(node)
 	_entities_by_key[key] = node
 	_ensure_bars(key)
@@ -1806,10 +1911,14 @@ func _ensure_entity_node(key: String, entity_name: String, color: Color) -> Node
 
 
 ## `humanoid` : mannequin (voir CHARACTER_SCENE/Character.gd — squelette, animations,
-## équipement visible) pour les personnages joueurs ; sinon capsule colorée pour les
-## monstres/PNJ, faute de modèle dédié. `color` est ignoré quand humanoid=true (le mesh importé
-## porte ses propres matériaux) — seul le nom flottant/l'anneau de sélection les distingue.
-func _make_entity_node(entity_name: String, color: Color, pickable: bool, humanoid: bool = false) -> Node3D:
+## équipement visible) pour les personnages joueurs ; `monster_model` : modèle animé d'un
+## monstre (voir Monster.gd), gabarit (hauteur, zone cliquable) compris ; sinon capsule
+## colorée (PNJ, monstres sans modèle). `color` est ignoré pour les modèles importés (ils
+## portent leurs propres matériaux) — seul le nom flottant/l'anneau de sélection les distingue.
+func _make_entity_node(
+	entity_name: String, color: Color, pickable: bool, humanoid: bool = false,
+	monster_model: MonsterModel = null
+) -> Node3D:
 	var root := Node3D.new()
 	root.name = entity_name if not entity_name.is_empty() else "Entity"
 	# Godot renomme silencieusement les nœuds enfants homonymes (ex. "Fox" -> "Fox2") pour
@@ -1817,90 +1926,102 @@ func _make_entity_node(entity_name: String, color: Color, pickable: bool, humano
 	# fiable pour retrouver un monstre par son nom serveur (voir _despawn_monster) une fois
 	# plusieurs monstres homonymes présents — meta séparée, jamais réécrite par le moteur.
 	root.set_meta("entity_name", entity_name)
+	# Sommet de la silhouette, base de l'empilement nom/barres (voir _layout_overhead).
+	var head_height := HEAD_HEIGHT_HUMANOID if humanoid else HEAD_HEIGHT_CAPSULE
+	if monster_model != null:
+		head_height = monster_model.head_height
+	root.set_meta("head_height", head_height)
 
 	# Gabarit de la zone cliquable (voir plus bas) — repris de l'ancienne capsule visuelle même
 	# pour le mannequin (1.78 unité de haut pour l'homme, 1.68 pour la femme, voir
 	# tools/character_gen/build_characters.py) :
-	# juste une approximation de silhouette humaine, pas besoin de coller au mesh réel.
-	const PICK_RADIUS := 0.35
-	const PICK_HEIGHT := 1.6
-	const PICK_OFFSET := Vector3(0.0, 0.8, 0.0)
+	# juste une approximation de silhouette humaine, pas besoin de coller au mesh réel. Un
+	# monstre animé fournit le sien (voir MonsterModel.pick_radius/pick_height).
+	var pick_radius := 0.35
+	var pick_height := 1.6
+	if monster_model != null:
+		pick_radius = monster_model.pick_radius
+		pick_height = monster_model.pick_height
+	var pick_offset := Vector3(0.0, pick_height / 2.0, 0.0)
 
 	var body: Node3D
 	if humanoid:
 		body = CHARACTER_SCENE.instantiate()
+	elif monster_model != null:
+		var monster := Monster.new()
+		monster.setup(monster_model)
+		body = monster
 	else:
 		var mesh_instance := MeshInstance3D.new()
 		var capsule := CapsuleMesh.new()
-		capsule.radius = PICK_RADIUS
-		capsule.height = PICK_HEIGHT
+		capsule.radius = pick_radius
+		capsule.height = pick_height
 		var mat := StandardMaterial3D.new()
 		mat.albedo_color = color
 		capsule.material = mat
 		mesh_instance.mesh = capsule
-		mesh_instance.position = PICK_OFFSET
+		mesh_instance.position = pick_offset
 		body = mesh_instance
 	body.name = "Body"
 	root.add_child(body)
 
 	if pickable:
-		# Zone de collision calquée sur le gabarit ci-dessus (voir PICK_RADIUS/PICK_HEIGHT/
-		# PICK_OFFSET) : voir _pick_entity_id_at_mouse pour la requête qui la vise. L'UUID
+		# Zone de collision calquée sur le gabarit ci-dessus (voir pick_radius/pick_height/
+		# pick_offset) : voir _pick_entity_id_at_mouse pour la requête qui la vise. L'UUID
 		# réseau à sélectionner (voir _register_entity_id) est lu directement sur `root` via sa
 		# meta "entity_id", pas sur cette zone elle-même.
 		var pick_area := Area3D.new()
 		pick_area.name = "PickArea"
 		pick_area.collision_layer = ENTITY_PICK_COLLISION_LAYER
 		pick_area.collision_mask = 0
-		pick_area.position = PICK_OFFSET
+		pick_area.position = pick_offset
 		var pick_shape := CollisionShape3D.new()
 		var capsule_shape := CapsuleShape3D.new()
-		capsule_shape.radius = PICK_RADIUS
-		capsule_shape.height = PICK_HEIGHT
+		capsule_shape.radius = pick_radius
+		capsule_shape.height = pick_height
 		pick_shape.shape = capsule_shape
 		pick_area.add_child(pick_shape)
 		root.add_child(pick_area)
 
+	# Hauteurs (position.y) posées chaque frame par _layout_overhead.
 	var label := Label3D.new()
 	label.name = "NameLabel"
 	label.text = entity_name
-	# Décalage recalculé le 2026-09-03 (le nom empiétait sur la barre de vie) : avec
-	# font_size=120 et l'alignement vertical CENTER par défaut, le nom mesure 0.825 unité de
-	# haut (Label3D.get_aabb() mesuré en isolation dans ce projet) et s'étend donc pour moitié
-	# de chaque côté de sa position. CAST_BAR_OFFSET_Y + CAST_BAR_HEIGHT/2 = 2.55 est le sommet
-	# de la barre la plus haute (l'incantation) : 3.15 - 0.825/2 = 2.7375 laisse une marge
-	# d'environ 0.19 unité au-dessus, donc plus aucun chevauchement avec les deux barres.
-	label.position = Vector3(0.0, 3.15, 0.0)
-	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	label.no_depth_test = true
-	# Encore signalé trop petit à 60 (2026-09-02, deuxième passe) : la caméra orthogonale ne
-	# rapetisse pas le texte avec la distance (voir CLAUDE.md — pas de perspective), donc c'est
-	# uniquement une question de taille de police absolue, pas de zoom/distance.
-	label.font_size = 120
-	label.outline_size = 18
+	_style_world_label(label, NAME_FONT_SIZE, NAME_OUTLINE_SIZE)
 	label.modulate = _name_color_for(color)
-	label.font = UITheme.font_bold
 	root.add_child(label)
 
-	# Titre (fonction/rang, voir TITLE_LABEL_COLOR) : au-dessus du nom, pas trop haut. Même
-	# hypothèse de mise à l'échelle linéaire avec font_size que le calcul de NameLabel ci-dessus
-	# (0.825 unité de haut pour font_size=120) : à font_size=72, hauteur ≈ 0.825*72/120=0.495.
-	# Nom : centre 3.15, sommet 3.15+0.825/2=3.5625. Titre centré à 3.5625+0.15 (marge)+0.495/2 ≈
-	# 3.96. Texte vide par défaut (la plupart des entités n'ont pas de titre) : un Label3D sans
-	# texte ne dessine rien, pas besoin de le cacher explicitement.
+	# Titre (fonction/rang, voir TITLE_LABEL_COLOR) : juste au-dessus du nom. Texte vide par
+	# défaut (la plupart des entités n'ont pas de titre) : un Label3D sans texte ne dessine
+	# rien, et _layout_overhead ne lui réserve alors aucune place.
 	var title_label := Label3D.new()
 	title_label.name = "TitleLabel"
 	title_label.text = ""
-	title_label.position = Vector3(0.0, 3.96, 0.0)
-	title_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	title_label.no_depth_test = true
-	title_label.font_size = 72
-	title_label.outline_size = 14
+	_style_world_label(title_label, TITLE_FONT_SIZE, TITLE_OUTLINE_SIZE)
 	title_label.modulate = TITLE_LABEL_COLOR
-	title_label.font = UITheme.font_bold
 	root.add_child(title_label)
 
 	return root
+
+
+## Texte flottant façon UI : police UITheme.font_world, aligné par le bas (voir
+## _layout_overhead), toujours face caméra et par-dessus le décor. Rendu à `font_size` puis
+## réduit par NAME_PIXEL_SIZE, filtré avec mipmaps pour un contour lisse à tous les zooms.
+func _style_world_label(label: Label3D, font_size: int, outline_size: int) -> void:
+	label.font = UITheme.font_world
+	label.font_size = font_size
+	label.outline_size = outline_size
+	label.outline_modulate = NAME_OUTLINE_COLOR
+	label.pixel_size = NAME_PIXEL_SIZE
+	label.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	label.no_depth_test = true
+	label.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+
+
+## Hauteur en unités monde d'une ligne de texte d'un Label3D stylé par _style_world_label.
+func _world_label_height(font_size: int) -> float:
+	return UITheme.font_world.get_height(font_size) * NAME_PIXEL_SIZE
 
 
 ## Couleur du nom flottant selon le type d'entité (voir PLAYER_NAME_COLOR/NPC_NAME_COLOR/
@@ -2021,13 +2142,23 @@ func _face_heading(node: Node3D, heading: float) -> void:
 	node.look_at(target, WORLD_UP)
 
 
-## No-op pour un monstre/PNJ (capsule, pas de rig) : évite un `if` dupliqué à chaque appelant.
+## Idle/course (Character.IDLE_ANIM/RUN_ANIM, même vocabulaire pour Monster.play_state).
+## No-op pour une capsule (pas de rig) : évite un `if` dupliqué à chaque appelant.
 func _play_body_state(node: Node3D, state_name: String) -> void:
-	if node == null:
-		return
-	var body := node.get_node_or_null("Body")
-	if body is Character:
+	var body := _animated_body(node)
+	if body != null:
 		body.play_state(state_name)
+
+
+## Corps animé de `node`, personnage (Character) ou monstre (Monster), qui partagent
+## play_state/play_attack/play_death/revive ; null pour une capsule.
+func _animated_body(node: Node3D) -> Node3D:
+	if node == null:
+		return null
+	var body := node.get_node_or_null("Body")
+	if body is Character or body is Monster:
+		return body
+	return null
 
 
 ## Rig du nœud d'entité `node` (null pour un monstre/PNJ, simple capsule) — évite un `if`
@@ -2038,10 +2169,11 @@ func _character_body(node: Node3D) -> Character:
 	return node.get_node_or_null("Body") as Character
 
 
-## Coup d'arme (AttackResult) : attack_1h ou attack_2h selon l'arme portée, puis retour seul
-## à l'état tenu (idle/course, voir Character.play_state).
+## Coup d'arme (AttackResult) : attack_1h ou attack_2h selon l'arme portée pour un
+## personnage, clip d'attaque de sa fiche pour un monstre, puis retour seul à l'état tenu
+## (idle/course).
 func _play_body_attack(node: Node3D) -> void:
-	var body := _character_body(node)
+	var body := _animated_body(node)
 	if body != null:
 		body.play_attack()
 
@@ -2056,13 +2188,13 @@ func _play_body_launch(node: Node3D) -> void:
 ## Chute au sol, figée jusqu'à _play_body_revive (PlayerRespawned pour nous, retour sur la
 ## carte pour les autres — voir GamePlayerJoinedMap).
 func _play_body_death(node: Node3D) -> void:
-	var body := _character_body(node)
+	var body := _animated_body(node)
 	if body != null:
 		body.play_death()
 
 
 func _play_body_revive(node: Node3D) -> void:
-	var body := _character_body(node)
+	var body := _animated_body(node)
 	if body != null:
 		body.revive()
 
@@ -2089,6 +2221,24 @@ func _character_node_by_name(character_name: String) -> Node3D:
 func _apply_player_equipment(inventory_payload: Dictionary) -> void:
 	_ensure_player_node()
 	_set_body_equipment(_player_node, inventory_payload.get("items", []))
+
+
+## Slot concerné par ItemEquipped (qui le porte) ou ItemUnequipped (qui ne le porte pas : on
+## le lit dans l'Inventory encore non rafraîchi, où l'objet est toujours porté), pour choisir
+## le son (voir Sfx.play_item) ; "" si introuvable.
+func _equipment_sound_slot(payload: Dictionary) -> String:
+	var slot = payload.get("slot")
+	if slot != null and not str(slot).is_empty():
+		return str(slot)
+	var item_id := str(payload.get("itemId", ""))
+	var item_name := str(payload.get("name", ""))
+	for item in GameState.inventory.get("items", []):
+		var item_slot = item.get("slot")
+		if item_slot == null or str(item_slot).is_empty():
+			continue
+		if str(item.get("id", "")) == item_id or str(item.get("name", "")) == item_name:
+			return str(item_slot)
+	return ""
 
 
 ## `items` : entrées Inventory ou EquipmentView (voir Character.equipped_from_items).
@@ -2136,12 +2286,8 @@ func _ensure_bars(key: String) -> void:
 		return
 	var entry := {}
 	if key != PLAYER_KEY:
-		entry["hp"] = _make_floating_bar(HP_BAR_COLOR, HP_BAR_BG_COLOR, BAR_WIDTH, BAR_HEIGHT, false)
-	# Pilule aux bords arrondis (voir _make_rounded_progress_bar), pas les quads plats de
-	# _make_floating_bar utilisés par la barre de vie : demandé explicitement le 2026-09-03
-	# (troisième passe) après que le rendu plat+sombre a de nouveau été jugé peu lisible/pas
-	# assez joli.
-	entry["cast"] = _make_rounded_progress_bar(CAST_BAR_BG_COLOR, CAST_BAR_COLOR, CAST_BAR_WIDTH, CAST_BAR_HEIGHT)
+		entry["hp"] = _make_gauge_bar("hp", BAR_WIDTH, BAR_HEIGHT)
+	entry["cast"] = _make_gauge_bar("cast", BAR_WIDTH, BAR_HEIGHT)
 	_entity_bars_by_key[key] = entry
 
 
@@ -2156,124 +2302,90 @@ func _free_bars(key: String) -> void:
 	_entity_bars_by_key.erase(key)
 
 
-## Barre billboard (fond + remplissage ancré à gauche) : root est manuellement orienté
-## face caméra chaque frame (voir _billboard_node) plutôt que via BILLBOARD_ENABLED sur
-## chaque quad, pour que fond/remplissage tournent comme un seul bloc rigide. `emissive_fill`
-## fait rayonner uniquement le remplissage (jamais le fond, qui doit rester sombre) — voir
-## _make_bar_quad.
-func _make_floating_bar(
-	fill_color: Color, bg_color: Color, width: float, height: float, emissive_fill: bool
-) -> Dictionary:
-	var root := Node3D.new()
-	# Liseré noir autour de la jauge (façon jauges L2), un cran derrière le fond.
-	var border := _make_bar_quad(HP_BAR_BORDER_COLOR, width + 0.06, height + 0.06, false, 0)
-	border.position = Vector3(0.0, 0.0, -0.001)
-	root.add_child(border)
-	var bg := _make_bar_quad(bg_color, width, height, false, 1)
-	root.add_child(bg)
-
-	var fill_pivot := Node3D.new()
-	fill_pivot.position = Vector3(-width / 2.0, 0.0, 0.001)
-	root.add_child(fill_pivot)
-	var fill := _make_bar_quad(fill_color, width, height, emissive_fill, 2)
-	fill.position = Vector3(width / 2.0, 0.0, 0.0)
-	fill_pivot.add_child(fill)
-
-	root.visible = false
-	_world.add_child(root)
-	return {"root": root, "fill_pivot": fill_pivot}
-
-
-## `priority` : ordre de dessin (liseré 0 < fond 1 < remplissage 2) — tous les quads passent
-## en transparence pour être triés par render_priority plutôt que par distance (égale).
-func _make_bar_quad(color: Color, width: float, height: float, emissive: bool, priority: int = 0) -> MeshInstance3D:
-	var mesh_instance := MeshInstance3D.new()
-	var quad := QuadMesh.new()
-	quad.size = Vector2(width, height)
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = color
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.no_depth_test = true
-	# Le sens exact de _billboard_node (copie de la base caméra) n'est pas garanti face à la
-	# normale par défaut du QuadMesh : on désactive le culling plutôt que de risquer une
-	# barre invisible selon l'orientation.
-	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	if emissive:
-		mat.emission_enabled = true
-		mat.emission = color
-		mat.emission_energy_multiplier = 1.4
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.render_priority = priority
-	quad.material = mat
-	mesh_instance.mesh = quad
-	return mesh_instance
-
-
-## Shader de la barre d'incantation (2026-09-03, troisième passe) : un seul quad plutôt que
-## les deux quads fond+remplissage de _make_bar_quad, pour dessiner fond ET remplissage comme
-## une seule pilule aux bords arrondis (SDF de rectangle arrondi, `corner_radius` égal à la
-## demi-hauteur ⇒ bouts parfaitement semi-circulaires). `ALPHA` vaut toujours 0 ou 1 (un
-## `discard` en dehors de la pilule, pas de dégradé) : aucune transparence sur la barre
-## elle-même, seul le contour est légèrement lissé via `fwidth` pour éviter l'aliasing en
-## dents de scie d'un bord dur. Remplacer `fill_ratio` (uniform, mis à jour à chaque frame
-## dans _update_bars) suffit à faire avancer le remplissage — pas de scale ni de fill_pivot
-## comme pour les barres plates, donc aucune distorsion du bord arrondi quand le ratio change.
-const ROUNDED_BAR_SHADER_CODE := """
+## Jauge flottante façon HUD (voir UITheme._bar_bg_image/_bar_fill_image, reproduites ici en
+## shader pour un seul quad billboard) : contour noir extérieur de `outline_px` px (cible
+## sélectionnée seulement, voir TARGET_BAR_OUTLINE_PX), liseré bronze + trait noir d'1 px, fond sombre teinté,
+## remplissage en dégradé vertical avec reflet clair en haut et ligne sombre en bas — l'effet
+## "tube brillant" des jauges du cadre joueur. Les bordures sont calculées en pixels écran via
+## fwidth(UV), donc restent fines et nettes quel que soit le zoom.
+const GAUGE_BAR_SHADER_CODE := """
 shader_type spatial;
-render_mode unshaded, cull_disabled, depth_test_disabled, blend_mix, specular_disabled;
+render_mode unshaded, cull_disabled, depth_test_disabled, blend_mix, specular_disabled, shadows_disabled;
 
-uniform vec4 bg_color : source_color = vec4(0.08, 0.22, 0.5, 1.0);
-uniform vec4 fill_color : source_color = vec4(0.3, 0.6, 1.0, 1.0);
+uniform vec4 fill_top : source_color = vec4(0.9, 0.22, 0.2, 1.0);
+uniform vec4 fill_bottom : source_color = vec4(0.46, 0.05, 0.05, 1.0);
+uniform vec4 back_color : source_color = vec4(0.13, 0.03, 0.03, 1.0);
+uniform vec4 frame_color : source_color = vec4(0.4, 0.37, 0.3, 1.0);
 uniform float fill_ratio : hint_range(0.0, 1.0) = 1.0;
-uniform float aspect = 4.0;
-
-float rounded_box_sdf(vec2 p, vec2 half_size, float radius) {
-	vec2 d = abs(p) - half_size + radius;
-	return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0) - radius;
-}
+uniform float outline_px = 0.0;
+uniform float opacity = 0.96;
 
 void fragment() {
-	vec2 half_size = vec2(aspect, 1.0) * 0.5;
-	vec2 p = (UV - 0.5) * vec2(aspect, 1.0);
-	float dist = rounded_box_sdf(p, half_size, half_size.y);
-	float edge = max(fwidth(dist), 0.001);
-	float shape_alpha = 1.0 - smoothstep(-edge, edge, dist);
-	if (shape_alpha <= 0.001) {
-		discard;
+	vec2 px = max(fwidth(UV), vec2(1e-5));
+	vec2 size_px = 1.0 / px;
+	vec2 pos_px = UV * size_px;
+	float edge = min(min(pos_px.x, size_px.x - pos_px.x), min(pos_px.y, size_px.y - pos_px.y));
+	float OUTLINE = outline_px;
+	float FRAME = outline_px + 1.0;
+	float BORDER = outline_px + 2.0;
+
+	vec3 col;
+	if (edge < OUTLINE) {
+		col = vec3(0.0);
+	} else if (edge < FRAME) {
+		col = frame_color.rgb;
+	} else if (edge < BORDER) {
+		col = vec3(0.0);
+	} else {
+		float inner_h = max(size_px.y - 2.0 * BORDER, 1.0);
+		float y_px = pos_px.y - BORDER;
+		float ty = clamp(y_px / inner_h, 0.0, 1.0);
+		float inner_w = max(size_px.x - 2.0 * BORDER, 1.0);
+		float tx = (pos_px.x - BORDER) / inner_w;
+		if (tx <= fill_ratio) {
+			col = mix(fill_top.rgb, fill_bottom.rgb, ty);
+			col = mix(col, vec3(1.0), 0.22 * (1.0 - clamp(ty / 0.35, 0.0, 1.0)));
+			if (y_px < 1.0) {
+				col = mix(fill_top.rgb, vec3(1.0), 0.45);
+			} else if (y_px > inner_h - 1.0) {
+				col = fill_bottom.rgb * 0.6;
+			}
+			// Bout du remplissage légèrement assombri, comme les bords de la texture HUD.
+			if ((fill_ratio - tx) * inner_w < 1.0 && fill_ratio < 1.0) {
+				col *= 0.75;
+			}
+		} else {
+			col = mix(back_color.rgb, vec3(0.0), ty * 0.5);
+		}
 	}
-	float is_fill = step(UV.x, fill_ratio);
-	ALBEDO = mix(bg_color.rgb, fill_color.rgb, is_fill);
-	EMISSION = fill_color.rgb * is_fill * 1.3;
-	ALPHA = shape_alpha;
+	ALBEDO = col;
+	ALPHA = opacity;
 }
 """
 
 
-## Pilule pleine (fond + remplissage dans un seul quad, voir ROUNDED_BAR_SHADER_CODE) utilisée
-## par la barre d'incantation. `bar.material.set_shader_parameter("fill_ratio", ...)` fait
-## avancer le remplissage — voir _update_bars, qui ne passe donc pas par _set_bar_ratio (pensé
-## pour les barres plates fond+remplissage de _make_floating_bar/_make_bar_quad).
-func _make_rounded_progress_bar(bg_color: Color, fill_color: Color, width: float, height: float) -> Dictionary:
+## Quad billboard dessiné par GAUGE_BAR_SHADER_CODE aux couleurs UITheme.BAR_COLORS[`kind`].
+## `bar.material.set_shader_parameter("fill_ratio", ...)` fait avancer le remplissage.
+func _make_gauge_bar(kind: String, width: float, height: float) -> Dictionary:
+	var colors: Array = UITheme.BAR_COLORS[kind]
 	var mesh_instance := MeshInstance3D.new()
 	var quad := QuadMesh.new()
 	quad.size = Vector2(width, height)
 	var shader := Shader.new()
-	shader.code = ROUNDED_BAR_SHADER_CODE
+	shader.code = GAUGE_BAR_SHADER_CODE
 	var mat := ShaderMaterial.new()
 	mat.shader = shader
-	mat.set_shader_parameter("bg_color", bg_color)
-	mat.set_shader_parameter("fill_color", fill_color)
+	mat.set_shader_parameter("fill_top", colors[0])
+	mat.set_shader_parameter("fill_bottom", colors[1])
+	mat.set_shader_parameter("back_color", colors[2])
+	mat.set_shader_parameter("frame_color", UITheme.METAL)
 	mat.set_shader_parameter("fill_ratio", 1.0)
-	mat.set_shader_parameter("aspect", width / height)
 	quad.material = mat
 	mesh_instance.mesh = quad
+	mesh_instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	mesh_instance.visible = false
 	_world.add_child(mesh_instance)
-	return {"root": mesh_instance, "material": mat}
-
-
-func _set_bar_ratio(bar: Dictionary, ratio: float) -> void:
-	bar.fill_pivot.scale.x = clampf(ratio, 0.0, 1.0)
+	return {"root": mesh_instance, "material": mat, "quad": quad}
 
 
 func _billboard_node(node: Node3D) -> void:
@@ -2281,34 +2393,81 @@ func _billboard_node(node: Node3D) -> void:
 
 
 func _update_bars() -> void:
+	var selected_key: String = _key_by_entity_id.get(_selected_target_id, "")
 	for key in _entity_bars_by_key.keys():
 		var node: Node3D = _entities_by_key.get(key)
 		if node == null:
 			continue
 		var bars: Dictionary = _entity_bars_by_key[key]
+		var show_hp := false
 		if bars.has("hp"):
-			var hp_bar: Dictionary = bars["hp"]
 			var vitals: Dictionary = _entity_vitals_by_key.get(key, {})
 			var max_hp := int(vitals.get("max", 0))
-			if max_hp > 0:
-				_set_bar_ratio(hp_bar, float(vitals.get("current", 0)) / float(max_hp))
-				hp_bar.root.position = node.position + Vector3(0, HP_BAR_OFFSET_Y, 0)
-				_billboard_node(hp_bar.root)
-				hp_bar.root.visible = true
-			else:
-				hp_bar.root.visible = false
-		if bars.has("cast"):
-			var cast_bar: Dictionary = bars["cast"]
-			if _casting_by_key.has(key):
-				var cast_state: Dictionary = _casting_by_key[key]
-				var total_ms: float = cast_state.get("total_ms", 0.0)
-				var ratio := clampf(cast_state.get("elapsed_ms", 0.0) / total_ms, 0.0, 1.0) if total_ms > 0.0 else 0.0
-				cast_bar.material.set_shader_parameter("fill_ratio", ratio)
-				cast_bar.root.position = node.position + Vector3(0, CAST_BAR_OFFSET_Y, 0)
-				_billboard_node(cast_bar.root)
-				cast_bar.root.visible = true
-			else:
-				cast_bar.root.visible = false
+			show_hp = max_hp > 0
+			if show_hp:
+				var ratio := clampf(float(vitals.get("current", 0)) / float(max_hp), 0.0, 1.0)
+				bars["hp"].material.set_shader_parameter("fill_ratio", ratio)
+		var cast_ratio := -1.0
+		if _casting_by_key.has(key):
+			var cast_state: Dictionary = _casting_by_key[key]
+			var total_ms: float = cast_state.get("total_ms", 0.0)
+			cast_ratio = clampf(cast_state.get("elapsed_ms", 0.0) / total_ms, 0.0, 1.0) if total_ms > 0.0 else 0.0
+		_layout_overhead(node, bars, show_hp, cast_ratio, key == selected_key)
+
+
+## Empile barre de vie / barre d'incantation / nom / titre au-dessus de la tête de `node`
+## (voir HEAD_HEIGHT_*/OVERHEAD_*) : chaque élément absent (pas de PV connus, pas de titre,
+## pas d'incantation — `cast_ratio` < 0) ne réserve aucune place. Les deux jauges restent
+## groupées sous le nom, à la même largeur : sur le joueur (sans barre de vie flottante), la
+## barre d'incantation prend la place qu'occupe la barre de vie des autres entités.
+func _layout_overhead(
+	node: Node3D, bars: Dictionary, show_hp: bool, cast_ratio: float, is_target: bool
+) -> void:
+	var y: float = float(node.get_meta("head_height", HEAD_HEIGHT_CAPSULE)) + OVERHEAD_GAP
+	# Jauges "en gras" pour la cible sélectionnée seulement (voir TARGET_BAR_*).
+	var bar_width := TARGET_BAR_WIDTH if is_target else BAR_WIDTH
+	if bars.has("hp"):
+		var hp_bar: Dictionary = bars["hp"]
+		var hp_root: Node3D = hp_bar.root
+		hp_root.visible = show_hp
+		if show_hp:
+			var bar_size := Vector2(bar_width, TARGET_BAR_HEIGHT if is_target else BAR_HEIGHT)
+			_style_gauge_bar(hp_bar, bar_size, is_target)
+			hp_root.position = node.position + Vector3(0, y + bar_size.y / 2.0, 0)
+			_billboard_node(hp_root)
+			y += bar_size.y + OVERHEAD_SPACING
+	if bars.has("cast"):
+		var cast_bar: Dictionary = bars["cast"]
+		cast_bar.root.visible = cast_ratio >= 0.0
+		if cast_ratio >= 0.0:
+			var cast_size := Vector2(bar_width, BAR_HEIGHT)
+			_style_gauge_bar(cast_bar, cast_size, is_target)
+			cast_bar.material.set_shader_parameter("fill_ratio", cast_ratio)
+			cast_bar.root.position = node.position + Vector3(0, y + cast_size.y / 2.0, 0)
+			_billboard_node(cast_bar.root)
+			y += cast_size.y + OVERHEAD_SPACING
+	var name_label := node.get_node_or_null("NameLabel") as Label3D
+	if name_label != null:
+		# Nom en gras + contour épais pour la cible sélectionnée seulement (voir TARGET_NAME_*).
+		name_label.font = UITheme.font_world_bold if is_target else UITheme.font_world
+		name_label.outline_size = TARGET_NAME_OUTLINE_SIZE if is_target else NAME_OUTLINE_SIZE
+		name_label.outline_modulate = TARGET_NAME_OUTLINE_COLOR if is_target else NAME_OUTLINE_COLOR
+		name_label.position = Vector3(0.0, y, 0.0)
+		y += _world_label_height(NAME_FONT_SIZE)
+	var title_label := node.get_node_or_null("TitleLabel") as Label3D
+	if title_label != null and not title_label.text.is_empty():
+		title_label.position = Vector3(0.0, y, 0.0)
+
+
+## Taille + contour de la jauge `bar` (voir _make_gauge_bar), mis à jour seulement quand la
+## taille change (sélection/désélection).
+func _style_gauge_bar(bar: Dictionary, bar_size: Vector2, is_target: bool) -> void:
+	var quad: QuadMesh = bar.quad
+	if quad.size == bar_size:
+		return
+	quad.size = bar_size
+	bar.material.set_shader_parameter("outline_px", TARGET_BAR_OUTLINE_PX if is_target else 0.0)
+	bar.material.set_shader_parameter("opacity", 1.0 if is_target else 0.96)
 
 
 func _advance_casting(delta: float) -> void:
@@ -2333,6 +2492,10 @@ func _flash_entity(
 	node: Node3D, color: Color = Color(1.0, 0.3, 0.3),
 	up_duration: float = 0.05, down_duration: float = 0.15
 ) -> void:
+	var monster := node.get_node_or_null("Body") as Monster
+	if monster != null:
+		monster.flash(color, up_duration, down_duration)
+		return
 	var body := node.get_node_or_null("Body") as MeshInstance3D
 	if body == null or body.mesh == null or body.mesh.material == null:
 		return
@@ -2406,8 +2569,11 @@ func _on_skill_cast_started(payload: Dictionary) -> void:
 	_play_body_cast(caster_node, total_ms / 1000.0)
 	# Cercle d'incantation calé sur castingTimeMs (voir CastCircle), couleur selon l'élément.
 	var element := SpellVfx.element_for_skill(skill_name)
+	state["element"] = element
 	if caster_node != null and SpellVfx.has_cast_circle(element):
 		state["vfx"] = _spell_vfx.start_cast(caster_node, element, total_ms / 1000.0)
+	# Son d'incantation propre à l'élément, éteint par _clear_casting (voir Sfx).
+	state["sfx"] = Sfx.play_spell(element, "cast", caster_node)
 
 
 ## `completed` : fin normale du temps d'incantation (voir _advance_casting) -> geste de
@@ -2418,11 +2584,16 @@ func _clear_casting(key: String, completed: bool = false) -> void:
 	if key.is_empty():
 		return
 	_finish_cast_vfx(key, completed)
+	var state: Dictionary = _casting_by_key.get(key, {})
+	# Le son d'incantation s'efface pour laisser la place au son de libération.
+	Sfx.fade_out(state.get("sfx"), 0.25 if completed else 0.15)
 	_casting_by_key.erase(key)
 	var node: Node3D = _entities_by_key.get(key)
 	_play_body_state(node, Character.RUN_ANIM if _moving.has(key) else Character.IDLE_ANIM)
 	if completed:
 		_play_body_launch(node)
+		if state.has("element"):
+			Sfx.play_spell(int(state["element"]), "launch", node)
 
 
 ## Termine le cercle d'incantation en cours de `key` s'il y en a un (voir CastCircle.finish).
@@ -2451,6 +2622,33 @@ func _play_skill_animation(target_id: String, skill_name: String) -> void:
 			if skill_name in NON_PROJECTILE_DAMAGE_SKILLS:
 				_spell_vfx.play_on_target(target_node, element)
 				_flash_entity(target_node)
+				Sfx.play_spell_at_point(element, "impact", _spell_vfx, target_node.global_position)
+
+
+## Sort raté (CastResult/SkillCastAnnounced hit = false) : son de raté sur la cible, sans
+## l'effet visuel du sort. Un sort à projectile a déjà joué son raté à l'arrivée du projectile
+## (voir _on_skill_projectile_launched), il n'y a rien à rejouer ici.
+func _play_skill_miss(target_id: String, skill_name: String) -> void:
+	var element := SpellVfx.element_for_skill(skill_name)
+	var projectile := skill_name not in NON_PROJECTILE_DAMAGE_SKILLS and element not in [
+		SpellVfx.Element.HEAL, SpellVfx.Element.BUFF, SpellVfx.Element.DEBUFF, SpellVfx.Element.PHYSICAL,
+	]
+	var target_node := _entity_node_by_id(target_id)
+	if projectile or target_node == null:
+		return
+	Sfx.play_at_point("combat_miss", _spell_vfx, target_node.global_position)
+
+
+## Petit son distinctif quand la cible meurt (notre coup fatal : CastResult.targetDefeated,
+## AttackResult à 0 PV ; ou mort de la cible sélectionnée : MonsterDefeated, GamePlayerDefeated).
+## Plusieurs de ces messages annoncent la même mort : une seule fois par cible.
+func _play_kill_sound(target_id: String) -> void:
+	var now := Time.get_ticks_msec()
+	if target_id.is_empty() or (target_id == _kill_sound_target_id and now - _kill_sound_msec < KILL_SOUND_MEMO_MSEC):
+		return
+	_kill_sound_target_id = target_id
+	_kill_sound_msec = now
+	get_tree().create_timer(KILL_SOUND_DELAY).timeout.connect(func() -> void: Sfx.play_sfx("combat_kill"))
 
 
 func _on_skill_projectile_launched(payload: Dictionary) -> void:
@@ -2460,9 +2658,17 @@ func _on_skill_projectile_launched(payload: Dictionary) -> void:
 		return
 	var element := SpellVfx.element_for_skill(str(payload.get("skillName", "")))
 	var duration_sec := maxf(float(payload.get("travelDurationMs", 0)) / 1000.0, 0.05)
-	_spell_vfx.play_projectile(caster_node, target_node, element, duration_sec, func() -> void:
+	# Issue du jet déjà tirée par le serveur au lancer : raté = son dédié à l'arrivée.
+	var hit := bool(payload.get("hit", true))
+	# Sons posés au point d'impact plutôt qu'attachés à la cible : un coup fatal la fait
+	# disparaître (MonsterDefeated/EntityDisappeared) et couperait net un son enfant de son nœud.
+	_spell_vfx.play_projectile(caster_node, target_node, element, duration_sec, func(point: Vector3) -> void:
+		if not hit:
+			Sfx.play_at_point("combat_miss", _spell_vfx, point)
+			return
 		if is_instance_valid(target_node):
 			_flash_entity(target_node)
+		Sfx.play_spell_at_point(element, "impact", _spell_vfx, point)
 	)
 
 
@@ -2484,11 +2690,15 @@ func _on_own_cast_result(payload: Dictionary) -> void:
 	_apply_target_current_health(
 		target_id, int(payload.get("targetCurrentHealth", 0)), int(payload.get("targetMaxHealth", 0))
 	)
-	if bool(payload.get("hit", false)):
-		var amount := int(payload.get("amount", 0))
-		if amount > 0:
-			_show_damage_number(_entity_node_by_id(target_id), amount, false)
+	if not bool(payload.get("hit", false)):
+		_play_skill_miss(target_id, skill_name)
+		return
+	var amount := int(payload.get("amount", 0))
+	if amount > 0:
+		_show_damage_number(_entity_node_by_id(target_id), amount, false)
 	_play_skill_animation(target_id, skill_name)
+	if bool(payload.get("targetDefeated", false)):
+		_play_kill_sound(target_id)
 
 
 ## Sort d'un AUTRE lanceur observé ou subi (diffusé à toute la zone SAUF au lanceur, qui a
@@ -2509,10 +2719,12 @@ func _on_skill_cast_announced(payload: Dictionary) -> void:
 	_apply_target_current_health(
 		target_id, int(payload.get("targetHealthAfter", 0)), int(payload.get("targetMaxHealth", 0))
 	)
-	if bool(payload.get("hit", false)):
-		var amount := int(payload.get("amount", 0))
-		if amount > 0:
-			_show_damage_number(_entity_node_by_id(target_id), amount, false)
+	if not bool(payload.get("hit", false)):
+		_play_skill_miss(target_id, skill_name)
+		return
+	var amount := int(payload.get("amount", 0))
+	if amount > 0:
+		_show_damage_number(_entity_node_by_id(target_id), amount, false)
 	_play_skill_animation(target_id, skill_name)
 
 
@@ -2523,27 +2735,27 @@ func _on_skill_cast_announced(payload: Dictionary) -> void:
 ## Le monstre est déjà retiré côté serveur à ce stade, donc rien ne le fera réapparaître
 ## dans un futur MapEnter : on grise son corps immédiatement puis on le fait disparaître
 ## après un court délai, plutôt que de le retirer instantanément.
-func _despawn_monster(monster_name: String) -> void:
-	# MonsterDefeated ne porte que le nom (pas d'UUID, voir app.network.message.ingame.
-	# MonsterDefeated côté backend) — ambigu s'il existe plusieurs monstres homonymes en vie
-	# à la fois (rare en pratique, aucun meilleur moyen de résoudre sans changement backend) :
-	# on prend le premier nœud "monster:<uuid>" (voir _apply_appeared_entity, clé désormais par
-	# UUID) dont le nom affiché correspond.
-	var key := ""
-	for candidate_key in _entities_by_key.keys():
-		var candidate_node: Node3D = _entities_by_key[candidate_key]
-		if candidate_key.begins_with("monster:") and str(candidate_node.get_meta("entity_name", "")) == monster_name:
-			key = candidate_key
-			break
+func _despawn_monster(monster_id: String, monster_name: String) -> void:
+	# Résolution par UUID (MonsterDefeated.monsterId, backend 2026-09-26) : par nom, tuer un
+	# Fox faisait mourir un autre Fox homonyme (le premier trouvé), tandis que le vrai disparaissait
+	# sans animation à l'EntityDisappeared qui suit. Repli par nom si le backend n'envoie pas
+	# encore l'UUID.
+	var key: String = _key_by_entity_id.get(monster_id, "")
+	if key.is_empty():
+		for candidate_key in _entities_by_key.keys():
+			var candidate_node: Node3D = _entities_by_key[candidate_key]
+			if candidate_key.begins_with("monster:") and str(candidate_node.get_meta("entity_name", "")) == monster_name:
+				key = candidate_key
+				break
 	var node: Node3D = _entities_by_key.get(key)
 	if node == null:
 		return
 
-	var monster_id := ""
-	for id in _key_by_entity_id.keys():
-		if _key_by_entity_id[id] == key:
-			monster_id = id
-			break
+	if monster_id.is_empty():
+		for id in _key_by_entity_id.keys():
+			if _key_by_entity_id[id] == key:
+				monster_id = id
+				break
 
 	_entities_by_key.erase(key)
 	_moving.erase(key)
@@ -2555,22 +2767,30 @@ func _despawn_monster(monster_name: String) -> void:
 	if not monster_id.is_empty():
 		_key_by_entity_id.erase(monster_id)
 		if monster_id == _selected_target_id:
+			_play_kill_sound(monster_id)
 			_clear_selection()
 
+	# Modèle animé : il s'effondre (clip de mort, figé sur sa dernière image) et reste au sol
+	# un instant avant de s'effacer ; capsule : grisée aussitôt.
+	var fade_delay := MONSTER_DEATH_GREY_DELAY
+	var monster := node.get_node_or_null("Body") as Monster
 	var body := node.get_node_or_null("Body") as MeshInstance3D
-	if body != null and body.mesh != null and body.mesh.material != null:
+	if monster != null:
+		monster.play_death()
+		fade_delay = monster.death_duration() + MONSTER_CORPSE_LINGER
+	elif body != null and body.mesh != null and body.mesh.material != null:
 		(body.mesh.material as StandardMaterial3D).albedo_color = MONSTER_DEATH_GREY_COLOR
 
 	var tween := create_tween()
-	tween.tween_interval(MONSTER_DEATH_GREY_DELAY)
+	tween.tween_interval(fade_delay)
 	tween.tween_method(func(t: float): _set_node_transparency(node, t), 0.0, 1.0, MONSTER_DEATH_FADE_DURATION)
 	tween.tween_callback(node.queue_free)
 
 
+## Récursif : les meshes d'un modèle importé (Monster) sont enfouis sous son squelette.
 func _set_node_transparency(node: Node3D, t: float) -> void:
-	for child in node.get_children():
-		if child is GeometryInstance3D:
-			child.transparency = t
+	for child in node.find_children("*", "GeometryInstance3D", true, false):
+		child.transparency = t
 
 
 # ---------------------------------------------------------------------------
@@ -2606,45 +2826,128 @@ func _try_send_goto_at_mouse() -> void:
 	_show_move_marker(target)
 
 
+## Destination d'un clic au sol : même anneau que le cercle de cible (voir
+## SELECTION_RING_SHADER_CODE/_make_ground_ring), plus petit et doré, qui se resserre en
+## apparaissant à chaque clic (voir _show_move_marker) au lieu du simple tore jaune.
+const MOVE_MARKER_SIZE := 1.25
+const MOVE_MARKER_COLOR := Color(1.0, 0.82, 0.36)
+const MOVE_MARKER_POP_SCALE := 1.7
+const MOVE_MARKER_POP_TIME := 0.22
+
+
 func _make_move_marker() -> void:
-	_move_marker = MeshInstance3D.new()
-	var torus := TorusMesh.new()
-	torus.inner_radius = 0.22
-	torus.outer_radius = 0.4
-	var marker_mat := StandardMaterial3D.new()
-	marker_mat.albedo_color = Color(0.95, 0.85, 0.45)
-	marker_mat.emission_enabled = true
-	marker_mat.emission = Color(0.95, 0.85, 0.45)
-	marker_mat.emission_energy_multiplier = 1.2
-	torus.material = marker_mat
-	_move_marker.mesh = torus
-	_move_marker.visible = false
+	_move_marker = _make_ground_ring(MOVE_MARKER_SIZE, MOVE_MARKER_COLOR)
 	_world.add_child(_move_marker)
 
 
+## Appelée au clic puis à l'écho MovementStarted du serveur : l'animation d'apparition ne
+## rejoue que pour une nouvelle destination.
 func _show_move_marker(pos: Vector2) -> void:
-	_move_marker.position = Vector3(pos.x, 0.05, pos.y)
+	var marker_pos := Vector3(pos.x, 0.05, pos.y)
+	var fresh := not _move_marker.visible or _move_marker.position.distance_to(marker_pos) > 0.3
+	_move_marker.position = marker_pos
 	_move_marker.visible = true
+	if not fresh:
+		return
+	if _move_marker_tween != null and _move_marker_tween.is_valid():
+		_move_marker_tween.kill()
+	var mat: ShaderMaterial = _move_marker.get_meta("material")
+	_move_marker.scale = Vector3.ONE * MOVE_MARKER_POP_SCALE
+	mat.set_shader_parameter("intensity", 0.0)
+	_move_marker_tween = _move_marker.create_tween().set_parallel(true) 			.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	_move_marker_tween.tween_property(_move_marker, "scale", Vector3.ONE, MOVE_MARKER_POP_TIME)
+	_move_marker_tween.tween_method(
+		func(v: float) -> void: mat.set_shader_parameter("intensity", v), 0.0, 1.0, MOVE_MARKER_POP_TIME
+	)
 
 
 func _hide_move_marker() -> void:
+	if _move_marker_tween != null and _move_marker_tween.is_valid():
+		_move_marker_tween.kill()
 	_move_marker.visible = false
 
 
+## Cercle de cible au sol (remplace le gros tore rouge, 2026-09-26) : un seul plan plaqué au
+## sol dessiné par shader — fin anneau net + halo doux, léger voile intérieur, quatre arcs
+## qui tournent lentement autour et une ombre sombre sous l'anneau pour rester lisible même
+## en blanc sur un sol clair. Tout est en distances normalisées (0 = centre, 1 = bord du plan)
+## et lissé via fwidth, donc net à tous les niveaux de zoom. Couleur par type de cible, voir
+## _selection_color_for.
+const SELECTION_RING_SIZE := 1.8
+const SELECTION_RING_SHADER_CODE := """
+shader_type spatial;
+render_mode unshaded, cull_disabled, depth_draw_never, blend_mix, specular_disabled, shadows_disabled;
+
+uniform vec4 ring_color : source_color = vec4(0.92, 0.2, 0.16, 1.0);
+uniform float intensity = 1.0;
+
+float band(float d, float center, float half_width) {
+	float aa = max(fwidth(d), 0.0005);
+	return 1.0 - smoothstep(half_width - aa, half_width + aa, abs(d - center));
+}
+
+void fragment() {
+	vec2 p = (UV - 0.5) * 2.0;
+	float r = length(p);
+	float angle = atan(p.y, p.x);
+	float pulse = 0.82 + 0.18 * sin(TIME * 3.2);
+
+	float ring = band(r, 0.66, 0.026);
+	float glow = exp(-pow((r - 0.66) / 0.07, 2.0)) * 0.5 * pulse;
+	float veil = smoothstep(0.15, 0.64, r) * (1.0 - smoothstep(0.64, 0.68, r)) * 0.16;
+
+	// Quatre arcs extérieurs (~55° chacun) tournant lentement, bouts arrondis par le lissage.
+	float seg = fract((angle + TIME * 0.7) / (PI * 0.5));
+	float arc_mask = smoothstep(0.0, 0.04, seg) * (1.0 - smoothstep(0.26, 0.30, seg));
+	float arcs = band(r, 0.82, 0.03) * arc_mask;
+
+	float light = clamp(ring + arcs * 0.9 + glow + veil, 0.0, 1.0);
+	float shadow = (band(r, 0.66, 0.05) + band(r, 0.82, 0.055) * arc_mask) * 0.35;
+	float alpha = clamp(max(light, shadow), 0.0, 1.0);
+	if (alpha < 0.003) {
+		discard;
+	}
+	vec3 lit = mix(ring_color.rgb, vec3(1.0), ring * 0.15);
+	ALBEDO = lit * (light / alpha);
+	ALPHA = alpha * ring_color.a * intensity;
+}
+"""
+
+
 func _make_selection_ring() -> void:
-	_selection_ring = MeshInstance3D.new()
-	var torus := TorusMesh.new()
-	torus.inner_radius = 0.42
-	torus.outer_radius = 0.56
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = SELECTION_COLOR
-	mat.emission_enabled = true
-	mat.emission = SELECTION_COLOR
-	mat.emission_energy_multiplier = 1.4
-	torus.material = mat
-	_selection_ring.mesh = torus
-	_selection_ring.visible = false
+	_selection_ring = _make_ground_ring(SELECTION_RING_SIZE, SELECTION_COLOR)
 	_world.add_child(_selection_ring)
+
+
+## Plan plaqué au sol dessiné par SELECTION_RING_SHADER_CODE (matériau en meta "material",
+## caché à la création).
+func _make_ground_ring(size: float, color: Color) -> MeshInstance3D:
+	var ring := MeshInstance3D.new()
+	var plane := PlaneMesh.new()
+	plane.size = Vector2.ONE * size
+	var shader := Shader.new()
+	shader.code = SELECTION_RING_SHADER_CODE
+	var mat := ShaderMaterial.new()
+	mat.shader = shader
+	mat.set_shader_parameter("ring_color", color)
+	plane.material = mat
+	ring.mesh = plane
+	ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	ring.visible = false
+	ring.set_meta("material", mat)
+	return ring
+
+
+## Blanc sur soi-même, vert sur un membre du groupe (voir GameState.party), bleu clair sur un
+## PNJ (même teinte que son nom dans %TargetStatusBar), rouge sinon (monstre, autre joueur).
+func _selection_color_for(target_id: String, key: String) -> Color:
+	if key == PLAYER_KEY or target_id == str(GameState.player_stats.get("id", "")):
+		return SELECTION_SELF_COLOR
+	if (GameState.party.get("members", {}) as Dictionary).has(target_id):
+		return SELECTION_PARTY_COLOR
+	if key.begins_with("npc:"):
+		return SELECTION_NPC_COLOR
+	return SELECTION_COLOR
 
 
 # ---------------------------------------------------------------------------
@@ -2785,7 +3088,7 @@ func _log_player_defeated(payload: Dictionary) -> void:
 ## Journal système (voir _system_log_label) : tout sauf le chat entre joueurs (_log_chat).
 func _log(text: String) -> void:
 	_system_log_label.append_text(text + "\n")
-	_flash_chat_window(_system_log_background)
+	_flash_chat_window(_system_log_background, SYSTEM_WINDOW_MESSAGE_HOLD_SEC)
 
 
 ## Journal du chat entre joueurs (voir _chat_log_label), distinct du journal système ci-dessus
@@ -2802,9 +3105,9 @@ func _log_chat(text: String, channel: String = "say") -> void:
 
 ## Fait clignoter légèrement une fenêtre de discussion à l'arrivée d'un nouveau message (voir
 ## _log/_log_chat) : passe à CHAT_WINDOW_MESSAGE_ALPHA puis retombe en fondu vers
-## CHAT_WINDOW_IDLE_ALPHA après CHAT_WINDOW_MESSAGE_HOLD_SEC — sans effet tant que %ChatInput a
+## CHAT_WINDOW_IDLE_ALPHA après `hold_sec` — sans effet tant que %ChatInput a
 ## le focus (la fenêtre reste alors pleinement opaque, voir _set_chat_windows_interactive).
-func _flash_chat_window(background: PanelContainer) -> void:
+func _flash_chat_window(background: PanelContainer, hold_sec: float = CHAT_WINDOW_MESSAGE_HOLD_SEC) -> void:
 	if _chat_input.has_focus():
 		return
 	_kill_chat_window_fade(background)
@@ -2813,7 +3116,7 @@ func _flash_chat_window(background: PanelContainer) -> void:
 	if handle != null:
 		handle.modulate.a = CHAT_WINDOW_MESSAGE_ALPHA
 	var tween := create_tween()
-	tween.tween_interval(CHAT_WINDOW_MESSAGE_HOLD_SEC)
+	tween.tween_interval(hold_sec)
 	tween.set_parallel(true)
 	tween.tween_property(background, "modulate:a", CHAT_WINDOW_IDLE_ALPHA, CHAT_WINDOW_FADE_SEC)
 	if handle != null:

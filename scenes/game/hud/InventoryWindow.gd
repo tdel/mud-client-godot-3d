@@ -131,6 +131,10 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 			_show_message("Cet objet n'est plus dans votre inventaire.")
 		"ItemNotUsable":
 			_show_message("« %s » ne peut pas être utilisé." % str(payload.get("name", "?")))
+		"HealthAlreadyFull":
+			_show_message("Vos PV sont déjà au maximum.")
+		"ManaAlreadyFull":
+			_show_message("Vos PM sont déjà au maximum.")
 		"ShotGradeChanged", "ShotOutOfStock":
 			# GameState.active_*shot_grade est déjà à jour : on ne fait que redessiner le
 			# surlignage "actif" sans attendre un aller-retour "inventory".

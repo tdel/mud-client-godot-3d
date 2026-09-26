@@ -79,6 +79,13 @@ var theme: Theme
 var font_main: SystemFont
 var font_bold: SystemFont
 var font_display: SystemFont
+## Police des textes flottants 3D (noms/titres au-dessus des entités, voir Game3D) : même
+## famille que l'UI, graisse normale, avec mipmaps pour rester lisse une fois réduite par la
+## caméra orthographique (et quel que soit le zoom).
+var font_world: SystemFont
+## Variante grasse de font_world, réservée au nom de la cible sélectionnée (voir
+## Game3D._layout_overhead).
+var font_world_bold: SystemFont
 
 var _bar_fill_cache: Dictionary = {}
 var _bar_bg_style: StyleBox
@@ -209,6 +216,14 @@ func _build_theme() -> Theme:
 	font_bold.font_weight = 700
 	font_display = SystemFont.new()
 	font_display.font_names = PackedStringArray(FONT_DISPLAY)
+	font_world = SystemFont.new()
+	font_world.font_names = PackedStringArray(FONT_MAIN)
+	font_world.antialiasing = TextServer.FONT_ANTIALIASING_GRAY
+	font_world.hinting = TextServer.HINTING_NONE
+	font_world.subpixel_positioning = TextServer.SUBPIXEL_POSITIONING_DISABLED
+	font_world.generate_mipmaps = true
+	font_world_bold = font_world.duplicate()
+	font_world_bold.font_weight = 700
 
 	t.default_font = font_main
 	t.default_font_size = 13
@@ -427,6 +442,10 @@ func _build_theme() -> Theme:
 	t.set_stylebox("slider", "HSlider", _sbt(_inset_image(Color(0.01, 0.01, 0.012, 0.8)), 2, 0, 2, 0, 2))
 	t.set_stylebox("grabber_area", "HSlider", _bar_fill_style("exp"))
 	t.set_stylebox("grabber_area_highlight", "HSlider", _bar_fill_style("exp"))
+	t.set_icon("grabber", "HSlider", _slider_grabber_icon(false))
+	t.set_icon("grabber_highlight", "HSlider", _slider_grabber_icon(true))
+	t.set_icon("grabber_disabled", "HSlider", _slider_grabber_icon(false))
+	t.set_constant("center_grabber", "HSlider", 1)
 
 	# --- Infobulles -----------------------------------------------------------
 	var tooltip := StyleBoxFlat.new()
@@ -845,6 +864,30 @@ func _close_icon(color: Color) -> ImageTexture:
 			if outline > 0.0:
 				var col := Color(0, 0, 0, outline).lerp(Color(color, 1.0), core)
 				img.set_pixel(x, y, col)
+	return ImageTexture.create_from_image(img)
+
+
+## Curseur de slider : petite plaque de bronze biseautée (clair en haut, sombre en bas) avec
+## une rainure centrale, plus lumineuse au survol.
+func _slider_grabber_icon(highlight: bool) -> ImageTexture:
+	var w := 10
+	var h := 16
+	var img := Image.create(w, h, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0, 0, 0, 0))
+	var top := METAL_LIGHT.lightened(0.25) if highlight else METAL_LIGHT
+	var bottom := METAL if highlight else METAL_DARK.lerp(METAL, 0.5)
+	for y in h:
+		for x in w:
+			var col := top.lerp(bottom, float(y) / float(h - 1))
+			if x == 0 or y == 0 or x == w - 1 or y == h - 1:
+				col = Color(0.03, 0.03, 0.03)
+			elif y == 1 or x == 1:
+				col = col.lightened(0.3)
+			elif y == h - 2 or x == w - 2:
+				col = col.darkened(0.35)
+			elif x * 2 == w and y > 3 and y < h - 4:
+				col = col.darkened(0.45)
+			img.set_pixel(x, y, col)
 	return ImageTexture.create_from_image(img)
 
 

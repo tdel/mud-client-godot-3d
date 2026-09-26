@@ -39,6 +39,7 @@ var _toggle_buttons: Array[Button] = []
 
 func _ready() -> void:
 	_backdrop.texture = UITheme.get_hero_backdrop_texture()
+	MenuMusic.play()
 	Net.message_received.connect(_on_message_received)
 	Net.disconnected.connect(_on_net_disconnected)
 	_create_button.pressed.connect(_on_create_pressed)

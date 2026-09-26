@@ -109,7 +109,9 @@ func play_impact(feet: Vector3, element: int) -> void:
 
 
 ## Projectile de `caster` vers `target` en `duration_sec` (travelDurationMs serveur) : suit la
-## cible si elle bouge, joue l'impact de l'élément à l'arrivée puis appelle `on_impact`.
+## cible si elle bouge, joue l'impact de l'élément à l'arrivée puis appelle
+## `on_impact(point: Vector3)` — pieds de la cible à l'arrivée (dernière position connue si
+## elle a disparu en route).
 func play_projectile(caster: Node3D, target: Node3D, element: int, duration_sec: float, on_impact: Callable = Callable()) -> void:
 	var start := caster.global_position + Vector3.UP * HAND_HEIGHT
 	var flat := (target.global_position - caster.global_position) * Vector3(1, 0, 1)
@@ -149,7 +151,7 @@ func play_projectile(caster: Node3D, target: Node3D, element: int, duration_sec:
 			projectile_light.visible = false
 		play_impact(state["feet"], element)
 		if on_impact.is_valid():
-			on_impact.call()
+			on_impact.call(state["feet"])
 		VfxLib.free_after(root, 1.2)
 	)
 

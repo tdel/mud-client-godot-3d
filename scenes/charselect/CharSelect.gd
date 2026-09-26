@@ -29,6 +29,7 @@ var _pending_delete_name := ""
 
 func _ready() -> void:
 	_backdrop.texture = UITheme.get_hero_backdrop_texture()
+	MenuMusic.play()
 	Net.message_received.connect(_on_message_received)
 	Net.disconnected.connect(_on_net_disconnected)
 	_delete_confirm_dialog.confirmed.connect(_on_delete_confirmed)

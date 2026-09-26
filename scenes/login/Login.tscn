@@ -2,6 +2,7 @@
 
 [ext_resource type="Script" uid="uid://6xbdpafas1o8" path="res://scenes/login/Login.gd" id="1"]
 [ext_resource type="Script" uid="uid://c2e8ceqi3kjgp" path="res://scenes/common/HeroSilhouettes.gd" id="2"]
+[ext_resource type="PackedScene" path="res://scenes/common/SystemMenu.tscn" id="3"]
 
 [sub_resource type="ButtonGroup" id="1"]
 
@@ -200,3 +201,6 @@ offset_bottom = -6.0
 theme_type_variation = &"DimLabel"
 theme_override_font_sizes/font_size = 11
 text = "Prototype isométrique 3D"
+
+[node name="SystemMenu" parent="." instance=ExtResource("3")]
+layout_mode = 1
