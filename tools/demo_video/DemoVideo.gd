@@ -106,6 +106,9 @@ func _play_village() -> void:
 	await _wait(0.9)
 	_emit("SkillModifierAnnounced", {"casterId": MATE_ID, "casterName": MATE_NAME, "skillName": "Empower",
 		"targetId": MATE_ID, "hit": true})
+	# Le buff apparaît dans la fenêtre de groupe, comme le diffuse PartyEngine au groupe.
+	_emit("PartyMemberEffectApplied", {"characterId": MATE_ID, "characterName": MATE_NAME, "skillName": "Empower",
+		"stat": "M. Atk.", "amount": 1, "secondsRemaining": 60, "beneficial": true})
 	await _wait(0.35)
 	_say("En route !")
 	var run := _move_player(VILLAGE_PORTAL + Vector2(0.4, 0.0))
@@ -128,9 +131,8 @@ func _play_oree() -> void:
 		_monster_entry(FOX_A_ID, "Fox", Vector2(415.0, 139.0), 44, 2, -0.4),
 		_monster_entry(FOX_B_ID, "Fox", Vector2(411.5, 137.5), 44, 2, 0.1),
 	]})
-	GameState.party.members[MATE_ID] = GameState._member_vitals({
-		"name": MATE_NAME, "currentHealth": _hp[MATE_ID], "maxHealth": _max_hp[MATE_ID],
-		"currentMana": 90, "maxMana": 90})
+	_emit("PartyMemberVitalsUpdated", {"characterId": MATE_ID, "characterName": MATE_NAME,
+		"currentHealth": _hp[MATE_ID], "maxHealth": _max_hp[MATE_ID], "currentMana": 90, "maxMana": 90})
 	await _wait_map_loaded()
 	await _wait(0.25)
 
@@ -239,7 +241,8 @@ func _feed_initial_state() -> void:
 			"cooldownSeconds": 4, "range": 2},
 	]})
 	GameState.party = {"leader_id": PLAYER_ID, "loot_mode": "ROUND_ROBIN", "members": {
-		MATE_ID: GameState._member_vitals({"name": MATE_NAME, "currentHealth": _hp[MATE_ID],
+		MATE_ID: GameState._member_vitals({"name": MATE_NAME, "level": 5, "characterClass": "MYSTIC",
+			"currentHealth": _hp[MATE_ID],
 			"maxHealth": _max_hp[MATE_ID], "currentMana": 90, "maxMana": 90}),
 	}}
 

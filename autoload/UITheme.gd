@@ -262,6 +262,9 @@ func _build_theme() -> Theme:
 	_panel_variation(t, "WindowPanel", window_style)
 	var hud_style := _sbt(_window_image(Color(0.06, 0.06, 0.07, 0.80), Color(0.02, 0.02, 0.025, 0.80)), 8, 8, 6, 8, 6)
 	_panel_variation(t, "HudPanel", hud_style)
+	# Cadre HUD de la cible courante (membre du groupe sélectionné, voir PartyWindow) : même
+	# cadre, fond réchauffé d'un reflet doré.
+	_panel_variation(t, "HudPanelSelected", _sbt(_window_image(Color(0.22, 0.17, 0.08, 0.86), Color(0.08, 0.06, 0.025, 0.86)), 8, 8, 6, 8, 6))
 	_panel_variation(t, "TitleBar", _sbt(_titlebar_image(), 3, 10, 3, 4, 3))
 	_panel_variation(t, "InsetPanel", _sbt(_inset_image(Color(0.015, 0.015, 0.02, 0.75)), 3, 8, 6, 8, 6))
 	_panel_variation(t, "SlotPanel", _sbt(_slot_image(false), 4, 0, 0, 0, 0))

@@ -188,6 +188,9 @@ const LOG_COLOR_SAY := "#ffffff"
 const LOG_COLOR_PARTY := "#5ce65c"
 const LOG_COLOR_WHISPER := "#ff77ff"
 
+## Party.MAX_SIZE côté backend (nous compris).
+const PARTY_MAX_SIZE := 8
+
 ## Transparence des fenêtres de discussion (%ChatLogPanel/%SystemLogPanel) — demande explicite
 ## du 2026-09-06 : quasi invisibles tant que %ChatInput n'a pas le focus (pour ne pas gêner la
 ## vue 3D et laisser le clic passer à travers, voir _set_chat_windows_interactive), légèrement
@@ -303,6 +306,10 @@ const KILL_SOUND_MEMO_MSEC := 3000
 ## Carte entière de la zone (touche M), voir WorldMapWindow.gd.
 @onready var _world_map: Control = %WorldMapWindow
 @onready var _player_frame: Control = %PlayerFrame
+## Fenêtre de groupe sous %PlayerFrame (voir PartyWindow.gd) et invitation reçue (voir
+## PartyInviteDialog.gd, pilotée par _on_party_message).
+@onready var _party_window: Control = %PartyWindow
+@onready var _party_invite_dialog: Control = %PartyInviteDialog
 ## Journal système (arrivée/départ de carte, dégâts, XP, loot, incantations, erreurs...) —
 ## voir _log — distinct du chat entre joueurs (_chat_log_label/_log_chat), demande explicite
 ## du 2026-09-06 pour ne plus mélanger les deux dans une seule fenêtre.
@@ -513,6 +520,8 @@ func _ready() -> void:
 	_player_frame.self_clicked.connect(_on_player_frame_self_clicked)
 	_target_status_bar.teleport_requested.connect(_on_teleport_button_pressed)
 	_target_status_bar.close_requested.connect(_deselect_all)
+	_target_status_bar.invite_requested.connect(func(): Net.send_command("party-invite"))
+	_party_window.member_selected.connect(_on_party_member_selected)
 
 	_camera.size = _camera_size
 	_camera.near = CAMERA_NEAR
@@ -1051,8 +1060,11 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 			_log("[i]Vous ne pouvez pas vous chuchoter à vous-même.[/i]")
 		"WhisperTargetNotFound":
 			_log("[i]%s n'est pas connecté.[/i]" % _bbcode_escape(str(payload.get("name", "?"))))
-		"NotInParty":
-			_log("[i]Vous n'êtes dans aucun groupe.[/i]")
+		"NotInParty", "PartyInviteSent", "PartyInviteReceived", "PartyInviteDeclined", "PartyJoined", \
+				"PartyMemberJoined", "PartyMemberLeft", "PartyMemberKicked", "KickedFromParty", "PartyLeft", \
+				"PartyDisbanded", "NewPartyLeader", "PartyLootModeChanged", "AlreadyInParty", "PartyFull", \
+				"NotPartyLeader", "NoPendingInvite", "CannotInviteSelf", "CannotKickSelf", "NoSuchPartyMember":
+			_on_party_message(type, payload)
 		"PeaceZoneEntered":
 			_log("Zone paisible (%s) : %s" % [
 				_bbcode_escape(str(payload.get("zoneName", "?"))),
@@ -1719,6 +1731,112 @@ func _on_player_frame_self_clicked() -> void:
 		return
 	Net.send_command("select", my_id)
 	_clear_portal_selection()
+
+
+## Clic sur un membre de %PartyWindow : le cible comme un clic dans le monde (utile pour le
+## soigner/buffer). Hors de notre carte, le serveur répond TargetNotFound.
+func _on_party_member_selected(member_id: String) -> void:
+	Net.send_command("select", member_id)
+	_clear_portal_selection()
+
+
+## Vrai si la cible est un autre joueur qu'on peut inviter : on n'a pas de groupe, ou on en
+## est le chef et il n'y est pas encore (8 membres au plus, voir Party.MAX_SIZE côté backend).
+func _can_invite_selected() -> bool:
+	var my_id := str(GameState.player_stats.get("id", ""))
+	if _selected_target_id.is_empty() or _selected_target_id == my_id:
+		return false
+	var node := _entity_node_by_id(_selected_target_id)
+	if node == null or str(node.get_meta("kind", "")) != "character":
+		return false
+	if GameState.party.is_empty():
+		return true
+	var members: Dictionary = GameState.party.get("members", {})
+	return str(GameState.party.get("leader_id", "")) == my_id and not members.has(_selected_target_id) \
+			and members.size() < PARTY_MAX_SIZE - 1
+
+
+## Messages du groupe (voir le match de _on_message_received) : GameState a déjà mis
+## GameState.party à jour (voir GameState.party_changed) ; ici, seulement le journal, les sons
+## (arrivée d'un membre / départ, exclusion ou dissolution) et la fenêtre d'invitation.
+func _on_party_message(type: String, payload: Dictionary) -> void:
+	var my_id := str(GameState.player_stats.get("id", ""))
+	match type:
+		"PartyInviteSent":
+			_log_party("Vous invitez %s à rejoindre votre groupe." % _bbcode_escape(str(payload.get("targetName", "?"))))
+		"PartyInviteReceived":
+			var inviter := str(payload.get("inviterName", "?"))
+			_log_party("%s vous invite à rejoindre son groupe." % _bbcode_escape(inviter))
+			_party_invite_dialog.open(inviter)
+		"PartyInviteDeclined":
+			# Même message pour un refus et une expiration, envoyé aux deux joueurs avec le nom
+			# de l'autre : si notre fenêtre d'invitation vient de cet inviteur, c'est nous
+			# l'invité.
+			var other := str(payload.get("otherName", "?"))
+			if _party_invite_dialog.visible and _party_invite_dialog.inviter_name == other:
+				var line := "Vous déclinez l'invitation de %s." if _party_invite_dialog.declined \
+						else "L'invitation de %s a expiré."
+				_log("[i]%s[/i]" % (line % _bbcode_escape(other)))
+				_party_invite_dialog.close()
+			else:
+				_log("[i]%s a décliné votre invitation.[/i]" % _bbcode_escape(other))
+		"PartyJoined":
+			_party_invite_dialog.close()
+			_log_party("Vous rejoignez le groupe de %s." % _bbcode_escape(str(payload.get("leaderName", "?"))))
+			Sfx.play_ui("party_join")
+		"PartyMemberJoined":
+			_log_party("%s rejoint le groupe." % _bbcode_escape(str(payload.get("memberName", "?"))))
+			Sfx.play_ui("party_join")
+		"PartyMemberLeft":
+			_log_party("%s a quitté le groupe." % _bbcode_escape(str(payload.get("memberName", "?"))))
+			Sfx.play_ui("party_leave")
+		"PartyMemberKicked":
+			var kicked := _bbcode_escape(str(payload.get("targetName", "?")))
+			if str(GameState.party.get("leader_id", "")) == my_id or GameState.party.is_empty():
+				_log_party("Vous excluez %s du groupe." % kicked)
+			else:
+				_log_party("%s a été exclu du groupe." % kicked)
+			Sfx.play_ui("party_leave")
+		"KickedFromParty":
+			_log_party("Vous avez été exclu du groupe.")
+			Sfx.play_ui("party_leave")
+		"PartyLeft":
+			_log_party("Vous quittez le groupe.")
+			Sfx.play_ui("party_leave")
+		"PartyDisbanded":
+			_log_party("Le groupe est dissous.")
+			Sfx.play_ui("party_leave")
+		"NewPartyLeader":
+			if str(payload.get("leaderId", "")) == my_id:
+				_log_party("Vous êtes désormais le chef du groupe.")
+			else:
+				_log_party("%s est désormais le chef du groupe." % _bbcode_escape(str(payload.get("leaderName", "?"))))
+		"PartyLootModeChanged":
+			var loot_label := "Aléatoire" if str(payload.get("lootMode", "")) == "RANDOM" else "Tour par tour"
+			_log_party("Mode de butin du groupe : %s." % loot_label)
+		"NotInParty":
+			_log("[i]Vous n'êtes dans aucun groupe.[/i]")
+		"AlreadyInParty":
+			_log("[i]%s fait déjà partie d'un groupe.[/i]" % _bbcode_escape(str(payload.get("targetName", "?"))))
+		"PartyFull":
+			_party_invite_dialog.close()
+			_log("[i]Le groupe est complet.[/i]")
+		"NotPartyLeader":
+			_log("[i]Seul le chef du groupe peut faire cela.[/i]")
+		"NoPendingInvite":
+			_party_invite_dialog.close()
+			_log("[i]Aucune invitation en attente.[/i]")
+		"CannotInviteSelf":
+			_log("[i]Vous ne pouvez pas vous inviter vous-même.[/i]")
+		"CannotKickSelf":
+			_log("[i]Vous ne pouvez pas vous exclure vous-même.[/i]")
+		"NoSuchPartyMember":
+			_log("[i]Ce joueur ne fait pas partie de votre groupe.[/i]")
+
+
+## Ligne de journal système aux couleurs du groupe (même vert que le canal #Groupe).
+func _log_party(text: String) -> void:
+	_log("[color=%s]%s[/color]" % [LOG_COLOR_PARTY, text])
 
 
 func _select_next_nearest_monster() -> void:
@@ -3239,6 +3357,8 @@ func _update_player_frame() -> void:
 	_player_frame.set_health(int(vitals.get("current", 0)), int(vitals.get("max", 0)))
 	_player_frame.set_mana(GameState.current_mana, GameState.max_mana)
 	_player_frame.set_xp(GameState.xp, GameState.xp_for_current_level, GameState.xp_for_next_level)
+	_party_window.set_selected(_selected_target_id)
+	_target_status_bar.set_invite_visible(_can_invite_selected())
 
 
 ## Ligne de journal pour un AttackResult (attaque de base), diffusé à toute la KnownList —

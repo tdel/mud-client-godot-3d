@@ -58,15 +58,29 @@ var appeared_entities: Dictionary = {}
 var appeared_portals: Dictionary = {}
 
 ## Groupe (party) courant, {} si on n'est dans aucun groupe. Sinon :
-## {leader_id: String, members: {id: {name, current_health, max_health, current_mana,
-## max_mana}}, loot_mode: String ("RANDOM"/"ROUND_ROBIN")}. `members` exclut volontairement
-## notre propre personnage : nos propres PV/mana sont déjà tenus à jour ailleurs
-## (player_stats/current_mana/max_mana) et dupliquer cette source ici la ferait diverger
-## dès la prochaine regen/dégât — PartyPanel.gd affiche sa propre ligne à partir de ces
-## champs plutôt que de members. Alimenté par PartyJoined/PartyMemberJoined (voir
-## CLAUDE.md, correctif backend "PartyJoined.members"/"PartyMemberJoined vitaux" — sans lui
-## un joueur qui rejoint un groupe de 3+ n'apprendrait que le leader).
+## {leader_id: String, members: {id: {name, level, character_class, subclass, current_health,
+## max_health, current_mana, max_mana, effects}}, loot_mode: String ("RANDOM"/"ROUND_ROBIN")}.
+## character_class/subclass : noms d'enum backend (FIGHTER/MYSTIC, WARRIOR/.../CLERIC, "" sans
+## sous-classe), niveau et classe tenus à jour par PartyMemberProfileUpdated. `members` exclut
+## volontairement notre propre personnage : nos propres PV/mana sont déjà tenus à jour
+## ailleurs (player_stats/current_mana/max_mana) et dupliquer cette source ici la ferait
+## diverger dès la prochaine regen/dégât — c'est aussi ce que montre la fenêtre de groupe de
+## L2 (PartyWindow.gd) : les autres membres, notre propre cadre restant PlayerFrame.
+## Alimenté par PartyJoined/PartyMemberJoined (vitaux et effets déjà actifs inclus côté
+## backend — sans eux un joueur qui rejoint un groupe de 3+ n'apprendrait que le leader).
+##
+## `effects` : buffs/debuffs actifs du membre, {skill_name: {beneficial: bool, expires_at:
+## float (GameClock.now())}} dans l'ordre d'application — PartyJoined/PartyMemberJoined
+## (champ `effects`), puis PartyMemberEffectApplied/PartyMemberEffectExpired. Un effet dont
+## l'expiration serveur n'arrive jamais (message perdu) disparaît de lui-même un peu après
+## expires_at (voir PartyWindow.EXPIRY_GRACE_SEC).
 var party: Dictionary = {}
+
+## Émis après chaque changement de `party` dû à un message serveur : `event` est le type du
+## message (PartyJoined, PartyMemberLeft, PartyMemberVitalsUpdated...), `payload` le sien.
+## GameState traite les messages avant toute scène (autoload connecté en premier), donc
+## `party` est déjà à jour quand un écran reçoit ce signal.
+signal party_changed(event: String, payload: Dictionary)
 
 ## Dernier Inventory.payload reçu: {items: Array[{name, grade, slot, type, quantity, ...}],
 ## gold: int} — grade (ex-rarity, voir CLAUDE.md) : enum ItemGrade NOGRADE/D/C/B/A/S.
@@ -275,22 +289,38 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 			var joined_id := str(payload.get("memberId", ""))
 			if not joined_id.is_empty():
 				party.members[joined_id] = _member_vitals({
-					"name": payload.get("memberName", ""), "currentHealth": payload.get("currentHealth", 0),
+					"name": payload.get("memberName", ""), "level": payload.get("level", 0),
+					"characterClass": payload.get("characterClass"), "subclass": payload.get("subclass"),
+					"currentHealth": payload.get("currentHealth", 0),
 					"maxHealth": payload.get("maxHealth", 0), "currentMana": payload.get("currentMana", 0),
-					"maxMana": payload.get("maxMana", 0),
+					"maxMana": payload.get("maxMana", 0), "effects": payload.get("effects", []),
 				})
 		"PartyMemberVitalsUpdated":
 			# Ne concerne jamais notre propre personnage (broadcastVitalsToParty côté backend
 			# nous exclut nous-même, voir CLAUDE.md) : members ne contient de toute façon pas
 			# notre propre entrée (voir la doc de `party` plus haut).
-			if not party.is_empty():
-				var vitals_id := str(payload.get("characterId", ""))
-				if party.members.has(vitals_id):
-					party.members[vitals_id] = _member_vitals({
-						"name": party.members[vitals_id].name, "currentHealth": payload.get("currentHealth", 0),
-						"maxHealth": payload.get("maxHealth", 0), "currentMana": payload.get("currentMana", 0),
-						"maxMana": payload.get("maxMana", 0),
-					})
+			var vitals_member := _party_member(str(payload.get("characterId", "")))
+			if not vitals_member.is_empty():
+				vitals_member.current_health = int(payload.get("currentHealth", 0))
+				vitals_member.max_health = int(payload.get("maxHealth", 0))
+				vitals_member.current_mana = int(payload.get("currentMana", 0))
+				vitals_member.max_mana = int(payload.get("maxMana", 0))
+		"PartyMemberProfileUpdated":
+			# Montée de niveau ou choix de sous-classe d'un autre membre.
+			var profiled := _party_member(str(payload.get("characterId", "")))
+			if not profiled.is_empty():
+				profiled.level = int(payload.get("level", profiled.level))
+				profiled.character_class = _enum_name(payload.get("characterClass"))
+				profiled.subclass = _enum_name(payload.get("subclass"))
+		"PartyMemberEffectApplied":
+			# Renouveler un sort déjà actif garde sa place dans la rangée (même clé).
+			var buffed := _party_member(str(payload.get("characterId", "")))
+			if not buffed.is_empty():
+				buffed.effects[str(payload.get("skillName", ""))] = _effect_entry(payload)
+		"PartyMemberEffectExpired":
+			var expired_on := _party_member(str(payload.get("characterId", "")))
+			if not expired_on.is_empty():
+				expired_on.effects.erase(str(payload.get("skillName", "")))
 		"PartyMemberLeft":
 			# Pas d'UUID sur ce message (voir CLAUDE.md) : recherche par nom, seule clé
 			# disponible. Un groupe réduit à nous seul n'a plus rien à gérer (pas de
@@ -318,7 +348,9 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 			if not party.is_empty():
 				party.loot_mode = str(payload.get("lootMode", party.loot_mode))
 		_:
-			pass
+			return
+	if type.contains("Party"):
+		party_changed.emit(type, payload)
 
 
 ## Replace les objets portés non équipés de `new_items` dans inventory_cells, en comparant à
@@ -398,12 +430,38 @@ func _patch_item_quantity(item_id: String, remaining: int) -> void:
 			return
 
 
+## `member` : PartyJoined.MemberView (ou champs équivalents de PartyMemberJoined), dont
+## `effects` : [{skillName, beneficial, secondsRemaining}]. `level` 0 et classes "" : inconnus
+## (serveur antérieur à ces champs).
 func _member_vitals(member: Dictionary) -> Dictionary:
+	var effects := {}
+	for effect in member.get("effects", []):
+		effects[str(effect.get("skillName", ""))] = _effect_entry(effect)
 	return {
-		"name": str(member.get("name", "")), "current_health": int(member.get("currentHealth", 0)),
+		"name": str(member.get("name", "")), "level": int(member.get("level", 0)),
+		"character_class": _enum_name(member.get("characterClass")), "subclass": _enum_name(member.get("subclass")),
+		"current_health": int(member.get("currentHealth", 0)),
 		"max_health": int(member.get("maxHealth", 0)), "current_mana": int(member.get("currentMana", 0)),
-		"max_mana": int(member.get("maxMana", 0)),
+		"max_mana": int(member.get("maxMana", 0)), "effects": effects,
 	}
+
+
+## `effect` : {beneficial, secondsRemaining} (PartyEffectView ou PartyMemberEffectApplied).
+func _effect_entry(effect: Dictionary) -> Dictionary:
+	return {
+		"beneficial": bool(effect.get("beneficial", true)),
+		"expires_at": GameClock.now() + float(effect.get("secondsRemaining", 0)),
+	}
+
+
+## Nom d'enum Java ("MYSTIC", "WIZARD"...) ou "" pour null/absent.
+static func _enum_name(value) -> String:
+	return "" if value == null else str(value)
+
+
+## Entrée de `party.members` (modifiable en place), {} si inconnue ou hors groupe.
+func _party_member(member_id: String) -> Dictionary:
+	return party.get("members", {}).get(member_id, {})
 
 
 func clear_session() -> void:

@@ -1,4 +1,4 @@
-[gd_scene load_steps=15 format=3]
+[gd_scene load_steps=17 format=3]
 
 [ext_resource type="Script" path="res://scenes/game/Game3D.gd" id="1"]
 [ext_resource type="PackedScene" path="res://scenes/game/hud/TargetStatusBar.tscn" id="2"]
@@ -16,6 +16,8 @@
 [ext_resource type="PackedScene" path="res://scenes/game/hud/DialogueWindow.tscn" id="14"]
 [ext_resource type="Script" path="res://scenes/game/hud/ChatWindowResizeHandle.gd" id="15"]
 [ext_resource type="PackedScene" path="res://scenes/game/hud/WorldMapWindow.tscn" id="16"]
+[ext_resource type="PackedScene" path="res://scenes/game/hud/PartyWindow.tscn" id="17"]
+[ext_resource type="PackedScene" path="res://scenes/game/hud/PartyInviteDialog.tscn" id="18"]
 
 [sub_resource type="Environment" id="Environment_1"]
 background_mode = 1
@@ -67,6 +69,8 @@ current = true
 [node name="HUD" type="CanvasLayer" parent="."]
 
 [node name="PlayerFrame" parent="HUD" instance=ExtResource("5")]
+
+[node name="PartyWindow" parent="HUD" instance=ExtResource("17")]
 
 [node name="Minimap" parent="HUD" instance=ExtResource("12")]
 
@@ -217,5 +221,7 @@ unique_name_in_owner = true
 [node name="ShopWindow" parent="HUD" instance=ExtResource("13")]
 
 [node name="DialogueWindow" parent="HUD" instance=ExtResource("14")]
+
+[node name="PartyInviteDialog" parent="HUD" instance=ExtResource("18")]
 
 [node name="DeathPopup" parent="HUD" instance=ExtResource("11")]

@@ -3,8 +3,11 @@ extends Control
 ## show_portal), centrée en haut de l'écran. Entièrement piloté par Game3D.gd (pas
 ## d'abonnement direct à Net.message_received ici), seul à savoir quelle entité/quel portail
 ## est actuellement sélectionné et à retenir nom/niveau/HP de chaque entité connue. Port du
-## client 2D (mud-godot/scenes/game/hud/TargetStatusBar.gd) sans le bouton "Inviter au
-## groupe" — le groupe est hors scope de ce prototype.
+## client 2D (mud-godot/scenes/game/hud/TargetStatusBar.gd).
+##
+## Bouton "Inviter au groupe" (%InviteButton, `invite_requested`) sous la barre de vie quand la
+## cible est un autre joueur qu'on peut inviter — visibilité décidée par Game3D à chaque
+## image (set_invite_visible), "party-invite" visant la cible sélectionnée côté serveur.
 ##
 ## show_portal (2026-09-06, demande explicite : "j'aurais aimé que la fenêtre de sélection
 ## tout en haut fonctionne aussi pour le portail") remplace la barre de vie par un bouton
@@ -19,6 +22,7 @@ extends Control
 
 signal teleport_requested
 signal close_requested
+signal invite_requested
 
 @onready var _panel: Control = %Panel
 @onready var _name_label: Label = %NameLabel
@@ -29,6 +33,7 @@ signal close_requested
 @onready var _destination_label: Label = %DestinationLabel
 @onready var _teleport_button: Button = %TeleportButton
 @onready var _close_button: Button = %CloseButton
+@onready var _invite_button: Button = %InviteButton
 
 var _entity_name := ""
 var _level := 1
@@ -48,6 +53,7 @@ func _ready() -> void:
 	_teleport_button.pressed.connect(func(): teleport_requested.emit())
 	_close_button.tooltip_text = "Désélectionner (Échap)"
 	_close_button.pressed.connect(func(): close_requested.emit())
+	_invite_button.pressed.connect(func(): invite_requested.emit())
 
 
 ## La fenêtre garde son centre horizontal et s'ajuste en hauteur au contenu (barre de vie
@@ -110,6 +116,13 @@ func show_portal(portal_name: String, target_map_name: String) -> void:
 ## serveur reste la seule vérité.
 func set_teleport_enabled(enabled: bool) -> void:
 	_teleport_button.disabled = not enabled
+
+
+func set_invite_visible(invite_visible: bool) -> void:
+	if _invite_button.visible == invite_visible:
+		return
+	_invite_button.visible = invite_visible
+	_fit_to_content()
 
 
 func hide_target() -> void:

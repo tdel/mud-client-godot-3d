@@ -4,7 +4,8 @@ extends Node
 ##
 ## Usage :
 ##   Godot_console.exe --path . res://tools/ui_preview/UIPreview.tscn -- --shot=game --out=C:/tmp/game.png
-## Scénarios : login, charselect, create, game, game_select_self, game_select_party, game_windows, game_2h, game_shop, game_misc, game_death, game_options[_sound|_system], game_worldmap, loading.
+## Scénarios : login, charselect, create, game, game_select_self, game_select_party, game_party[_menu],
+## game_party_invite, game_invite_button, game_windows, game_2h, game_shop, game_misc, game_death, game_options[_sound|_system], game_worldmap, loading.
 ## game_worldmap accepte --map=<nom de carte> (autre carte que la Place du village) et
 ## --map-size=LxH (taille du parchemin, pour vérifier le redimensionnement).
 ## Suffixe _menu sur login/charselect/create : ouvre le Menu système hors jeu (SystemMenu).
@@ -286,8 +287,23 @@ func _setup_game_scene() -> void:
 		"game_select_self":
 			game._apply_selection("p1", "Aelwyn")
 		"game_select_party":
-			GameState.party = {"leader_id": "p1", "loot_mode": "ROUND_ROBIN", "members": {
-				"c1": {"name": "Kaelis", "currentHealth": 300, "maxHealth": 300}}}
+			_emit("PartyMemberJoined", {"memberId": "c1", "memberName": "Kaelis", "level": 20, "characterClass": "FIGHTER", "currentHealth": 300,
+				"maxHealth": 300, "currentMana": 80, "maxMana": 95})
+			game._apply_selection("c1", "Kaelis")
+		"game_party", "game_party_menu":
+			_feed_party()
+			game._apply_selection("c1", "Kaelis")
+			if _shot == "game_party_menu":
+				# Nous devenons chef : le menu montre alors toutes ses entrées.
+				_emit("NewPartyLeader", {"leaderId": "p1", "leaderName": "Aelwyn"})
+				await _frames(4)
+				var party_window: Control = hud.get_node("PartyWindow")
+				var frame: Control = party_window.get_node("%Members").get_child(0)
+				get_viewport().warp_mouse(frame.get_global_rect().get_center() + Vector2(60, 0))
+				party_window._open_menu(frame.member_id)
+		"game_party_invite":
+			_emit("PartyInviteReceived", {"inviterId": "c1", "inviterName": "Kaelis"})
+		"game_invite_button":
 			game._apply_selection("c1", "Kaelis")
 		"game_windows":
 			hud.get_node("InventoryWindow").open()
@@ -366,6 +382,33 @@ func _setup_game_scene() -> void:
 			var inventory: Control = hud.get_node("InventoryWindow")
 			inventory.open()
 			inventory._on_drop_pressed("i5", "Bastard Sword")
+
+
+## Groupe factice (game_party*) : Kaelis (chef) puis Morwen et Thorgal (mort), buffs/debuffs
+## variés — dont un qui expire (clignote) — passés par les vrais messages serveur, pour
+## exercer aussi GameState et le journal.
+func _feed_party() -> void:
+	_emit("PartyJoined", {"leaderId": "c1", "leaderName": "Kaelis", "memberCount": 4, "members": [
+		{"id": "c1", "name": "Kaelis", "level": 20, "characterClass": "FIGHTER", "subclass": "KNIGHT", "currentHealth": 214, "maxHealth": 300, "currentMana": 60, "maxMana": 95,
+			"effects": [{"skillName": "Might", "beneficial": true, "secondsRemaining": 1100},
+				{"skillName": "Bulwark", "beneficial": true, "secondsRemaining": 640}]},
+		{"id": "c2", "name": "Morwen", "level": 17, "characterClass": "MYSTIC", "subclass": null, "currentHealth": 188, "maxHealth": 196, "currentMana": 305, "maxMana": 410,
+			"effects": [{"skillName": "Empower", "beneficial": true, "secondsRemaining": 6},
+				{"skillName": "Focus", "beneficial": true, "secondsRemaining": 900},
+				{"skillName": "Curse: Weakness", "beneficial": false, "secondsRemaining": 25}]},
+		{"id": "c3", "name": "Thorgal", "level": 9, "characterClass": "FIGHTER", "subclass": null, "currentHealth": 0, "maxHealth": 254, "currentMana": 12, "maxMana": 70,
+			"effects": []},
+	]})
+	_emit("PartyMemberEffectApplied", {"characterId": "c1", "characterName": "Kaelis", "skillName": "Curse: Doom",
+		"stat": "P. Def.", "amount": -12, "secondsRemaining": 30, "beneficial": false})
+	_emit("PartyMemberVitalsUpdated", {"characterId": "c2", "characterName": "Morwen", "currentHealth": 150,
+		"maxHealth": 196, "currentMana": 280, "maxMana": 410})
+	_emit("PartyMemberJoined", {"memberId": "c4", "memberName": "Elenwë", "currentHealth": 120, "maxHealth": 160,
+		"currentMana": 200, "maxMana": 240, "effects": [{"skillName": "Rage", "beneficial": true, "secondsRemaining": 300}]})
+	_emit("PartyMemberLeft", {"memberName": "Elenwë"})
+	# Morwen monte au niveau 18 en cours de groupe.
+	_emit("PartyMemberProfileUpdated", {"characterId": "c2", "characterName": "Morwen", "level": 18,
+		"characterClass": "MYSTIC", "subclass": null})
 
 
 ## Dimensions de la carte lues sur le GridMap "Terrain" de sa scène (voir

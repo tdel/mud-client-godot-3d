@@ -90,6 +90,15 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 mouse_filter = 2
 
+[node name="InviteButton" type="Button" parent="Panel/VBox"]
+unique_name_in_owner = true
+visible = false
+custom_minimum_size = Vector2(120, 0)
+layout_mode = 2
+size_flags_horizontal = 4
+focus_mode = 0
+text = "Inviter au groupe"
+
 [node name="DestinationLabel" type="Label" parent="Panel/VBox"]
 unique_name_in_owner = true
 visible = false

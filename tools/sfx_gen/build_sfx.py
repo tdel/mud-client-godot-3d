@@ -7,7 +7,7 @@ propre par AudioStreamPlayer3D côté Godot).
 
 Usage (depuis la racine du projet) :
     uv run --with numpy --with scipy --with miniaudio --with soundfile --with py7zr \
-        python tools/sfx_gen/build_sfx.py [--preview]
+        python tools/sfx_gen/build_sfx.py [--preview] [--only=<préfixe>]
 
 Les sources sont téléchargées une fois dans tools/sfx_gen/.cache/ (ignoré par git).
 --preview écrit en plus tools/sfx_gen/preview/index.html (lecteurs audio pour tout écouter
@@ -20,7 +20,8 @@ Nommage de sortie :
                                    impact (arrivée d'un projectile sur sa cible)
     ui_<nom>.ogg                 — sons d'interface (bus "UI" côté Godot), dont
                                    ui_item_<equip|unequip>_<weapon|armor|jewel>.ogg
-                                   et ui_action_denied.ogg (action refusée)
+                                   et ui_action_denied.ogg (action refusée),
+                                   ui_party_<join|leave>.ogg (arrivée / départ d'un membre)
     combat_<nom>.ogg             — sons de combat (bus "SFX") : combat_miss (sort raté,
                                    spatialisé sur la cible), combat_kill (cible abattue)
     event_<nom>.ogg              — événements de progression (bus "SFX", non spatialisés) :
@@ -755,6 +756,33 @@ def events():
     return {"event_level_up": finish(x, -20.0, 0.1)}
 
 
+def party():
+    """Groupe (bus "UI", voir Game3D._on_party_message). Évalué en dernier dans main() : ses
+    tirages aléatoires ne décalent pas ceux des autres recettes, dont les fichiers restent
+    identiques."""
+    return {
+        # Un joueur rejoint le groupe : petit carillon sympathique qui monte (harpe en arpège
+        # de do majeur, sol -> do -> mi, puis deux cloches claires et une pincée d'étincelles).
+        "ui_party_join": finish(reverb(mix(
+            (pluck(notes("G5")[0], 0.9, 3.5), 0.0, 0.5),
+            (pluck(notes("C6")[0], 0.9, 3.5), 0.07, 0.55),
+            (pluck(notes("E6")[0], 1.0, 3.2), 0.14, 0.6),
+            (bell(notes("G6")[0], 1.2, 3.2, 0.6), 0.21, 0.45),
+            (bell(notes("C7")[0], 1.0, 3.6, 0.5), 0.21, 0.22),
+            (highpass(sparkle(0.45, 8, 3000, 7000), 2000), 0.2, 0.12),
+        ), 0.25, 1.2), -25.0, 0.1),
+        # Un joueur part, est exclu, ou le groupe se dissout : même timbre, mais qui redescend
+        # doucement (mi -> si -> sol -> ré, la dernière note assourdie), sans étincelles.
+        "ui_party_leave": finish(reverb(mix(
+            (bell(notes("E6")[0], 0.8, 4.0, 0.5), 0.0, 0.4),
+            (pluck(notes("B5")[0], 0.8, 3.5), 0.0, 0.35),
+            (pluck(notes("G5")[0], 0.9, 3.2), 0.12, 0.5),
+            (lowpass(pluck(notes("D5")[0], 1.1, 2.8), 3000), 0.24, 0.55),
+            (peak1(whoosh(0.35, 2400, 700, 0.5, "fall")), 0.0, 0.06),
+        ), 0.22, 1.0), -27.0, 0.1),
+    }
+
+
 def equipment():
     """Équiper / retirer un objet, par famille (voir Sfx.EQUIP_FAMILY) : comme dans L2, une
     arme se dégaine avec un tintement métallique, une armure bruisse (cuir, boucle), un bijou
@@ -818,12 +846,15 @@ def write_preview(paths):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--preview", action="store_true")
+    parser.add_argument("--only", default="", help="n'écrit que les sons dont le nom commence par ce préfixe")
     args = parser.parse_args()
     fetch_sources()
     os.makedirs(OUT, exist_ok=True)
-    sounds = {**spells(), **ui(), **combat(), **events()}
+    sounds = {**spells(), **ui(), **combat(), **events(), **party()}
     written = []
     for name, x in sorted(sounds.items()):
+        if not name.startswith(args.only):
+            continue
         path = os.path.join(OUT, name + ".ogg")
         sf.write(path, x.astype(np.float32), SR, format="OGG", subtype="VORBIS")
         written.append(path)

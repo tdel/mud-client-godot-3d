@@ -1,0 +1,22 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scenes/game/hud/PartyWindow.gd" id="1"]
+
+[node name="PartyWindow" type="Control"]
+unique_name_in_owner = true
+layout_mode = 3
+offset_left = 10.0
+offset_top = 102.0
+offset_right = 390.0
+offset_bottom = 142.0
+mouse_filter = 2
+script = ExtResource("1")
+
+[node name="Members" type="VBoxContainer" parent="."]
+unique_name_in_owner = true
+layout_mode = 0
+mouse_filter = 2
+theme_override_constants/separation = 3
+
+[node name="MemberMenu" type="PopupMenu" parent="."]
+unique_name_in_owner = true

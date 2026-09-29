@@ -50,7 +50,7 @@ static func slot_icon(kind: String, ref_name: String, hint: String = "", size: i
 
 
 ## Pictogrammes des boutons de menu (fond transparent) : "character", "inventory",
-## "skills", "options", "coin".
+## "skills", "options", "coin", "map", "crown".
 static func ui_icon(kind: String, size: int = 32) -> Texture2D:
 	var key := "ui|%s|%d" % [kind, size]
 	if _cache.has(key):
@@ -70,6 +70,8 @@ static func ui_icon(kind: String, size: int = 32) -> Texture2D:
 			_ui_coin(img)
 		"map":
 			_ui_map(img)
+		"crown":
+			_ui_crown(img)
 	if size != BASE_SIZE:
 		img.resize(size, size, Image.INTERPOLATE_LANCZOS)
 	var tex := ImageTexture.create_from_image(img)
@@ -924,3 +926,13 @@ static func _ui_coin(img: Image) -> void:
 	_draw(img, func(p): return _sd_circle(p, Vector2(0.5, 0.5), 0.40), _lit_shade(Color(1.0, 0.92, 0.55), Color(0.62, 0.40, 0.08), 0.5), 2.5)
 	_draw(img, func(p): return absf(_sd_circle(p, Vector2(0.5, 0.5), 0.28)) - 0.03 * BASE_SIZE, _flat(Color(0.60, 0.40, 0.08, 0.9)), 0.0)
 
+
+## Couronne dorée à trois pointes (chef du groupe, voir PartyWindow), gemme rouge au centre.
+static func _ui_crown(img: Image) -> void:
+	var outline := [Vector2(0.12, 0.30), Vector2(0.32, 0.52), Vector2(0.50, 0.20), Vector2(0.68, 0.52),
+		Vector2(0.88, 0.30), Vector2(0.80, 0.78), Vector2(0.20, 0.78)]
+	_draw(img, func(p): return _sd_poly(p, outline), _lit_shade(Color(1.0, 0.92, 0.55), Color(0.62, 0.40, 0.08), 0.5), 2.5)
+	for tip in [Vector2(0.12, 0.28), Vector2(0.50, 0.18), Vector2(0.88, 0.28)]:
+		_draw(img, func(p): return _sd_circle(p, tip, 0.065), _lit_shade(Color(1.0, 0.95, 0.70), Color(0.70, 0.48, 0.12)), 1.5)
+	_draw(img, func(p): return _sd_box(p, Vector2(0.5, 0.72), Vector2(0.30, 0.035)), _flat(Color(0.55, 0.36, 0.07, 0.9)), 0.0)
+	_draw(img, func(p): return _sd_circle(p, Vector2(0.5, 0.58), 0.07), _lit_shade(Color(1.0, 0.55, 0.50), Color(0.55, 0.05, 0.08)), 1.2)
