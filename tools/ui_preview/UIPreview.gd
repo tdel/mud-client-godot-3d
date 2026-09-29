@@ -141,7 +141,7 @@ func _build_icon_sheet() -> void:
 		["item", "Pants", "PANTS"], ["item", "Boots", "BOOTS"], ["item", "Gloves", "GLOVES"],
 		["item", "Shield", "SHIELD"], ["item", "Necklace", "NECKLACE"], ["item", "Earring", "EARRING"],
 		["item", "Ring", "RING"], ["item", "Healing Potion", "POTION"], ["item", "Mana Potion", "POTION"],
-		["item", "Elixir", "POTION"], ["item", "Soulshot", "SOULSHOT"], ["item", "Spiritshot", "SPIRITSHOT"],
+		["item", "Elixir", "POTION"], ["item", "Scroll of Escape", "SCROLL"], ["item", "Soulshot", "SOULSHOT"], ["item", "Spiritshot", "SPIRITSHOT"],
 		["item", "Old Key", "KEY"], ["item", "Hammer", "TOOL"], ["item", "Junk", "MISC"],
 	]
 	for e in entries:
@@ -196,6 +196,7 @@ func _feed_game_state() -> void:
 		"strength": {"score": 40}, "dexterity": {"score": 30}, "constitution": {"score": 43},
 		"intelligence": {"score": 21}, "wit": {"score": 11}, "men": {"score": 25},
 		"karma": 0, "pvpCount": 3, "pkCount": 0,
+		"activeSoulshotGrade": "NOGRADE",
 	})
 	_emit("Inventory", {
 		"gold": 1254300,
@@ -207,6 +208,7 @@ func _feed_game_state() -> void:
 			{"id": "i5", "name": "Bastard Sword", "grade": "C", "type": "WEAPON", "pAtk": 107, "atkSpd": 379, "critBonus": 8, "enchant": 3},
 			{"id": "i6", "name": "Mithril Tunic", "grade": "D", "type": "ARMOR", "armorCategory": "LIGHT", "pDef": 64},
 			{"id": "i7", "name": "Old Key", "grade": "NOGRADE", "type": "KEY"},
+			{"id": "i9", "name": "Scroll of Escape", "grade": "NOGRADE", "type": "SCROLL", "quantity": 12, "description": "Après 8 secondes d'incantation, ramène à un endroit au hasard de la ville la plus proche."},
 			{"id": "i8", "name": "Ring of Wisdom", "grade": "B", "type": "RING", "mDef": 21},
 			{"id": "e1", "name": "Iron Helmet", "grade": "D", "type": "HELMET", "slot": "HEAD", "pDef": 27},
 			{"id": "e2", "name": "Saber", "grade": "NOGRADE", "type": "WEAPON", "slot": "WEAPON", "pAtk": 32},
@@ -235,6 +237,10 @@ func _feed_game_state() -> void:
 		{"id": "m1", "name": "Loup gris", "kind": "monster", "x": cx + 3, "y": cy + 1, "currentHealth": 64, "maxHealth": 120, "level": 14},
 		{"id": "m2", "name": "Gobelin", "kind": "monster", "x": cx - 4, "y": cy + 3, "currentHealth": 80, "maxHealth": 80, "level": 9},
 		{"id": "n1", "name": "Lector", "kind": "npc", "title": "Marchand", "x": cx - 2, "y": cy - 3, "hasShop": true},
+		{"id": "n2", "name": "Village Guard", "kind": "npc", "title": "City Guard", "x": cx - 3.5, "y": cy - 0.5,
+			"heading": 90.0, "npcType": "GUARD", "gender": "MAN"},
+		{"id": "n3", "name": "Village Guard", "kind": "npc", "title": "City Guard", "x": cx - 3.5, "y": cy + 1.2,
+			"heading": 90.0, "npcType": "GUARD", "gender": "WOMAN"},
 		{"id": "c1", "name": "Kaelis", "kind": "character", "title": "Chevalier", "x": cx + 1, "y": cy - 4, "currentHealth": 300, "maxHealth": 300, "level": 20,
 			"gender": "WOMAN", "equipment": [
 				{"slot": "WEAPON", "name": "Tsurugi", "type": "WEAPON", "grade": "C", "weaponType": "BIG_SWORD"},
@@ -262,6 +268,8 @@ func _setup_game_scene() -> void:
 	slot_nodes[6].set_active(true)
 	slot_nodes[7].set_content("item", "Greater Healing Potion")
 	slot_nodes[7].set_quantity(0)
+	slot_nodes[8].set_content("item", "Spiritshot")
+	slot_nodes[8].set_quantity(340)
 	slot_nodes[2].set_cooldown_overlay(6000.0)
 
 	game._log("Vous infligez 42 dégâts à Loup gris.")

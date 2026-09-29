@@ -63,7 +63,7 @@ func set_night_factor(factor: float) -> void:
 
 
 func _process(_delta: float) -> void:
-	var now := Time.get_ticks_msec() / 1000.0
+	var now := GameClock.now()
 	# Matériau partagé : même pulsation pour tous les téléporteurs (horloge commune).
 	var pulse := 1.0 + 0.3 * sin(now * 2.1)
 	var bob := 0.1 * sin(now * 1.4 + _phase)

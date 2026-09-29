@@ -53,7 +53,23 @@ const CAMERA_ROTATE_SENSITIVITY := 0.004
 ## simple `delta * k` qui dépendrait de la fréquence d'images.
 const CAMERA_ROTATE_SMOOTHING := 14.0
 const POSITION_QUERY_INTERVAL_SEC := 1.0
-const POSITION_CORRECTION_DEADZONE := 0.6
+## Écart (cases) sous lequel une PositionUpdated est ignorée : bruit de latence, pas une dérive.
+## Le chemin étant désormais le même que celui du serveur, l'écart attendu est quasi nul.
+const POSITION_CORRECTION_DEADZONE := 0.12
+## Au-delà de cet écart (cases), une correction serveur téléporte au lieu de lisser : vraie
+## désynchronisation (entité réapparue loin, respawn...), un glissement serait pire.
+const POSITION_SNAP_DISTANCE := 3.0
+## Vitesse (1/s) de résorption de l'écart visuel laissé par une correction serveur (voir
+## _correct_position/_step_movement) : la position logique saute, l'affichage la rattrape en
+## lissage exponentiel (~200 ms) au lieu de sauter avec elle — plus de saccade, caméra comprise.
+const POSITION_SMOOTHING_RATE := 5.0
+const POSITION_SMOOTHING_EPSILON := 0.003
+## MovementFinished alors que l'affichage n'a pas fini son chemin : sous cette longueur
+## restante (cases), le personnage finit de courir jusqu'au point final au lieu d'y glisser.
+const ARRIVAL_WALK_MAX_DISTANCE := 1.5
+## Vitesse (1/s) de rotation vers le cap visé (voir _face_direction/_update_facing) : les
+## changements de direction tournent en ~60 ms au lieu de claquer instantanément.
+const FACING_SMOOTHING := 18.0
 
 const PLAYER_COLOR := Color(0.35, 0.65, 0.95)
 const OTHER_PLAYER_COLOR := Color(0.30, 0.80, 0.55)
@@ -88,6 +104,10 @@ const SOULSHOT_GLOW_COLOR := Color(1.0, 0.55, 0.15)
 const SPIRITSHOT_GLOW_COLOR := Color(0.3, 0.85, 1.0)
 const SHOT_GLOW_UP_DURATION := 0.1
 const SHOT_GLOW_DOWN_DURATION := 0.35
+## Le serveur consomme le spiritshot au début du cast et envoie ShotUsed/SpiritshotUsed juste
+## avant SkillCastStarted (voir SkillCastEngine.beginCast) : un SkillCastStarted reçu dans ce
+## délai après la consommation est un cast chargé (couronnes flottantes, voir CastCircle).
+const SPIRITSHOT_CAST_WINDOW_MS := 1000
 
 ## Cycle jour/nuit (voir TimeEngine côté backend, commit "Ajoute un cycle jour/nuit
 ## in-game" du 2026-09-05) : 24h in-game = 8h réelles, aube 7h-8h, crépuscule 21h-22h
@@ -182,6 +202,9 @@ const CHAT_WINDOW_MESSAGE_HOLD_SEC := 10.0
 ## Fenêtre de statut (%SystemLogPanel) : maintenue visible 10 s à chaque nouveau message, pour
 ## laisser le temps de lire — demande explicite du 2026-09-26.
 const SYSTEM_WINDOW_MESSAGE_HOLD_SEC := 10.0
+## Perte du focus de %ChatInput : les fenêtres (et %ChatInput) restent opaques ce délai avant
+## leur fondu, au lieu de disparaître d'un coup — demande explicite du 2026-09-27.
+const CHAT_WINDOW_UNFOCUS_HOLD_SEC := 10.0
 const CHAT_WINDOW_FADE_SEC := 1.5
 
 const PLAYER_KEY := "player"
@@ -311,8 +334,8 @@ const KILL_SOUND_MEMO_MSEC := 3000
 @onready var _moon: DirectionalLight3D = $Moon
 @onready var _night_lights: Node3D = $World/NightLights
 
-## Tween de fondu en cours par fenêtre de discussion (PanelContainer -> Tween), voir
-## _fade_chat_window — permet d'annuler un fondu déjà lancé quand un nouvel évènement
+## Tween de fondu en cours par fenêtre de discussion (PanelContainer, ou %ChatInput -> Tween),
+## voir _fade_chat_window_later — permet d'annuler un fondu déjà lancé quand un nouvel évènement
 ## (message ou focus) en redemande un autre avant la fin du précédent.
 var _chat_window_fade_tweens: Dictionary = {}
 
@@ -356,11 +379,20 @@ var _map_load_base := 0.0
 var _map_load_frames := 0
 
 ## Toutes les entités (joueur compris, sous la clé PLAYER_KEY) sont traitées de façon
-## générique par _step_movement : key -> Node3D / {"target": Vector3} / vitesse (tuiles/s).
+## générique par _step_movement : key -> Node3D / vitesse (tuiles/s) /
+## {"path": Array[Vector3] (waypoints serveur restants, voir MotionPath),
+##  "idle_on_arrival": bool (repasse en idle au bout du chemin sans attendre le serveur)}.
 var _entities_by_key: Dictionary = {}
 var _key_by_entity_id: Dictionary = {}
 var _entity_speed_by_key: Dictionary = {}
 var _moving: Dictionary = {}
+## Écart visuel restant (Vector3) par entité après une correction serveur : node.position =
+## position logique + cet écart, qui décroît vers zéro (voir _correct_position/_step_movement).
+## Compensation de latence : le client démarre chaque déplacement à la réception de l'ordre,
+## une demi-latence après le serveur, et toute position serveur reçue date elle aussi d'une
+## demi-latence — les deux retards se compensent, donc une position serveur se compare
+## directement à la position logique actuelle, sans extrapolation ni mesure du ping.
+var _smooth_offset_by_key: Dictionary = {}
 ## Vie/niveau courants de chaque entité connue, indexés par la même clé que
 ## _entities_by_key : {current, max, level}. Alimenté par EntityAppeared (voir
 ## _apply_appeared_entity) quand ces champs sont présents, et par
@@ -372,6 +404,13 @@ var _entity_bars_by_key: Dictionary = {}
 ## {elapsed_ms, total_ms}. Alimenté par SkillCastStarted, vidé par SkillCastCancelled/
 ## SkillFizzled ou par expiration locale du délai (voir _process).
 var _casting_by_key: Dictionary = {}
+## Clé d'entité -> Time.get_ticks_msec() du dernier spiritshot consommé, en attente du
+## SkillCastStarted qui suit (voir SPIRITSHOT_CAST_WINDOW_MS).
+var _spiritshot_at_by_key: Dictionary = {}
+## Fin d'un Scroll of Escape (CharacterTeleporting nous concernant) : jusqu'à ce
+## Time.get_ticks_msec(), aucune action (voir is_player_casting) — le serveur refuse tout
+## (TeleportInProgress) jusqu'au MapView de la ville, qui lève ce verrou.
+var _teleport_lock_until_msec := 0
 ## Effets visuels des sorts (cercles d'incantation, projectiles, soins...), voir SpellVfx.
 var _spell_vfx: SpellVfx
 
@@ -537,6 +576,7 @@ func _process(delta: float) -> void:
 	_advance_map_load()
 	_advance_day_night_clock(delta)
 	_step_movement(delta)
+	_update_facing(delta)
 	_advance_casting(delta)
 	_update_bars()
 	_update_selection_ring()
@@ -576,15 +616,29 @@ func _unhandled_input(event: InputEvent) -> void:
 		if _chat_input.has_focus():
 			return
 		if event.keycode == KEY_ESCAPE:
-			# Ferme d'abord la fenêtre HUD au premier plan (inventaire/équipement/fiche de
-			# personnage/sorts/options, voir WindowFrame.gd) si une seule est ouverte — la
-			# désélection ci-dessous ne s'applique que si aucune ne l'était (voir CLAUDE.md,
-			# session du 2026-09-03, "Échap ferme la fenêtre la plus proche de nous").
-			if WindowFrame.close_topmost():
+			# Une incantation en cours passe avant tout : Échap l'abandonne via la commande
+			# "stop" (SkillCastEngine.cancelCast côté serveur), le SkillCastCancelled renvoyé
+			# brise le cercle et remet le personnage au repos (_clear_casting). La cible reste
+			# sélectionnée ; un second Échap la désélectionne. Pas pendant l'ascension d'un
+			# Scroll of Escape (_teleport_lock_until_msec) : le cast y est déjà résolu.
+			if _casting_by_key.has(PLAYER_KEY):
+				Net.send_command("stop")
+				get_viewport().set_input_as_handled()
+				return
+			# Ferme ensuite la fenêtre HUD qui a le focus (inventaire/équipement/fiche de
+			# personnage/sorts/options, voir WindowFrame._focused) — "Échap ferme la fenêtre la
+			# plus proche de nous", CLAUDE.md, session du 2026-09-03. Des fenêtres restées
+			# ouvertes mais qui ont perdu le focus (clic dans le monde, sur la hotbar…) ne
+			# bloquent pas la désélection de la cible ; elles ne se ferment à Échap qu'une fois
+			# plus rien de sélectionné.
+			if WindowFrame.close_focused():
 				get_viewport().set_input_as_handled()
 				return
 			if not _selected_target_id.is_empty() or not _selected_portal_id.is_empty():
 				_deselect_all()
+				get_viewport().set_input_as_handled()
+				return
+			if WindowFrame.close_topmost():
 				get_viewport().set_input_as_handled()
 			return
 		if event.keycode == KEY_TAB:
@@ -622,6 +676,7 @@ func _unhandled_input(event: InputEvent) -> void:
 func _on_message_received(type: String, payload: Dictionary) -> void:
 	match type:
 		"MapView":
+			_teleport_lock_until_msec = 0
 			_rebuild_map(payload)
 		"MapEnter":
 			_refresh_entities(payload)
@@ -646,7 +701,7 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 			if not joined_name.is_empty():
 				var key := "character:%s" % joined_name
 				var node := _ensure_entity_node(key, joined_name, OTHER_PLAYER_COLOR)
-				node.position = Vector3(payload.get("x", 0.0), 0.0, payload.get("y", 0.0))
+				_place_entity(key, Vector3(payload.get("x", 0.0), 0.0, payload.get("y", 0.0)))
 				_register_entity_id(key, str(payload.get("characterId", "")))
 				# Retour d'un joueur mort (respawn = nouvelle entrée sur une carte) : on le relève.
 				_play_body_revive(node)
@@ -659,25 +714,32 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 		"MovementStarted":
 			_ensure_player_node()
 			var target := Vector3(payload.get("x", 0.0), 0.0, payload.get("y", 0.0))
-			_moving[PLAYER_KEY] = {"target": target}
+			# Position serveur au départ (rattrapée à l'instant du clic côté serveur) : recalage
+			# doux avant de suivre le même chemin que lui, virages compris.
+			if payload.has("startX"):
+				_correct_position(PLAYER_KEY, Vector3(payload.get("startX", 0.0), 0.0, payload.get("startY", 0.0)))
+			_start_path(PLAYER_KEY, _payload_path(payload, target), true)
 			_entity_speed_by_key[PLAYER_KEY] = _player_speed()
-			_face_heading(_player_node, float(payload.get("heading", 0.0)))
 			_play_body_state(_player_node, Character.RUN_ANIM)
 			_show_move_marker(Vector2(target.x, target.z))
-		"MovementFinished", "MovementStopped", "MovementBlockedByBounds":
-			_moving.erase(PLAYER_KEY)
+		"MovementFinished":
 			_ensure_player_node()
-			_player_node.position = Vector3(payload.get("x", 0.0), 0.0, payload.get("y", 0.0))
-			_play_body_state(_player_node, Character.IDLE_ANIM)
+			_finish_path(PLAYER_KEY, Vector3(payload.get("x", 0.0), 0.0, payload.get("y", 0.0)))
+			_hide_move_marker()
+		"MovementStopped", "MovementBlockedByBounds":
+			_ensure_player_node()
+			_stop_at(PLAYER_KEY, Vector3(payload.get("x", 0.0), 0.0, payload.get("y", 0.0)))
 			_hide_move_marker()
 		"NoPathToDestination":
 			_hide_move_marker()
 		"PositionUpdated":
 			_ensure_player_node()
 			var server_pos := Vector3(payload.get("x", 0.0), 0.0, payload.get("y", 0.0))
-			if _player_node.position.distance_to(server_pos) > POSITION_CORRECTION_DEADZONE:
-				_player_node.position = server_pos
-			_face_heading(_player_node, float(payload.get("heading", 0.0)))
+			if _logical_position(PLAYER_KEY).distance_to(server_pos) > POSITION_CORRECTION_DEADZONE:
+				_correct_position(PLAYER_KEY, server_pos)
+			# En course, le cap suit le chemin (voir _step_movement).
+			if not _moving.has(PLAYER_KEY):
+				_face_heading(_player_node, float(payload.get("heading", 0.0)))
 		"CharacterMovementStarted":
 			var entity_name := str(payload.get("characterName", ""))
 			var character_id := str(payload.get("characterId", ""))
@@ -686,8 +748,14 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 				var color := MONSTER_COLOR if key.begins_with("monster:") else OTHER_PLAYER_COLOR
 				var node := _ensure_entity_node(key, entity_name, color)
 				_register_entity_id(key, character_id)
-				_face_heading(node, float(payload.get("heading", 0.0)))
-				_moving[key] = {"target": Vector3(payload.get("targetX", 0.0), 0.0, payload.get("targetY", 0.0))}
+				if payload.has("x"):
+					_correct_position(key, Vector3(payload.get("x", 0.0), 0.0, payload.get("y", 0.0)))
+				var target2 := Vector3(payload.get("targetX", 0.0), 0.0, payload.get("targetY", 0.0))
+				# Un monstre en poursuite reçoit une cible fraîche à chaque pas serveur : il
+				# continue de courir en attendant la suivante plutôt que de repasser en idle.
+				_start_path(key, _payload_path(payload, target2), not key.begins_with("monster:"))
+				if not payload.has("waypoints"):
+					_face_heading(node, float(payload.get("heading", 0.0)))
 				_play_body_state(node, Character.RUN_ANIM)
 				if not _entity_speed_by_key.has(key):
 					_entity_speed_by_key[key] = DEFAULT_SPEED_TILES_PER_SEC
@@ -696,10 +764,12 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 			var character_id2 := str(payload.get("characterId", ""))
 			if not entity_name2.is_empty():
 				var key2 := _resolve_movement_key(character_id2, entity_name2)
-				_moving.erase(key2)
-				var node2 := _ensure_entity_node(key2, entity_name2, OTHER_PLAYER_COLOR)
-				node2.position = Vector3(payload.get("x", 0.0), 0.0, payload.get("y", 0.0))
-				_play_body_state(node2, Character.IDLE_ANIM)
+				_ensure_entity_node(key2, entity_name2, OTHER_PLAYER_COLOR)
+				var end_pos := Vector3(payload.get("x", 0.0), 0.0, payload.get("y", 0.0))
+				if type == "CharacterMovementFinished":
+					_finish_path(key2, end_pos)
+				else:
+					_stop_at(key2, end_pos)
 		"EntityAppeared":
 			for entry in payload.get("entities", []):
 				_apply_appeared_entity(entry)
@@ -759,7 +829,25 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 		"SkillCastStarted":
 			_on_skill_cast_started(payload)
 		"SkillCastCancelled":
-			_clear_casting(_key_for_entity_id(str(payload.get("casterId", ""))))
+			var cancelled_key := _key_for_entity_id(str(payload.get("casterId", "")))
+			if cancelled_key == PLAYER_KEY and _casting_by_key.has(PLAYER_KEY):
+				_log("[i]Vous abandonnez %s.[/i]" % _bbcode_escape(str(payload.get("skillName", "l'incantation"))))
+			_clear_casting(cancelled_key)
+		"CharacterTeleporting":
+			_on_character_teleporting(payload)
+		"ScrollUsed":
+			_log("[i]Vous lisez %s.[/i]" % _bbcode_escape(str(payload.get("name", "le parchemin"))))
+		"ItemOnCooldown":
+			# rejected : réutilisation refusée (le slot de la hotbar clignote de son côté).
+			if bool(payload.get("rejected", false)):
+				Sfx.play_ui("action_denied")
+				_log("[i]%s n'est pas encore prêt (%.1f s).[/i]" % [
+					_bbcode_escape(str(payload.get("name", ""))),
+					float(payload.get("remainingMillis", 0)) / 1000.0,
+				])
+		"TeleportInProgress":
+			Sfx.play_ui("action_denied")
+			_log("[i]Téléportation en cours…[/i]")
 		"SkillFizzled":
 			_clear_casting(PLAYER_KEY)
 			_log("[i]Incantation ratée : %s[/i]" % _bbcode_escape(
@@ -800,6 +888,8 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 			_ensure_player_node()
 			var used_color := SOULSHOT_GLOW_COLOR if str(payload.get("shotType", "")) == "SOULSHOT" else SPIRITSHOT_GLOW_COLOR
 			_flash_entity(_player_node, used_color, SHOT_GLOW_UP_DURATION, SHOT_GLOW_DOWN_DURATION)
+			if str(payload.get("shotType", "")) == "SPIRITSHOT":
+				_spiritshot_at_by_key[PLAYER_KEY] = Time.get_ticks_msec()
 		"SoulshotUsed":
 			var soulshot_node := _entity_node_by_id(str(payload.get("characterId", "")))
 			if soulshot_node != null:
@@ -808,6 +898,9 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 			var spiritshot_node := _entity_node_by_id(str(payload.get("characterId", "")))
 			if spiritshot_node != null:
 				_flash_entity(spiritshot_node, SPIRITSHOT_GLOW_COLOR, SHOT_GLOW_UP_DURATION, SHOT_GLOW_DOWN_DURATION)
+			var spiritshot_key := _key_for_entity_id(str(payload.get("characterId", "")))
+			if not spiritshot_key.is_empty():
+				_spiritshot_at_by_key[spiritshot_key] = Time.get_ticks_msec()
 		"ShotGradeChanged":
 			var sg_label := "Soulshot" if str(payload.get("shotType", "")) == "SOULSHOT" else "Spiritshot"
 			var sg_grade = payload.get("grade")
@@ -1697,7 +1790,7 @@ func _update_selection_ring() -> void:
 
 
 func is_player_casting() -> bool:
-	return _casting_by_key.has(PLAYER_KEY)
+	return _casting_by_key.has(PLAYER_KEY) or Time.get_ticks_msec() < _teleport_lock_until_msec
 
 
 ## Affiche le cercle de portée autour du joueur (voir Hotbar._on_slot_mouse_entered) tant
@@ -1735,8 +1828,9 @@ func hide_skill_range() -> void:
 func _refresh_entities(view: Dictionary) -> void:
 	var self_pos := Vector2(view.get("selfX", 0.0), view.get("selfY", 0.0))
 	_ensure_player_node()
-	_player_node.position = Vector3(self_pos.x, 0.0, self_pos.y)
-	_face_heading(_player_node, float(view.get("selfHeading", 0.0)))
+	_moving.erase(PLAYER_KEY)
+	_place_entity(PLAYER_KEY, Vector3(self_pos.x, 0.0, self_pos.y))
+	_face_heading(_player_node, float(view.get("selfHeading", 0.0)), true)
 	# _rebuild_map (MapView, toujours reçu juste avant un MapEnter — portail/spawn) efface
 	# _key_by_entity_id (_clear_entities) : notre propre UUID doit être ré-enregistré ici pour
 	# que _apply_target_current_health nous reconnaisse à nouveau dès la première attaque
@@ -1798,10 +1892,18 @@ func _apply_appeared_entity(entry: Dictionary) -> void:
 			key = "%s:%s" % [kind, entity_name]
 		else:
 			key = "%s:%s" % [kind, entity_id]
-	var node := _ensure_entity_node(key, entity_name, color)
-	node.position = Vector3(entry.get("x", 0.0), 0.0, entry.get("y", 0.0))
+	# EntityView.npcType/gender (backend, 2026-09-27) : un garde est un mannequin homme ou
+	# femme en armure lourde, écu et épée courte (voir Character.NPC_OUTFITS).
+	var npc_type := str(entry.get("npcType", "")) if entry.get("npcType") != null else ""
+	var node := _ensure_entity_node(key, entity_name, color, npc_type)
+	if kind == "npc":
+		var npc_body := _character_body(node)
+		if npc_body != null:
+			_set_body_gender(node, str(entry.get("gender", "")) if entry.get("gender") != null else "")
+			npc_body.set_outfit(npc_type)
+	_place_entity(key, Vector3(entry.get("x", 0.0), 0.0, entry.get("y", 0.0)))
 	_set_entity_title(node, _extract_title(entry))
-	_face_heading(node, float(entry.get("heading", 0.0)))
+	_face_heading(node, float(entry.get("heading", 0.0)), true)
 	_entity_speed_by_key[key] = float(entry.get("speed", DEFAULT_SPEED_TILES_PER_SEC))
 	# EntityView.hasShop côté backend (2026-09-04, "Shop PNJ") : détermine si le clic droit sur
 	# ce PNJ, une fois sélectionné, propose "Boutique" (voir _handle_right_click/_open_npc_menu).
@@ -1825,7 +1927,8 @@ func _apply_appeared_entity(entry: Dictionary) -> void:
 	var target_x = entry.get("targetX")
 	var target_y = entry.get("targetY")
 	if target_x != null and target_y != null:
-		_moving[key] = {"target": Vector3(float(target_x), 0.0, float(target_y))}
+		var target := Vector3(float(target_x), 0.0, float(target_y))
+		_start_path(key, _payload_path(entry, target), kind != "monster")
 		_play_body_state(node, Character.RUN_ANIM)
 	else:
 		_moving.erase(key)
@@ -1866,14 +1969,18 @@ func _ensure_player_node() -> void:
 ## `key` porte déjà le "kind" serveur en préfixe ("character:"/"monster:"/"npc:", voir
 ## _apply_appeared_entity et les gestionnaires Character/MovementStarted) : un personnage a
 ## toujours le mannequin (voir Character.gd), un monstre son modèle animé s'il en a un (voir
-## MonsterCatalog/Monster.gd) ; les autres monstres et les PNJ restent des capsules.
-func _ensure_entity_node(key: String, entity_name: String, color: Color) -> Node3D:
+## MonsterCatalog/Monster.gd) ; un PNJ dont le rôle (`npc_type`, EntityView.npcType) a une
+## tenue (Character.NPC_OUTFITS, ex. GUARD) a lui aussi le mannequin, habillé par
+## _apply_appeared_entity ; les autres monstres et PNJ restent des capsules.
+func _ensure_entity_node(key: String, entity_name: String, color: Color, npc_type := "") -> Node3D:
 	if _entities_by_key.has(key):
 		return _entities_by_key[key]
 	var monster_model: MonsterModel = null
 	if key.begins_with("monster:"):
 		monster_model = MonsterCatalog.model_for(entity_name)
-	var node := _make_entity_node(entity_name, color, true, key.begins_with("character:"), monster_model)
+	var humanoid := key.begins_with("character:") \
+			or (key.begins_with("npc:") and Character.has_outfit(npc_type))
+	var node := _make_entity_node(entity_name, color, true, humanoid, monster_model)
 	_entities_root.add_child(node)
 	_entities_by_key[key] = node
 	_ensure_bars(key)
@@ -2036,6 +2143,7 @@ func _remove_entity(key: String) -> void:
 		node.queue_free()
 	_entities_by_key.erase(key)
 	_moving.erase(key)
+	_smooth_offset_by_key.erase(key)
 	_entity_speed_by_key.erase(key)
 	_entity_vitals_by_key.erase(key)
 	_casting_by_key.erase(key)
@@ -2057,7 +2165,9 @@ func _clear_entities() -> void:
 	_entity_speed_by_key.clear()
 	_entity_vitals_by_key.clear()
 	_casting_by_key.clear()
+	_spiritshot_at_by_key.clear()
 	_moving.clear()
+	_smooth_offset_by_key.clear()
 	_player_node = null
 	_clear_selection()
 
@@ -2102,14 +2212,34 @@ func _key_for_entity_id(entity_id: String) -> String:
 	return _key_by_entity_id.get(entity_id, "")
 
 
-func _face_heading(node: Node3D, heading: float) -> void:
-	var dir := Vector3(cos(heading), 0.0, sin(heading))
-	if dir.length_squared() < 0.0001:
+## Cap serveur (radians, plan x/y serveur). `instant` : apparition, sans rotation animée.
+func _face_heading(node: Node3D, heading: float, instant: bool = false) -> void:
+	_face_direction(node, Vector3(cos(heading), 0.0, sin(heading)))
+	if instant and node.has_meta("yaw_target"):
+		node.rotation.y = node.get_meta("yaw_target")
+		node.remove_meta("yaw_target")
+
+
+## Oriente le -Z local de `node` vers `direction` (comme look_at), en douceur via
+## _update_facing.
+func _face_direction(node: Node3D, direction: Vector3) -> void:
+	direction.y = 0.0
+	if direction.length_squared() < 0.000001:
 		return
-	var target := node.position + dir
-	if target.is_equal_approx(node.position):
-		return
-	node.look_at(target, WORLD_UP)
+	node.set_meta("yaw_target", MotionPath.yaw_toward(direction))
+
+
+func _update_facing(delta: float) -> void:
+	var weight := 1.0 - exp(-FACING_SMOOTHING * delta)
+	for node in _entities_by_key.values():
+		if not node.has_meta("yaw_target"):
+			continue
+		var target_yaw: float = node.get_meta("yaw_target")
+		if absf(angle_difference(node.rotation.y, target_yaw)) < 0.001:
+			node.rotation.y = target_yaw
+			node.remove_meta("yaw_target")
+		else:
+			node.rotation.y = lerp_angle(node.rotation.y, target_yaw, weight)
 
 
 ## Idle/course (Character.IDLE_ANIM/RUN_ANIM, même vocabulaire pour Monster.play_state).
@@ -2230,17 +2360,112 @@ func _play_body_cast(node: Node3D, duration_sec: float) -> void:
 		body.play_cast(duration_sec)
 
 
+## Avance chaque entité en mouvement le long de son chemin (position logique), puis résorbe
+## l'écart visuel laissé par les corrections serveur : node.position = logique + écart.
 func _step_movement(delta: float) -> void:
-	for key in _moving.keys().duplicate():
+	var decay := exp(-POSITION_SMOOTHING_RATE * delta)
+	var keys := _moving.keys()
+	for key in _smooth_offset_by_key.keys():
+		if not _moving.has(key):
+			keys.append(key)
+	for key in keys:
 		var node: Node3D = _entities_by_key.get(key)
 		if node == null:
 			_moving.erase(key)
+			_smooth_offset_by_key.erase(key)
 			continue
-		var target: Vector3 = _moving[key].target
-		var speed: float = _entity_speed_by_key.get(key, DEFAULT_SPEED_TILES_PER_SEC)
-		node.position = node.position.move_toward(target, speed * delta)
-		if node.position.distance_to(target) < 0.02:
-			_moving.erase(key)
+		var offset: Vector3 = _smooth_offset_by_key.get(key, Vector3.ZERO)
+		var logical := node.position - offset
+		var move: Dictionary = _moving.get(key, {})
+		if not move.is_empty():
+			var path: Array = move.path
+			var speed: float = _entity_speed_by_key.get(key, DEFAULT_SPEED_TILES_PER_SEC)
+			logical = MotionPath.advance(logical, path, speed * delta)
+			if path.is_empty():
+				_moving.erase(key)
+				if move.idle_on_arrival and not _casting_by_key.has(key):
+					_play_body_state(node, Character.IDLE_ANIM)
+			else:
+				_face_direction(node, path[0] - logical)
+		offset *= decay
+		if offset.length() < POSITION_SMOOTHING_EPSILON:
+			offset = Vector3.ZERO
+			_smooth_offset_by_key.erase(key)
+		else:
+			_smooth_offset_by_key[key] = offset
+		node.position = logical + offset
+
+
+## Position logique (sans l'écart visuel en cours de résorption) : celle qui suit le serveur.
+func _logical_position(key: String) -> Vector3:
+	var node: Node3D = _entities_by_key.get(key)
+	if node == null:
+		return Vector3.ZERO
+	return node.position - (_smooth_offset_by_key.get(key, Vector3.ZERO) as Vector3)
+
+
+## Placement direct (apparition, changement de carte) : pas de lissage.
+func _place_entity(key: String, pos: Vector3) -> void:
+	var node: Node3D = _entities_by_key.get(key)
+	if node == null:
+		return
+	node.position = pos
+	_smooth_offset_by_key.erase(key)
+
+
+## Recale la position logique de `key` sur `server_pos` sans bouger l'affichage : l'écart
+## devient un décalage visuel que _step_movement résorbe en douceur (le personnage accélère,
+## ralentit ou dérive légèrement au lieu de se téléporter). Le chemin en cours est raccourci
+## des waypoints que le serveur a déjà dépassés.
+func _correct_position(key: String, server_pos: Vector3) -> void:
+	var node: Node3D = _entities_by_key.get(key)
+	if node == null:
+		return
+	var logical := _logical_position(key)
+	if logical.distance_to(server_pos) > POSITION_SNAP_DISTANCE:
+		_place_entity(key, server_pos)
+	else:
+		_smooth_offset_by_key[key] = node.position - server_pos
+	var move: Dictionary = _moving.get(key, {})
+	if not move.is_empty():
+		MotionPath.drop_passed_waypoints(move.path, logical, server_pos)
+
+
+func _start_path(key: String, path: Array, idle_on_arrival: bool) -> void:
+	_moving[key] = {"path": path, "idle_on_arrival": idle_on_arrival}
+
+
+## Chemin `waypoints` ([{x, y}...]) d'un message de déplacement, ou ligne droite vers
+## `fallback_target` si absent (backend antérieur).
+func _payload_path(payload: Dictionary, fallback_target: Vector3) -> Array:
+	var path: Array = []
+	var waypoints = payload.get("waypoints")
+	if waypoints is Array:
+		for waypoint in waypoints:
+			if waypoint is Dictionary:
+				path.append(Vector3(float(waypoint.get("x", 0.0)), 0.0, float(waypoint.get("y", 0.0))))
+	if path.is_empty():
+		path.append(fallback_target)
+	return path
+
+
+## Fin normale annoncée par le serveur : si l'affichage est encore en chemin tout près du
+## point final, il finit d'y courir (repasse en idle à l'arrivée) ; sinon, arrêt recalé.
+func _finish_path(key: String, end_pos: Vector3) -> void:
+	var move: Dictionary = _moving.get(key, {})
+	if not move.is_empty() and not move.path.is_empty() \
+			and MotionPath.remaining_length(_logical_position(key), move.path) <= ARRIVAL_WALK_MAX_DISTANCE:
+		move.path[move.path.size() - 1] = end_pos
+		move.idle_on_arrival = true
+		return
+	_stop_at(key, end_pos)
+
+
+## Arrêt en `pos` (stop, attaque, incantation, blocage) : recalage doux et idle.
+func _stop_at(key: String, pos: Vector3) -> void:
+	_moving.erase(key)
+	_correct_position(key, pos)
+	_play_body_state(_entities_by_key.get(key), Character.IDLE_ANIM)
 
 
 func _player_speed() -> float:
@@ -2537,11 +2762,15 @@ func _on_skill_cast_started(payload: Dictionary) -> void:
 	if caster_node != null and payload.has("casterHeading"):
 		_face_heading(caster_node, float(payload.get("casterHeading", 0.0)))
 	_play_body_cast(caster_node, total_ms / 1000.0)
-	# Cercle d'incantation calé sur castingTimeMs (voir CastCircle), couleur selon l'élément.
+	# Cercle d'incantation calé sur castingTimeMs (voir CastCircle), couleur selon l'élément,
+	# avec couronnes flottantes seulement si le cast est chargé d'un spiritshot.
 	var element := SpellVfx.element_for_skill(skill_name)
 	state["element"] = element
+	var shot_at: int = _spiritshot_at_by_key.get(key, -SPIRITSHOT_CAST_WINDOW_MS - 1)
+	_spiritshot_at_by_key.erase(key)
+	var charged := Time.get_ticks_msec() - shot_at <= SPIRITSHOT_CAST_WINDOW_MS
 	if caster_node != null and SpellVfx.has_cast_circle(element):
-		state["vfx"] = _spell_vfx.start_cast(caster_node, element, total_ms / 1000.0)
+		state["vfx"] = _spell_vfx.start_cast(caster_node, element, total_ms / 1000.0, charged)
 	# Son d'incantation propre à l'élément, éteint par _clear_casting (voir Sfx).
 	state["sfx"] = Sfx.play_spell(element, "cast", caster_node)
 
@@ -2564,6 +2793,27 @@ func _clear_casting(key: String, completed: bool = false) -> void:
 		_play_body_launch(node)
 		if state.has("element"):
 			Sfx.play_spell(int(state["element"]), "launch", node)
+
+
+## Fin d'un Scroll of Escape (nous ou un autre joueur) : le pentagramme blanc se libère (s'il
+## ne l'a pas déjà fait à l'expiration locale du cast) et la lumière emporte le personnage vers
+## le ciel pendant delayMs ; le serveur le téléporte ensuite (MapView pour nous,
+## GamePlayerLeftMap pour les autres).
+func _on_character_teleporting(payload: Dictionary) -> void:
+	var key := _key_for_entity_id(str(payload.get("characterId", "")))
+	var delay_ms := float(payload.get("delayMs", 0))
+	if key == PLAYER_KEY:
+		_teleport_lock_until_msec = Time.get_ticks_msec() + int(delay_ms) + 3000
+		_log("[i]Une lumière vous emporte vers %s…[/i]" % _bbcode_escape(
+			str(payload.get("destinationMapName", "la ville"))
+		))
+	if _casting_by_key.has(key):
+		_clear_casting(key, true)
+	var node: Node3D = _entities_by_key.get(key)
+	if node == null:
+		return
+	_spell_vfx.play_escape(node, delay_ms / 1000.0)
+	Sfx.play_spell_at_point(SpellVfx.Element.ESCAPE, "impact", _spell_vfx, node.global_position)
 
 
 ## Termine le cercle d'incantation en cours de `key` s'il y en a un (voir CastCircle.finish).
@@ -2729,6 +2979,7 @@ func _despawn_monster(monster_id: String, monster_name: String) -> void:
 
 	_entities_by_key.erase(key)
 	_moving.erase(key)
+	_smooth_offset_by_key.erase(key)
 	_entity_speed_by_key.erase(key)
 	_entity_vitals_by_key.erase(key)
 	_finish_cast_vfx(key, false)
@@ -3079,31 +3330,41 @@ func _log_chat(text: String, channel: String = "say") -> void:
 
 
 ## Fait clignoter légèrement une fenêtre de discussion à l'arrivée d'un nouveau message (voir
-## _log/_log_chat) : passe à CHAT_WINDOW_MESSAGE_ALPHA puis retombe en fondu vers
+## _log/_log_chat) : passe à CHAT_WINDOW_MESSAGE_ALPHA (sans redescendre si elle est encore plus
+## opaque, ex. pendant CHAT_WINDOW_UNFOCUS_HOLD_SEC) puis retombe en fondu vers
 ## CHAT_WINDOW_IDLE_ALPHA après `hold_sec` — sans effet tant que %ChatInput a
 ## le focus (la fenêtre reste alors pleinement opaque, voir _set_chat_windows_interactive).
 func _flash_chat_window(background: PanelContainer, hold_sec: float = CHAT_WINDOW_MESSAGE_HOLD_SEC) -> void:
 	if _chat_input.has_focus():
 		return
-	_kill_chat_window_fade(background)
+	var alpha := maxf(background.modulate.a, CHAT_WINDOW_MESSAGE_ALPHA)
+	background.modulate.a = alpha
 	var handle := _chat_window_handles.get(background) as Control
-	background.modulate.a = CHAT_WINDOW_MESSAGE_ALPHA
 	if handle != null:
-		handle.modulate.a = CHAT_WINDOW_MESSAGE_ALPHA
+		handle.modulate.a = alpha
+	_fade_chat_window_later(background, hold_sec)
+
+
+## Lance (en remplaçant celui en cours) le fondu de `control` — une fenêtre de discussion et sa
+## poignée (_chat_window_handles), ou %ChatInput seul — vers CHAT_WINDOW_IDLE_ALPHA après
+## `hold_sec`, depuis son alpha actuel.
+func _fade_chat_window_later(control: Control, hold_sec: float) -> void:
+	_kill_chat_window_fade(control)
+	var handle := _chat_window_handles.get(control) as Control
 	var tween := create_tween()
 	tween.tween_interval(hold_sec)
 	tween.set_parallel(true)
-	tween.tween_property(background, "modulate:a", CHAT_WINDOW_IDLE_ALPHA, CHAT_WINDOW_FADE_SEC)
+	tween.tween_property(control, "modulate:a", CHAT_WINDOW_IDLE_ALPHA, CHAT_WINDOW_FADE_SEC)
 	if handle != null:
 		tween.tween_property(handle, "modulate:a", CHAT_WINDOW_IDLE_ALPHA, CHAT_WINDOW_FADE_SEC)
-	_chat_window_fade_tweens[background] = tween
+	_chat_window_fade_tweens[control] = tween
 
 
-func _kill_chat_window_fade(background: PanelContainer) -> void:
-	var tween := _chat_window_fade_tweens.get(background) as Tween
+func _kill_chat_window_fade(control: Control) -> void:
+	var tween := _chat_window_fade_tweens.get(control) as Tween
 	if tween != null and tween.is_valid():
 		tween.kill()
-	_chat_window_fade_tweens.erase(background)
+	_chat_window_fade_tweens.erase(control)
 
 
 ## Bascule les 2 fenêtres de discussion (+ %ChatInput) entre interactives/opaques (focus sur
@@ -3113,21 +3374,26 @@ func _kill_chat_window_fade(background: PanelContainer) -> void:
 ## ne sont pas ses enfants, voir _chat_window_handles) et à %ChatInput lui-même. Le clic continue
 ## de fonctionner sur les poignées dans les deux cas : un enfant garde son propre mouse_filter
 ## quel que soit celui de son parent (voir ChatWindowResizeHandle.gd) — seul leur alpha change ici.
-func _set_chat_windows_interactive(focused: bool) -> void:
+## `fade_hold_sec` > 0 (perte du focus, voir _on_chat_input_focus_exited) : le clic traverse
+## aussitôt, mais l'alpha ne retombe qu'en fondu après ce délai au lieu de disparaître d'un coup.
+func _set_chat_windows_interactive(focused: bool, fade_hold_sec: float = 0.0) -> void:
 	var filter := Control.MOUSE_FILTER_STOP if focused else Control.MOUSE_FILTER_IGNORE
 	for control in [
 		_chat_log_background, _chat_log_label, _chat_party_log_label,
 		_system_log_background, _system_log_label,
 	]:
 		control.mouse_filter = filter
+	if not focused and fade_hold_sec > 0.0:
+		for control in [_chat_log_background, _system_log_background, _chat_input]:
+			_fade_chat_window_later(control, fade_hold_sec)
+		return
 	var target_alpha := CHAT_WINDOW_FOCUSED_ALPHA if focused else CHAT_WINDOW_IDLE_ALPHA
-	for background in [_chat_log_background, _system_log_background]:
-		_kill_chat_window_fade(background)
-		background.modulate.a = target_alpha
-		var handle := _chat_window_handles.get(background) as Control
+	for control in [_chat_log_background, _system_log_background, _chat_input]:
+		_kill_chat_window_fade(control)
+		control.modulate.a = target_alpha
+		var handle := _chat_window_handles.get(control) as Control
 		if handle != null:
 			handle.modulate.a = target_alpha
-	_chat_input.modulate.a = target_alpha
 
 
 func _on_chat_input_focus_entered() -> void:
@@ -3135,7 +3401,7 @@ func _on_chat_input_focus_entered() -> void:
 
 
 func _on_chat_input_focus_exited() -> void:
-	_set_chat_windows_interactive(false)
+	_set_chat_windows_interactive(false, CHAT_WINDOW_UNFOCUS_HOLD_SEC)
 
 
 ## Fait suivre la largeur de %ChatBar à celle de %ChatLogPanel (redimensionnée via

@@ -88,7 +88,7 @@ func _export() -> bool:
 
 	var blocked_by_obstacle := {}
 	for node in _root.get_tree().get_nodes_in_group(ObstacleFootprint3D.GROUP):
-		if not _root.is_ancestor_of(node):
+		if not _root.is_ancestor_of(node) or not (node as ObstacleFootprint3D).blocks_movement:
 			continue
 		for cell in (node as ObstacleFootprint3D).blocked_cells():
 			blocked_by_obstacle[cell] = true
@@ -240,6 +240,7 @@ func _build_xml(map: MapData, width: int, height: int, tiles: Array, gids: Packe
 	lines.append('  <property name="name" value="%s"/>' % _esc(map.map_name))
 	lines.append('  <property name="description" value="%s"/>' % _esc(map.description))
 	lines.append('  <property name="isStartingMap" type="bool" value="%s"/>' % str(map.is_starting_map).to_lower())
+	lines.append('  <property name="isTown" type="bool" value="%s"/>' % str(map.is_town).to_lower())
 	lines.append(' </properties>')
 	lines.append(' <tileset firstgid="1" name="%s" tilewidth="32" tileheight="32" tilecount="%d" columns="%d">' % [_esc(map.map_name), tiles.size(), tiles.size()])
 	for i in tiles.size():

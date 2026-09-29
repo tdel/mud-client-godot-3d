@@ -5,16 +5,23 @@ extends Node3D
 ##   - intro : le cercle se trace (anneaux, runes, pentagramme) en jaillissant avec un éclat
 ##     d'étincelles, une onde au sol et un bref trait de lumière vertical ;
 ##   - pendant le cast : l'anneau extérieur se remplit exactement en `duration` (tête de comète),
-##     une couronne de runes flottante monte du sol vers la poitrine, des particules sont aspirées
-##     vers le haut, la lumière et la rotation s'intensifient, pulsation sur les derniers 20 % ;
+##     des particules sont aspirées vers le haut, la lumière et la rotation s'intensifient,
+##     pulsation sur les derniers 20 % ;
+##   - cast chargé d'un spiritshot (`charged`) : deux couronnes de runes flottantes
+##     contrarotatives montent du sol, l'une vers la poitrine, l'autre vers la taille (aucune
+##     sans spiritshot) ;
 ##   - finish(true) : libération (flash, colonne de lumière, gerbe d'étincelles, onde de choc) ;
 ##   - finish(false) : brisure (le cercle grisonne, vacille, se fragmente, éclats qui tombent,
 ##     fumée).
 ## La couleur dépend de l'élément du sort (voir SpellVfx.COLORS).
 
 const RADIUS := 1.1
-const FLOAT_RING_RADIUS := 0.6
-const FLOAT_RING_TOP := 1.25
+## Couronnes flottantes d'un cast chargé : rayon, hauteur atteinte en fin de cast, vitesse de
+## rotation (relative à celle du cercle, signe = sens) et retard de montée (fraction du cast).
+const FLOAT_RINGS := [
+	{"radius": 0.6, "top": 1.25, "spin": -1.7, "lag": 0.0},
+	{"radius": 0.74, "top": 0.68, "spin": 1.3, "lag": 0.12},
+]
 const INTRO_MAX := 0.5
 const BROKEN_GREY := Color(0.45, 0.45, 0.5)
 ## Filet de sécurité : si personne n'appelle finish (message serveur perdu), le cercle se brise
@@ -22,6 +29,7 @@ const BROKEN_GREY := Color(0.45, 0.45, 0.5)
 const ORPHAN_TIMEOUT := 3.0
 
 var _color: Color
+var _charged := false
 var _duration := 1.0
 var _elapsed := 0.0
 var _finished := false
@@ -32,15 +40,16 @@ var _light_boost := 0.0
 
 var _circle: MeshInstance3D
 var _circle_mat: ShaderMaterial
-var _float_ring: MeshInstance3D
-var _ring_mat: ShaderMaterial
+var _float_rings: Array[MeshInstance3D] = []
+var _ring_mats: Array[ShaderMaterial] = []
 var _motes: GPUParticles3D
 var _light: OmniLight3D
 var _intro_tween: Tween
 
 
-func _init(color: Color, duration_sec: float) -> void:
+func _init(color: Color, duration_sec: float, charged: bool = false) -> void:
 	_color = color
+	_charged = charged
 	_duration = maxf(duration_sec, 0.15)
 	name = "CastCircle"
 
@@ -56,12 +65,15 @@ func _build() -> void:
 	_circle.position.y = 0.04
 	add_child(_circle)
 
-	_float_ring = VfxLib.magic_circle(_color, FLOAT_RING_RADIUS * 2.0, {
-		"energy": 1.3, "reveal": 0.0, "show_star": 0.0, "alpha": 0.0,
-	})
-	_ring_mat = VfxLib.mat_of(_float_ring)
-	_float_ring.position.y = 0.1
-	add_child(_float_ring)
+	if _charged:
+		for spec in FLOAT_RINGS:
+			var ring := VfxLib.magic_circle(_color, float(spec["radius"]) * 2.0, {
+				"energy": 1.3, "reveal": 0.0, "show_star": 0.0, "alpha": 0.0,
+			})
+			ring.position.y = 0.1
+			add_child(ring)
+			_float_rings.append(ring)
+			_ring_mats.append(VfxLib.mat_of(ring))
 
 	# Particules aspirées depuis le bord du cercle vers le haut et le centre, en coordonnées
 	# locales pour suivre le lanceur.
@@ -84,14 +96,18 @@ func _build() -> void:
 func _play_intro() -> void:
 	var intro := minf(INTRO_MAX, _duration * 0.35)
 	_circle.scale = Vector3.ONE * 0.3
-	_float_ring.scale = Vector3.ONE * 0.3
 	_intro_tween = create_tween().set_parallel(true)
 	_intro_tween.tween_property(_circle, "scale", Vector3.ONE, intro).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	_intro_tween.tween_property(_float_ring, "scale", Vector3.ONE, intro * 1.4).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	VfxLib.tween_param(_intro_tween, _circle_mat, "reveal", 0.0, 1.0, intro * 1.6).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 	VfxLib.tween_param(_intro_tween, _circle_mat, "flash", 2.5, 0.0, 0.6).set_ease(Tween.EASE_OUT)
-	VfxLib.tween_param(_intro_tween, _ring_mat, "reveal", 0.0, 1.0, intro * 1.8)
-	VfxLib.tween_param(_intro_tween, _ring_mat, "alpha", 0.0, 0.85, intro * 1.5)
+	for i in _float_rings.size():
+		var ring := _float_rings[i]
+		var ring_mat := _ring_mats[i]
+		var delay := intro * 0.35 * i
+		ring.scale = Vector3.ONE * 0.3
+		_intro_tween.tween_property(ring, "scale", Vector3.ONE, intro * 1.4).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT).set_delay(delay)
+		VfxLib.tween_param(_intro_tween, ring_mat, "reveal", 0.0, 1.0, intro * 1.8).set_delay(delay)
+		VfxLib.tween_param(_intro_tween, ring_mat, "alpha", 0.0, 0.85, intro * 1.5).set_delay(delay)
 	_intro_tween.tween_property(self, "_light_boost", 0.0, 0.5).from(3.5)
 
 	# Éclat d'étincelles au sol.
@@ -130,9 +146,14 @@ func _process(delta: float) -> void:
 	_circle_mat.set_shader_parameter("spin", _spin)
 	_circle_mat.set_shader_parameter("star_spin", _star_spin)
 	_circle_mat.set_shader_parameter("energy", 1.5 + 1.1 * t + pulse)
-	_ring_mat.set_shader_parameter("spin", -_spin * 1.7)
-	_ring_mat.set_shader_parameter("energy", 1.2 + 1.2 * t + pulse)
-	_float_ring.position.y = lerpf(0.1, FLOAT_RING_TOP, eased)
+	for i in _float_rings.size():
+		var spec: Dictionary = FLOAT_RINGS[i]
+		var lag := float(spec["lag"])
+		var rise := clampf((t - lag) / (1.0 - lag), 0.0, 1.0)
+		rise = rise * rise * (3.0 - 2.0 * rise)
+		_ring_mats[i].set_shader_parameter("spin", _spin * float(spec["spin"]))
+		_ring_mats[i].set_shader_parameter("energy", 1.2 + 1.2 * t + pulse)
+		_float_rings[i].position.y = lerpf(0.1, float(spec["top"]), rise)
 	_motes.amount_ratio = 0.3 + 0.7 * t
 	_light.light_energy = 0.3 + 1.4 * t + pulse + _light_boost
 	if _elapsed > _duration + ORPHAN_TIMEOUT:
@@ -157,15 +178,18 @@ func finish(completed: bool) -> void:
 func _play_release() -> void:
 	_circle_mat.set_shader_parameter("charge", 1.0)
 	_circle_mat.set_shader_parameter("reveal", 1.0)
-	_ring_mat.set_shader_parameter("reveal", 1.0)
 	var tw := create_tween().set_parallel(true)
 	VfxLib.tween_param(tw, _circle_mat, "flash", 3.0, 0.0, 0.5).set_ease(Tween.EASE_OUT)
 	tw.tween_property(_circle, "scale", Vector3.ONE * 1.35, 0.55).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	VfxLib.tween_param(tw, _circle_mat, "alpha", 1.0, 0.0, 0.5).set_delay(0.08)
-	tw.tween_property(_float_ring, "position:y", _float_ring.position.y + 1.6, 0.4).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	tw.tween_property(_float_ring, "scale", Vector3.ONE * 1.8, 0.4)
-	VfxLib.tween_param(tw, _ring_mat, "flash", 2.0, 0.0, 0.4)
-	VfxLib.tween_param(tw, _ring_mat, "alpha", 0.85, 0.0, 0.4)
+	for i in _float_rings.size():
+		var ring := _float_rings[i]
+		var ring_mat := _ring_mats[i]
+		ring_mat.set_shader_parameter("reveal", 1.0)
+		tw.tween_property(ring, "position:y", ring.position.y + 1.6, 0.4).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+		tw.tween_property(ring, "scale", Vector3.ONE * 1.8, 0.4)
+		VfxLib.tween_param(tw, ring_mat, "flash", 2.0, 0.0, 0.4)
+		VfxLib.tween_param(tw, ring_mat, "alpha", 0.85, 0.0, 0.4)
 	tw.tween_property(_light, "light_energy", 0.0, 0.5).from(5.0)
 
 	var sparks := VfxLib.particles(40, 0.8, 0.12, VfxLib.process({
@@ -192,14 +216,16 @@ func _play_release() -> void:
 func _play_break() -> void:
 	var tw := create_tween().set_parallel(true)
 	VfxLib.tween_param(tw, _circle_mat, "tint", _color, BROKEN_GREY, 0.2)
-	VfxLib.tween_param(tw, _ring_mat, "tint", _color, BROKEN_GREY, 0.2)
 	VfxLib.tween_param(tw, _circle_mat, "crack", 0.0, 1.0, 0.55).set_delay(0.15)
 	VfxLib.tween_param(tw, _circle_mat, "alpha", 1.0, 0.0, 0.6).set_delay(0.12)
 	tw.tween_property(_circle, "scale", Vector3.ONE * 0.85, 0.7).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-	# L'anneau flottant retombe au sol puis se brise.
-	tw.tween_property(_float_ring, "position:y", 0.06, 0.3).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-	VfxLib.tween_param(tw, _ring_mat, "crack", 0.0, 1.0, 0.4).set_delay(0.28)
-	VfxLib.tween_param(tw, _ring_mat, "alpha", 0.85, 0.0, 0.45).set_delay(0.25)
+	# Les anneaux flottants retombent au sol puis se brisent.
+	for i in _float_rings.size():
+		var ring_mat := _ring_mats[i]
+		VfxLib.tween_param(tw, ring_mat, "tint", _color, BROKEN_GREY, 0.2)
+		tw.tween_property(_float_rings[i], "position:y", 0.06, 0.3).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+		VfxLib.tween_param(tw, ring_mat, "crack", 0.0, 1.0, 0.4).set_delay(0.28)
+		VfxLib.tween_param(tw, ring_mat, "alpha", 0.85, 0.0, 0.45).set_delay(0.25)
 	tw.tween_property(_light, "light_energy", 0.0, 0.3).from(2.2)
 
 	# Vacillement.

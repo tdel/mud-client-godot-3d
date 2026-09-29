@@ -12,7 +12,8 @@ extends Node3D
 ## Le protocole ne transmet que le nom du sort : l'élément est déduit par ELEMENT_BY_SKILL
 ## (catalogue mud-server-java src/main/resources/data/skills/skills.xml).
 
-enum Element { FIRE, WATER, WIND, HOLY, DARK, ARCANE, HEAL, BUFF, DEBUFF, PHYSICAL }
+## ESCAPE : Teleport du Scroll of Escape (pentagramme blanc, puis ascension, voir play_escape).
+enum Element { FIRE, WATER, WIND, HOLY, DARK, ARCANE, HEAL, BUFF, DEBUFF, PHYSICAL, ESCAPE }
 
 const DEFAULT_ELEMENT := Element.ARCANE
 const ELEMENT_BY_SKILL := {
@@ -26,8 +27,9 @@ const ELEMENT_BY_SKILL := {
 	"Might": Element.BUFF, "Focus": Element.BUFF, "Empower": Element.BUFF,
 	"Rage": Element.BUFF, "Guidance": Element.BUFF, "Bulwark": Element.BUFF,
 	"Curse: Doom": Element.DEBUFF, "Curse: Weakness": Element.DEBUFF,
+	"Teleport": Element.ESCAPE,
 }
-## Jaune = soin/buff, bleu = eau, blanc = vent, rouge = feu, violet = debuff.
+## Jaune = soin/buff, bleu = eau, blanc = vent et téléportation, rouge = feu, violet = debuff.
 const COLORS := {
 	Element.FIRE: Color(1.0, 0.16, 0.04),
 	Element.WATER: Color(0.15, 0.5, 1.0),
@@ -39,6 +41,7 @@ const COLORS := {
 	Element.BUFF: Color(1.0, 0.8, 0.2),
 	Element.DEBUFF: Color(0.65, 0.2, 1.0),
 	Element.PHYSICAL: Color(1.0, 0.85, 0.6),
+	Element.ESCAPE: Color(0.96, 0.97, 1.0),
 }
 
 const CHEST_HEIGHT := 1.0
@@ -73,8 +76,9 @@ static func has_cast_circle(element: int) -> bool:
 # ---------------------------------------------------------------------------
 
 ## Cercle d'incantation sous `caster`, à terminer par CastCircle.finish(completed).
-func start_cast(caster: Node3D, element: int, duration_sec: float) -> CastCircle:
-	var circle := CastCircle.new(color_of(element), duration_sec)
+## `charged` : cast chargé d'un spiritshot (couronnes flottantes, voir CastCircle).
+func start_cast(caster: Node3D, element: int, duration_sec: float, charged: bool = false) -> CastCircle:
+	var circle := CastCircle.new(color_of(element), duration_sec, charged)
 	caster.add_child(circle)
 	return circle
 
@@ -91,6 +95,67 @@ func play_on_target(target: Node3D, element: int) -> void:
 			_play_debuff(target)
 		_:
 			play_impact(target.global_position, element)
+
+
+## Fin d'un Scroll of Escape (CharacterTeleporting) : éclat blanc au sol, colonne de lumière
+## jusqu'au ciel dont la base se détache et monte, halo qui enveloppe le corps puis s'élève en
+## s'estompant, étincelles aspirées vers le haut. Posé dans le monde (pas sous `target`) : le
+## personnage disparaît de la carte avant la fin de l'effet. `duration_sec` = délai serveur
+## avant la téléportation (delayMs).
+func play_escape(target: Node3D, duration_sec: float) -> void:
+	if target == null or not target.is_inside_tree():
+		return
+	var color := color_of(Element.ESCAPE)
+	var d := maxf(duration_sec, 0.6)
+	var root := _spawn_root(target.global_position, d + 2.0)
+
+	_ground_wave(root, color, 3.6, 0.1, 0.95, 0.7, 0.06, 0.0, {"energy": 2.4})
+	_ground_wave(root, color, 3.6, 0.05, 0.7, 0.9, 0.04, 0.18)
+
+	# Colonne qui jaillit jusqu'au ciel, puis dont la base monte à son tour : la lumière
+	# "part vers le ciel".
+	var pillar := VfxLib.beam(color, 0.62, 0.9, 24.0, {
+		"energy": 1.2, "scroll": 2.4, "density": 6.0, "top_fade": 0.65, "soft": 0.3,
+	})
+	root.add_child(pillar)
+	_animate_beam(pillar, 0.0, 0.35, d * 0.55, d * 0.75)
+	var core := VfxLib.beam(Color.WHITE, 0.22, 0.3, 26.0, {
+		"energy": 2.4, "scroll": 4.0, "density": 4.0, "top_fade": 0.6, "soft": 0.2,
+	})
+	root.add_child(core)
+	_animate_beam(core, 0.05, 0.25, d * 0.5, d * 0.7)
+
+	# Halo qui enveloppe le personnage, puis s'élève en s'estompant.
+	var halo := VfxLib.glow_sprite(color, 2.6, 0.0, 0.8)
+	halo.position.y = 1.0
+	root.add_child(halo)
+	var halo_mat := VfxLib.mat_of(halo)
+	var ht := halo.create_tween()
+	VfxLib.tween_param(ht, halo_mat, "energy", 0.0, 3.2, d * 0.35).set_ease(Tween.EASE_OUT)
+	ht.tween_property(halo, "position:y", 16.0, d * 0.75 + 0.6).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	ht.parallel().tween_property(halo, "scale", Vector3.ONE * 0.35, d * 0.75 + 0.6)
+	VfxLib.tween_param(ht.parallel(), halo_mat, "energy", 3.2, 0.0, d * 0.75 + 0.6).set_ease(Tween.EASE_IN)
+
+	var sparkles := VfxLib.particles(70, 1.8, 0.12, VfxLib.process({
+		"emission": "ring", "radius": 0.75, "inner": 0.15, "direction": Vector3.UP, "spread": 6.0,
+		"velocity": Vector2(2.5, 5.5), "gravity": Vector3(0, 3.0, 0), "radial_accel": Vector2(-0.8, -0.3),
+		"tangential_accel": Vector2(0.6, 1.4), "scale": Vector2(0.5, 1.2),
+		"scale_curve": [Vector2(0, 0.3), Vector2(0.2, 1.0), Vector2(1, 0.0)],
+		"colors": [[0.0, Color.WHITE], [0.4, color], [1.0, VfxLib.clear(color)]],
+	}), {"shape": VfxLib.SHAPE_SPARK, "energy": 2.3})
+	VfxLib.emit(root, sparkles, Vector3(0, 0.05, 0))
+	root.get_tree().create_timer(d * 0.8).timeout.connect(func() -> void:
+		if is_instance_valid(sparkles):
+			sparkles.emitting = false
+	)
+
+	var omni := VfxLib.light(color, 0.0, 6.0)
+	omni.position.y = 1.2
+	root.add_child(omni)
+	var lt := omni.create_tween()
+	lt.tween_property(omni, "light_energy", 4.0, d * 0.3)
+	lt.tween_property(omni, "position:y", 9.0, d * 0.7 + 0.6).set_ease(Tween.EASE_IN)
+	lt.parallel().tween_property(omni, "light_energy", 0.0, d * 0.7 + 0.6).set_ease(Tween.EASE_IN)
 
 
 ## Impact de l'élément au point `feet` (pieds de la cible).

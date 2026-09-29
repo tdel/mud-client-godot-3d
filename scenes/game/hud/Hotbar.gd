@@ -20,7 +20,7 @@ const SLOT_KEYS := [
 const CONFIG_PATH := "user://hotbar.cfg"
 
 ## Types empilés côté backend (ItemType.maxStack() > 1) : compteur affiché même à 1.
-const STACKABLE_TYPES := ["SOULSHOT", "SPIRITSHOT", "POTION"]
+const STACKABLE_TYPES := ["SOULSHOT", "SPIRITSHOT", "POTION", "SCROLL"]
 
 const EFFECT_LABELS := {
 	"DAMAGE": "Dégâts", "HEALING": "Soin", "BUFF": "Bonus", "DEBUFF": "Malus",
@@ -46,7 +46,8 @@ func _ready() -> void:
 		var slot_node: Control = _slots_container.get_child(i)
 		slot_node.setup(i)
 		slot_node.slot_drop_requested.connect(_on_slot_drop_requested)
-		slot_node.slot_clicked.connect(_trigger_slot)
+		slot_node.slot_clicked.connect(_on_slot_left_clicked)
+		slot_node.slot_right_clicked.connect(_on_slot_right_clicked)
 		slot_node.mouse_entered.connect(_on_slot_mouse_entered.bind(i))
 		slot_node.mouse_exited.connect(_on_slot_mouse_exited.bind(i))
 		_slot_nodes.append(slot_node)
@@ -141,6 +142,25 @@ func _trigger_slot(index: int) -> void:
 			Net.send_command("use", item_id)
 
 
+## Soulshot/spiritshot = objet "toggle" façon L2 : il ne s'active qu'au clic droit (voir
+## _on_slot_right_clicked), le clic gauche ne fait rien. La touche F1-F12 le bascule toujours.
+func _on_slot_left_clicked(index: int) -> void:
+	if _is_shot_slot(_slots[index]):
+		return
+	_trigger_slot(index)
+
+
+## Clic droit = utiliser, comme dans l'inventaire : bascule d'une charge, ou consommation d'un
+## objet (potion, Scroll of Escape...). Sans effet sur un sort ou l'attaque.
+func _on_slot_right_clicked(index: int) -> void:
+	if str(_slots[index].get("kind", "")) == "item":
+		_trigger_slot(index)
+
+
+func _is_shot_slot(slot: Dictionary) -> bool:
+	return str(slot.get("item_type", "")) in ["SOULSHOT", "SPIRITSHOT"]
+
+
 ## UUID du sort à envoyer à "cast" : celui déjà connu du slot (cas normal, voir set_slot),
 ## sinon résolu par nom dans les sorts actuellement connus.
 func _resolve_skill_id(slot: Dictionary) -> String:
@@ -205,6 +225,8 @@ func _build_tooltip(kind: String, ref_name: String) -> String:
 	if kind == "item":
 		for item in GameState.inventory.get("items", []):
 			if str(item.get("name", "")) == ref_name:
+				if str(item.get("type", "")) in ["SOULSHOT", "SPIRITSHOT"]:
+					return ItemTooltip.build(item, ["Clic droit : activer / désactiver l'auto-use"])
 				return ItemTooltip.build(item)
 		return ""
 	if kind != "skill":
@@ -265,7 +287,7 @@ func _refresh_shot_active_states() -> void:
 		var slot: Dictionary = _slots[i]
 		var item_type := str(slot.get("item_type", ""))
 		if item_type == "SOULSHOT" or item_type == "SPIRITSHOT":
-			_slot_nodes[i].set_active(_is_shot_active(item_type, str(slot.get("item_grade", ""))))
+			_slot_nodes[i].set_active(_is_shot_active(item_type, str(slot.get("item_grade", ""))), item_type)
 
 
 ## Compteur de chaque slot "item" : somme des quantités de toutes les entrées d'inventaire du
@@ -377,9 +399,18 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 				_refresh_item_quantities()
 		"ShotGradeChanged", "ShotOutOfStock":
 			_refresh_shot_active_states()
-		"Inventory", "ItemUsed", "ShotUsed":
+		"Inventory", "ItemUsed", "ShotUsed", "ScrollUsed":
 			# GameState (autoload, abonné avant ce script) a déjà appliqué le message.
 			_refresh_item_quantities()
+		"ItemOnCooldown":
+			# Délai de réutilisation d'un objet (Scroll of Escape) : même voile que la recharge
+			# d'un sort, sur chaque slot portant cet objet.
+			var item_name := str(payload.get("name", ""))
+			for i in SLOT_COUNT:
+				if _slots[i].get("kind", "") == "item" and str(_slots[i].get("ref_name", "")) == item_name:
+					_slot_nodes[i].set_cooldown_overlay(float(payload.get("remainingMillis", 0)))
+					if bool(payload.get("rejected", false)):
+						_slot_nodes[i].flash_error()
 		"CastResult":
 			# Démarre une estimation immédiate (cooldownSeconds du catalogue) sans attendre
 			# SkillOnCooldown : malgré l'évolution backend du 2026-09-02 (documentée plus bas)

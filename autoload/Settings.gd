@@ -28,8 +28,9 @@ func _ready() -> void:
 		_volumes[bus] = clampf(float(_config.get_value("audio", String(bus), 1.0)), 0.0, 1.0)
 		_apply_volume(bus)
 	# La résolution n'est imposée que si le joueur en a choisi une : sinon on garde la taille
-	# de project.godot (et celle de l'éditeur quand le jeu y est intégré).
-	if _config.has_section_key("display", "resolution"):
+	# de project.godot (et celle de l'éditeur quand le jeu y est intégré). Un --resolution en
+	# ligne de commande (enregistrement Movie Maker, voir tools/demo_video) garde la priorité.
+	if _config.has_section_key("display", "resolution") and not "--resolution" in OS.get_cmdline_args():
 		var saved = _config.get_value("display", "resolution")
 		if saved is Vector2i:
 			_apply_resolution.call_deferred(saved)

@@ -10,11 +10,14 @@ extends Node3D
 ## À placer comme enfant de la scène du prop (position/rotation/échelle suivent le prop). Le
 ## contour est dessiné en rouge dans l'éditeur uniquement ; en jeu le nœud n'affiche rien.
 ## Vegetation.gd s'en sert aussi pour ne pas faire pousser d'herbe à travers les props.
+## Avec blocks_movement = false, l'emprise ne fait que dégager le décor (tablier d'un pont :
+## praticable, mais sans touffe d'herbe qui le traverse) ; contour dessiné en vert.
 
 enum Shape { BOX, CIRCLE }
 
 const GROUP := "map_obstacle"
 const OUTLINE_COLOR := Color(1.0, 0.2, 0.15)
+const OUTLINE_COLOR_WALKABLE := Color(0.3, 0.9, 0.3)
 
 @export var shape: Shape = Shape.BOX:
 	set(value):
@@ -30,6 +33,12 @@ const OUTLINE_COLOR := Color(1.0, 0.2, 0.15)
 	set(value):
 		radius = value
 		_update_outline()
+## Faux : cases laissées praticables à l'export serveur, seul le décor en est retiré.
+@export var blocks_movement := true:
+	set(value):
+		blocks_movement = value
+		if _outline != null:
+			(_outline.material_override as StandardMaterial3D).albedo_color = _outline_color()
 
 var _outline: MeshInstance3D
 
@@ -60,9 +69,13 @@ func blocked_cells() -> Array[Vector2i]:
 			if _contains_local(Vector2(local.x, local.z)):
 				cells.append(Vector2i(x, z))
 	var origin_cell := Vector2i(floori(xform.origin.x), floori(xform.origin.z))
-	if not cells.has(origin_cell):
+	if blocks_movement and not cells.has(origin_cell):
 		cells.append(origin_cell)
 	return cells
+
+
+func _outline_color() -> Color:
+	return OUTLINE_COLOR if blocks_movement else OUTLINE_COLOR_WALKABLE
 
 
 func _contains_local(p: Vector2) -> bool:
@@ -99,7 +112,7 @@ func _update_outline() -> void:
 		_outline.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		var mat := StandardMaterial3D.new()
 		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		mat.albedo_color = OUTLINE_COLOR
+		mat.albedo_color = _outline_color()
 		mat.no_depth_test = true
 		_outline.material_override = mat
 		add_child(_outline, false, Node.INTERNAL_MODE_BACK)

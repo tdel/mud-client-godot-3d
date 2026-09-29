@@ -9,7 +9,7 @@ extends RefCounted
 const ITEM_TYPE_LABELS := {
 	"WEAPON": "Arme", "HELMET": "Casque", "ARMOR": "Armure", "PANTS": "Jambières",
 	"BOOTS": "Bottes", "GLOVES": "Gants", "SHIELD": "Bouclier", "NECKLACE": "Collier",
-	"EARRING": "Boucle d'oreille", "RING": "Anneau", "POTION": "Potion", "KEY": "Clé",
+	"EARRING": "Boucle d'oreille", "RING": "Anneau", "POTION": "Potion", "SCROLL": "Parchemin", "KEY": "Clé",
 	"TOOL": "Outil", "MISC": "Objet", "SOULSHOT": "Soulshot", "SPIRITSHOT": "Spiritshot",
 }
 const ARMOR_CATEGORY_LABELS := {"LIGHT": "légère", "MEDIUM": "moyenne", "HEAVY": "lourde"}
@@ -39,7 +39,7 @@ static func build(item: Dictionary, footer_lines: Array = []) -> String:
 	if not type_line.is_empty():
 		lines.append("[color=#%s]%s[/color]" % [UITheme.TEXT_DIM.to_html(false), type_line])
 
-	if type_key in ["SOULSHOT", "SPIRITSHOT", "POTION"]:
+	if type_key in ["SOULSHOT", "SPIRITSHOT", "POTION", "SCROLL"]:
 		lines.append(UITheme.tooltip_stat("Quantité :", UITheme.format_number(int(item.get("quantity", 1)))))
 
 	for entry in STAT_LINES:

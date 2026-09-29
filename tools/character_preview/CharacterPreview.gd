@@ -11,6 +11,7 @@ extends Node3D
 ## disparition de l'équipement, voir Character._play_mesh_effect) ; --time : secondes dans le
 ## clip/l'effet.
 ## Sans --out, la scène reste ouverte (animations en boucle, pratique dans l'éditeur).
+## --lineup=guards : gardes PNJ (homme, femme) en tenue Character.NPC_OUTFITS, vus de plus près.
 
 const CHARACTER_SCENE := preload("res://scenes/game/entities/Character.tscn")
 
@@ -49,11 +50,14 @@ const LINEUP := [
 	["woman", {"WEAPON": {"name": "Battle Axe"}, "OFF_HAND": {"name": "Draconic Shield", "type": "SHIELD"},
 		"CHEST": {"name": "Zealot's Armor", "armorCategory": "MEDIUM"}}],
 ]
+## PNJ : [sexe, npcType] — tenue fixe (Character.set_outfit).
+const GUARD_LINEUP := [["man", "GUARD"], ["woman", "GUARD"]]
 const SPACING := 1.1
 
 var _anim := "idle"
 var _time := 0.6
 var _out := ""
+var _lineup: Array = LINEUP
 var _characters: Array[Character] = []
 
 
@@ -63,19 +67,24 @@ func _ready() -> void:
 			_anim = arg.substr(7)
 		elif arg.begins_with("--time="):
 			_time = float(arg.substr(7))
+		elif arg == "--lineup=guards":
+			_lineup = GUARD_LINEUP
 		elif arg.begins_with("--out="):
 			_out = arg.substr(6)
 	_build_stage()
-	for i in LINEUP.size():
+	for i in _lineup.size():
 		var character: Character = CHARACTER_SCENE.instantiate()
 		add_child(character)
-		character.position = Vector3((i - (LINEUP.size() - 1) / 2.0) * SPACING, 0, 0)
+		character.position = Vector3((i - (_lineup.size() - 1) / 2.0) * SPACING, 0, 0)
 		# Les personnages regardent -Z dans le jeu (look_at) : on les tourne vers la caméra.
 		character.rotation.y = PI
-		character.set_gender(LINEUP[i][0])
+		character.set_gender(_lineup[i][0])
 		# equip : on part en sous-vêtements (la tenue initiale n'est jamais animée), l'équipement
 		# arrive dans _start.
-		character.set_equipment({} if _anim == "equip" else LINEUP[i][1])
+		if _lineup[i][1] is String:
+			character.set_outfit(_lineup[i][1])
+		else:
+			character.set_equipment({} if _anim == "equip" else _lineup[i][1])
 		_characters.append(character)
 	_start.call_deferred()
 
@@ -98,7 +107,7 @@ func _build_stage() -> void:
 	ground.mesh = plane
 	add_child(ground)
 	var camera := Camera3D.new()
-	camera.position = Vector3(0, 1.1, 6.2)
+	camera.position = Vector3(0, 1.1, 6.2) if _lineup.size() > 2 else Vector3(0, 1.0, 3.0)
 	camera.rotation_degrees = Vector3(-4, 0, 0)
 	camera.fov = 40
 	add_child(camera)
@@ -109,7 +118,8 @@ func _start() -> void:
 		var character := _characters[i]
 		match _anim:
 			"equip":
-				character.set_equipment(LINEUP[i][1])
+				if _lineup[i][1] is Dictionary:
+					character.set_equipment(_lineup[i][1])
 			"unequip":
 				character.set_equipment({})
 			"run":

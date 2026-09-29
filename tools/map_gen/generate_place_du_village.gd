@@ -181,6 +181,7 @@ func _build_scene() -> void:
 	_root.map_name = MAP_NAME
 	_root.description = DESCRIPTION
 	_root.is_starting_map = true
+	_root.is_town = true
 	_root.render_obstacle_blocks = false
 
 	var grid := GridMap.new()
@@ -448,6 +449,8 @@ func _place_markers() -> void:
 func _write_scene() -> void:
 	var blocked := {}
 	for node in _root.get_tree().get_nodes_in_group(ObstacleFootprint3D.GROUP):
+		if not (node as ObstacleFootprint3D).blocks_movement:
+			continue
 		for cell in (node as ObstacleFootprint3D).blocked_cells():
 			blocked[cell] = true
 	# Terrain sous les ouvrages (minimap), aucun arbre sous un prop.

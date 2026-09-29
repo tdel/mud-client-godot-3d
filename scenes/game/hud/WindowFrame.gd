@@ -2,7 +2,8 @@ class_name WindowFrame
 extends Control
 ## Base commune à toutes les fenêtres HUD déplaçables/fermables (SkillBook, InventoryWindow,
 ## EquipmentWindow, CharacterSheetWindow, OptionsWindow, ShopWindow, DialogueWindow) : glisser
-## la barre de titre déplace la fenêtre, la croix la ferme, Échap ferme la plus récente.
+## la barre de titre déplace la fenêtre, la croix la ferme, Échap ferme celle qui a le focus
+## (voir _focused).
 ##
 ## Chaque fenêtre concrète hérite de ce script (`extends WindowFrame`) et fournit sa propre
 ## scène avec la structure attendue par les @onready ci-dessous, façon fenêtre Lineage 2 :
@@ -26,6 +27,11 @@ const POSITIONS_SECTION := "positions"
 ## Pile des fenêtres ouvertes, dans l'ordre d'ouverture/mise au premier plan — Échap
 ## (Game3D._unhandled_input → close_topmost) ferme toujours la dernière.
 static var _open_stack: Array[WindowFrame] = []
+## Fenêtre qui a le focus : prise à l'ouverture et à tout clic dans la fenêtre (voir
+## _bring_to_front), perdue dès qu'on clique ailleurs (monde, hotbar, chat… voir _input).
+## Échap ferme la fenêtre qui a le focus ; sans focus, il désélectionne d'abord la cible
+## (Game3D._unhandled_input → close_focused).
+static var _focused: WindowFrame = null
 ## Désactivé par l'outil tools/ui_preview, dont les captures doivent utiliser les positions
 ## par défaut sans écraser celles du joueur.
 static var persist_positions := true
@@ -89,6 +95,10 @@ func close_window() -> void:
 		Sfx.play_ui("window_close")
 	visible = false
 	WindowFrame._open_stack.erase(self)
+	# Le focus passe à la fenêtre suivante, pour que des Échap successifs referment les
+	# fenêtres une à une ; une fenêtre fermée sans avoir le focus ne le donne à personne.
+	if WindowFrame._focused == self:
+		WindowFrame._focused = WindowFrame._topmost_visible()
 
 
 ## Lie deux fenêtres dans les deux sens (déplacement et premier plan communs).
@@ -102,6 +112,7 @@ func _bring_to_front() -> void:
 	if _attached != null and _attached.visible:
 		_attached._raise()
 	_raise()
+	WindowFrame._focused = self
 
 
 func _raise() -> void:
@@ -110,17 +121,55 @@ func _raise() -> void:
 	WindowFrame._open_stack.append(self)
 
 
-## Ferme la fenêtre au premier plan (voir _open_stack) ; renvoie false si aucune fenêtre
-## n'était ouverte, pour que l'appelant retombe sur son propre traitement d'Échap.
+## Ferme la fenêtre au premier plan (voir _open_stack), qu'elle ait le focus ou non ;
+## renvoie false si aucune fenêtre n'était ouverte, pour que l'appelant retombe sur son
+## propre traitement d'Échap.
 static func close_topmost() -> bool:
+	var top := _topmost_visible()
+	if top == null:
+		return false
+	top.close_window()
+	return true
+
+
+## Ferme la fenêtre qui a le focus (voir _focused) ; renvoie false si aucune ne l'a.
+static func close_focused() -> bool:
+	if _focused == null or not is_instance_valid(_focused) or not _focused.visible:
+		_focused = null
+		return false
+	_focused.close_window()
+	return true
+
+
+## Dernière fenêtre ouverte encore visible de _open_stack (purgée au passage), ou null.
+static func _topmost_visible() -> WindowFrame:
 	while not _open_stack.is_empty():
 		var top: WindowFrame = _open_stack.back()
-		if not is_instance_valid(top) or not top.visible:
-			_open_stack.pop_back()
-			continue
-		top.close_window()
-		return true
-	return false
+		if is_instance_valid(top) and top.visible:
+			return top
+		_open_stack.pop_back()
+	return null
+
+
+## Clic (gauche/droit/milieu, pas la molette) : donne le focus à la fenêtre la plus haute
+## sous la souris — et la ramène au premier plan, même si le clic tombe sur un bouton ou un
+## slot qui l'absorbe avant _on_panel_gui_input — ou le retire si le clic est hors de toute
+## fenêtre. _input passe avant la GUI : une fenêtre ouverte par ce clic même (bouton du HUD,
+## PNJ cliqué) prend le focus ensuite via show_window. Chaque fenêtre visible reçoit
+## l'évènement ; le calcul est idempotent, seul le premier appel change quelque chose.
+func _input(event: InputEvent) -> void:
+	if not visible or not (event is InputEventMouseButton and event.pressed):
+		return
+	if not event.button_index in [MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT, MOUSE_BUTTON_MIDDLE]:
+		return
+	for i in range(WindowFrame._open_stack.size() - 1, -1, -1):
+		var window: WindowFrame = WindowFrame._open_stack[i]
+		if is_instance_valid(window) and window.visible \
+				and window.get_global_rect().has_point(window.get_global_mouse_position()):
+			if WindowFrame._focused != window:
+				window._bring_to_front()
+			return
+	WindowFrame._focused = null
 
 
 func _fit_to_content() -> void:

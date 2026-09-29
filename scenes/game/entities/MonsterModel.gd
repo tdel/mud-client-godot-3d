@@ -17,6 +17,10 @@ extends Resource
 ## Rotation Y (degrés) pour que le museau pointe vers -Z comme les entités du jeu (voir
 ## Game3D._face_heading, qui oriente via look_at). 180 pour un glTF qui regarde +Z.
 @export var yaw_degrees := 180.0
+## Recoloration : nom de matériau du .glb -> albedo (sRGB) remplaçant sa couleur. Permet de
+## tirer plusieurs monstres d'un même modèle (ex. le loup Quaternius teint en brun pour le
+## Brown Keltir). Les matériaux absents gardent leur couleur d'origine.
+@export var material_colors: Dictionary[String, Color] = {}
 
 @export_group("Animations")
 @export var idle_anim: StringName = &"Idle"

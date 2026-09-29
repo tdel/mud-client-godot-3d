@@ -38,6 +38,8 @@ func _ready() -> void:
 	_model.scale = Vector3.ONE * model.model_scale
 	_model.rotation.y = deg_to_rad(model.yaw_degrees)
 	add_child(_model)
+	if not model.material_colors.is_empty():
+		_recolor()
 	_animation_player = _model.find_child("AnimationPlayer", true, false) as AnimationPlayer
 	if _animation_player == null:
 		push_warning("Monster: modèle sans AnimationPlayer (%s)" % model.scene.resource_path)
@@ -125,6 +127,28 @@ func _play_base() -> void:
 	if _animation_player.current_animation == anim_name and _animation_player.is_playing():
 		return
 	_animation_player.play(anim_name, BLEND_TIME, speed)
+
+
+## Applique MonsterModel.material_colors : les matériaux du .glb étant partagés par toutes les
+## instances (et par d'autres fiches du même modèle), chacun est dupliqué avant d'être teint.
+## La copie est rendue mate : le metallic hérité des packs (conversion FBX Phong) reflète le
+## ciel bleuté et grise les teintes sombres.
+func _recolor() -> void:
+	var tinted := {}
+	for node in _model.find_children("*", "MeshInstance3D", true, false):
+		var mesh_instance := node as MeshInstance3D
+		if mesh_instance.mesh == null:
+			continue
+		for surface in mesh_instance.mesh.get_surface_count():
+			var material := mesh_instance.get_active_material(surface) as BaseMaterial3D
+			if material == null or not model.material_colors.has(material.resource_name):
+				continue
+			if not tinted.has(material):
+				var copy := material.duplicate() as BaseMaterial3D
+				copy.albedo_color = model.material_colors[material.resource_name]
+				copy.metallic = 0.0
+				tinted[material] = copy
+			mesh_instance.set_surface_override_material(surface, tinted[material])
 
 
 func _freeze_on_death() -> void:

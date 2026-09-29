@@ -8,9 +8,14 @@ extends Node3D
 ##     choisie par un bruit de "type de forêt" (chênaie / sapinière / mélange), bouleaux en
 ##     lisière, quelques arbres morts ; en cœur de massif dense, un arbre sur deux seulement
 ##     est dessiné (les couronnes se recouvrent de toute façon, la case reste bloquante) ;
+##   - sur les cases "thicket" (fourré infranchissable, bloquant côté serveur) : un roncier
+##     de gros buissons serrés, percé de quelques arbres — dense à l'œil sans planter un arbre
+##     par case ;
 ##   - du décor non bloquant sur les cases praticables : touffes d'herbe, graminées,
 ##     buissons, cailloux, souches — jamais sous l'emprise d'un obstacle posé
-##     (ObstacleFootprint3D), jamais sur les pavés, rarement sur la terre battue.
+##     (ObstacleFootprint3D), jamais sur les pavés, rarement sur la terre battue, jamais dans
+##     une rivière ni sur un pont ("water"/"bridge", lit creusé par TerrainGround) ; des
+##     roseaux (graminées hautes) le long des berges.
 ## Rendu en MultiMeshInstance3D par bloc de `chunk_size` cases et par modèle, pour que le
 ## moteur n'affiche (et n'ombre) que les blocs visibles. Après avoir repeint le GridMap
 ## dans l'éditeur, cliquer "Régénérer la végétation".
@@ -92,7 +97,9 @@ func rebuild() -> void:
 			rng.seed = _cell_hash(x, z)
 			if t == "tree":
 				_place_tree(buckets, rng, terrain, width, height, x, z, forest_type)
-			elif not ZoneAssets.BLOCKING_TERRAINS.has(t) and not blocked.has(Vector2i(x, z)):
+			elif t == "thicket":
+				_place_thicket(buckets, rng, terrain, width, height, x, z, forest_type)
+			elif t != "bridge" and not ZoneAssets.BLOCKING_TERRAINS.has(t) and not blocked.has(Vector2i(x, z)):
 				_place_decor(buckets, rng, terrain, width, height, x, z, t, clump)
 
 	_place_outer_forest(buckets, rng, terrain, width, height)
@@ -173,20 +180,59 @@ func _place_tree(buckets: Dictionary, rng: RandomNumberGenerator, terrain: Packe
 	_add(buckets, mesh_name, x, z, pos, rng.randf() * TAU, scale)
 
 
+func _place_thicket(buckets: Dictionary, rng: RandomNumberGenerator, terrain: PackedStringArray,
+		width: int, height: int, x: int, z: int, forest_type: FastNoiseLite) -> void:
+	var inside := 0
+	for dz in range(-1, 2):
+		for dx in range(-1, 2):
+			var nx := x + dx
+			var nz := z + dz
+			if (dx != 0 or dz != 0) and (nx < 0 or nz < 0 or nx >= width or nz >= height
+					or terrain[nz * width + nx] == "thicket" or terrain[nz * width + nx] == "tree"):
+				inside += 1
+	var rim := inside <= 5
+	var roll := rng.randf()
+	if roll < (0.24 if rim else 0.15):
+		var kind := forest_type.get_noise_2d(x, z)
+		var mesh_name: String
+		if rng.randf() < 0.05:
+			mesh_name = "tree_dead_0"
+		elif rim and rng.randf() < 0.35:
+			mesh_name = BIRCHES[rng.randi() % BIRCHES.size()]
+		elif kind > 0.0:
+			mesh_name = FIRS[rng.randi() % FIRS.size()]
+		else:
+			mesh_name = OAKS[rng.randi() % OAKS.size()]
+		var pos := Vector3(x + 0.5 + rng.randf_range(-0.3, 0.3), 0.0, z + 0.5 + rng.randf_range(-0.3, 0.3))
+		_add(buckets, mesh_name, x, z, pos, rng.randf() * TAU, rng.randf_range(0.9, 1.3))
+	# Roncier : un ou deux gros buissons par case, qui se chevauchent d'une case à l'autre.
+	var bushes := 2 if rng.randf() < (0.55 if rim else 0.3) else 1
+	for i in bushes:
+		var bush := "bush_0" if rng.randf() < 0.65 else "bush_1"
+		var pos := Vector3(x + rng.randf_range(0.1, 0.9), 0.0, z + rng.randf_range(0.1, 0.9))
+		_add(buckets, bush, x, z, pos, rng.randf() * TAU, rng.randf_range(1.2, 1.9) if rim else rng.randf_range(1.5, 2.2))
+	if rim and rng.randf() < 0.5:
+		_add(buckets, "grass_1", x, z, Vector3(x + rng.randf_range(0.0, 1.0), 0.0, z + rng.randf_range(0.0, 1.0)),
+				rng.randf() * TAU, rng.randf_range(1.0, 1.4))
+
+
 func _place_decor(buckets: Dictionary, rng: RandomNumberGenerator, terrain: PackedStringArray,
 		width: int, height: int, x: int, z: int, t: String, clump: FastNoiseLite) -> void:
 	var grassy := t == "grass" or t == "clearingGrass" or t == "darkGrass" or t == "tallGrass"
 	var forest := t == "forestFloor"
 	var near_tree := false
 	var edge := false
+	var bank := false
 	for offset in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
 		var nx: int = x + offset.x
 		var nz: int = z + offset.y
 		if nx < 0 or nz < 0 or nx >= width or nz >= height:
 			continue
 		var n := terrain[nz * width + nx]
-		if n == "tree":
+		if n == "tree" or n == "thicket":
 			near_tree = true
+		if n == "water":
+			bank = true
 		if n != t:
 			edge = true
 	var clumping := clump.get_noise_2d(x, z) * 0.5 + 0.5
@@ -211,6 +257,11 @@ func _place_decor(buckets: Dictionary, rng: RandomNumberGenerator, terrain: Pack
 		var mesh_name := "grass_1" if rng.randf() < 0.18 else "grass_0"
 		var pos := Vector3(x + rng.randf_range(0.1, 0.9), 0.0, z + rng.randf_range(0.1, 0.9))
 		_add(buckets, mesh_name, x, z, pos, rng.randf() * TAU, rng.randf_range(0.7, 1.25))
+	if bank and t != "pavedStone":
+		# Roseaux : graminées hautes serrées côté eau.
+		for i in (3 if rng.randf() < 0.5 else 2):
+			var pos := Vector3(x + rng.randf_range(0.05, 0.95), 0.0, z + rng.randf_range(0.05, 0.95))
+			_add(buckets, "grass_1", x, z, pos, rng.randf() * TAU, rng.randf_range(1.1, 1.6))
 	if t == "pavedStone" or t == "dirtPath":
 		return
 	var bush_p := bush_density * (2.2 if near_tree else 1.0) * (1.3 if forest else 0.6)
@@ -242,7 +293,8 @@ func _place_outer_forest(buckets: Dictionary, rng: RandomNumberGenerator, terrai
 
 
 ## Vrai si une case de bord de carte proche (à ±5 cases le long du bord) de la case hors
-## carte (x, z) est pavée ou en terre : garde dégagé le prolongement visuel des routes, sans
+## carte (x, z) est pavée, en terre ou de rivière : garde dégagé le prolongement visuel des
+## routes et des cours d'eau, sans
 ## que les couronnes des arbres voisins ne referment le passage.
 func _near_edge_road(terrain: PackedStringArray, width: int, height: int, x: int, z: int) -> bool:
 	var cx := clampi(x, 0, width - 1)
@@ -251,7 +303,7 @@ func _near_edge_road(terrain: PackedStringArray, width: int, height: int, x: int
 		var ex := cx if (x < 0 or x >= width) else clampi(cx + offset, 0, width - 1)
 		var ez := cz if (z < 0 or z >= height) else clampi(cz + offset, 0, height - 1)
 		var t := terrain[ez * width + ex]
-		if t == "pavedStone" or t == "dirtPath":
+		if t == "pavedStone" or t == "dirtPath" or t == "water" or t == "bridge":
 			return true
 	return false
 

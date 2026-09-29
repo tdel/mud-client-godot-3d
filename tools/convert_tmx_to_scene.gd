@@ -65,6 +65,7 @@ func _parse_tmx(path: String) -> Dictionary:
 	var map_name := ""
 	var description := ""
 	var is_starting_map := false
+	var is_town := false
 	var width := 0
 	var height := 0
 	var tile_w := 32
@@ -133,6 +134,8 @@ func _parse_tmx(path: String) -> Dictionary:
 								description = prop_value
 							"isStartingMap":
 								is_starting_map = prop_value == "true"
+							"isTown":
+								is_town = prop_value == "true"
 				"polygon":
 					if current_object != null and parent == "object":
 						var points := PackedVector2Array()
@@ -183,7 +186,7 @@ func _parse_tmx(path: String) -> Dictionary:
 
 	return {
 		"map_id": map_id, "map_name": map_name, "description": description,
-		"is_starting_map": is_starting_map,
+		"is_starting_map": is_starting_map, "is_town": is_town,
 		"width": width, "height": height, "tile_w": tile_w, "tile_h": tile_h,
 		"terrain_grid": terrain_grid, "objects": objects,
 	}
@@ -207,6 +210,7 @@ func _build_scene(parsed: Dictionary) -> Node3D:
 	root.map_name = parsed.map_name
 	root.description = parsed.description
 	root.is_starting_map = parsed.is_starting_map
+	root.is_town = parsed.is_town
 
 	var grid_map := GridMap.new()
 	grid_map.name = "Terrain"

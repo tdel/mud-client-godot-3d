@@ -306,6 +306,8 @@ MATERIAL_DEFS = {
 	"blade": ((0.85, 0.87, 0.90), 0.6, 0.25),
 	"gem": ((0.30, 0.55, 0.95), 0.2, 0.2),
 	"string": ((0.85, 0.82, 0.70), 0.0, 0.9),
+	# Couleurs de la garde (tabard, écu) : garance, distincte du bleu des robes de mage.
+	"tabard": ((0.50, 0.09, 0.08), 0.0, 0.9),
 }
 MATERIALS = {}
 
@@ -362,6 +364,34 @@ def loft_torso(mb, rings, mat, n=12, smooth=True, cap_start=True, cap_end=True, 
 		loft(mb, [(c0, X, Y, rx0, ry0), (c1, X, Y, rx1, ry1)], bone,
 			mats[i] if mats else mat, n,
 			cap_start and i == 0, cap_end and i == len(rings) - 2, smooth)
+
+
+def torso_arc(mb, rings, mat, t_center, half, thickness=0.01, steps=6, smooth=False):
+	"""Pan épais épousant le tronc (tabard) : secteur d'anneaux torso_rings entre les angles
+	t_center +/- half (degrés ; -90 = devant, 90 = dos), épaisseur vers l'intérieur. Chaque
+	tronçon est un solide fermé pesé sur le bone de son anneau inférieur (voir loft_torso)."""
+	angles = [math.radians(t_center - half + 2 * half * k / steps) for k in range(steps + 1)]
+	m = len(angles)
+
+	def ring_points(c, rx, ry):
+		outer = [c + Vector((rx * math.cos(t), ry * math.sin(t), 0)) for t in angles]
+		inner = [c + Vector(((rx - thickness) * math.cos(t), (ry - thickness) * math.sin(t), 0)) for t in angles]
+		return outer + inner
+
+	for i in range(len(rings) - 1):
+		c0, rx0, ry0, bone = rings[i]
+		c1, rx1, ry1, _ = rings[i + 1]
+		verts = ring_points(c0, rx0, ry0) + ring_points(c1, rx1, ry1)
+		ao, ai, bo, bi = 0, m, 2 * m, 3 * m
+		faces = []
+		for k in range(m - 1):
+			faces.append((ao + k, ao + k + 1, bo + k + 1, bo + k))
+			faces.append((ai + k + 1, ai + k, bi + k, bi + k + 1))
+			faces.append((ao + k, ai + k, ai + k + 1, ao + k + 1))
+			faces.append((bo + k + 1, bi + k + 1, bi + k, bo + k))
+		faces.append((ao, bo, bi, ai))
+		faces.append((ao + m - 1, ai + m - 1, bi + m - 1, bo + m - 1))
+		mb.add(verts, faces, bone, mat, smooth)
 
 
 def build_body(g, j, rig):
@@ -440,8 +470,11 @@ def build_foot(mb, side, j, s, mat, inflate, height=None):
 	h = (height or 0.09) * s
 	heel_y, toe_y = 0.045 * s + inflate, -0.17 * s - inflate
 	w = 0.045 * s + inflate
+	# Semelle d'une botte (inflate > 0) sous celle du pied : sinon les deux faces se
+	# confondent (z-fighting, peau visible sous les bottes d'un personnage à terre).
+	sole = -inflate * 0.5
 	verts = [
-		Vector((x - w, heel_y, 0.0)), Vector((x + w, heel_y, 0.0)), Vector((x + w, toe_y, 0.0)), Vector((x - w, toe_y, 0.0)),
+		Vector((x - w, heel_y, sole)), Vector((x + w, heel_y, sole)), Vector((x + w, toe_y, sole)), Vector((x - w, toe_y, sole)),
 		Vector((x - w * 0.9, heel_y, h)), Vector((x + w * 0.9, heel_y, h)), Vector((x + w * 0.85, toe_y + 0.03 * s, 0.035 * s + inflate)),
 		Vector((x - w * 0.85, toe_y + 0.03 * s, 0.035 * s + inflate)),
 	]
@@ -540,6 +573,42 @@ def build_torso_sets(g, j, rig):
 		box(mb, c, (0.085 * s, 0.015 * s, 0.12 * s), "Hips", "steel", rot=rot)
 	out.append(mb.build(rig))
 
+	# Garde (PNJ de type GUARD, voir Character.NPC_OUTFITS) : cuirasse de plaques sous un tabard
+	# garance à losange doré (pans devant/derrière, le métal reste visible sur les flancs),
+	# gorgerin, grosses épaulières à deux lames, manches de mailles, ceinture de cuir.
+	mb = MeshBuilder("torso_guard", [])
+	loft_torso(mb, torso_rings(g, j, 0.03, 1.00, 1.47), "steel", n=10, smooth=False, cap_start=False)
+	chest_bulges(mb, g, 0.03, "steel", smooth=False)
+	for t_center, half in ((-90, 55), (90, 60)):
+		torso_arc(mb, torso_rings(g, j, 0.055, 1.00, 1.43), "tabard", t_center, half, thickness=0.01)
+	loft_torso(mb, torso_rings(g, j, 0.07, 1.00, 1.05), "leather_dark", n=10, smooth=False, cap_start=False, cap_end=False)
+	pel = g["pelvis"]
+	box(mb, Vector((0, -(pel[1] * 0.95 + 0.075), 1.025 * s)), (0.05 * s, 0.012, 0.04 * s), "Hips", "gold")
+	chest_ry = g["chest"][1] + 0.065
+	box(mb, Vector((0, -chest_ry, 1.27 * s)), (0.07 * s, 0.01, 0.07 * s), "Chest", "gold",
+		rot=Matrix.Rotation(math.radians(45), 4, "Y"))
+	tube(mb, j["neck"] - Vector((0, 0, 0.04 * s)), j["neck"] + Vector((0, 0, 0.04 * s)),
+		(g["neck_r"] * 1.75, g["neck_r"] * 1.55), (g["neck_r"] * 1.45, g["neck_r"] * 1.3), "UpperChest", "steel",
+		hint=Vector((1, 0, 0)), n=10, smooth=False)
+	for side, sx in (("Left", 1), ("Right", -1)):
+		sh = j[side + "Shoulder"]
+		ellipsoid(mb, sh + Vector((sx * 0.02 * s, 0, 0.03 * s)), (0.105 * s, 0.095 * s, 0.065 * s), side + "UpperArm", "steel", seg=8, rings=4, smooth=False)
+		ellipsoid(mb, sh + Vector((sx * 0.045 * s, 0, -0.015 * s)), (0.09 * s, 0.088 * s, 0.05 * s), side + "UpperArm", "steel_dark", seg=8, rings=4, smooth=False)
+		ellipsoid(mb, sh + Vector((sx * 0.02 * s, 0, 0.09 * s)), (0.018 * s,) * 3, side + "UpperArm", "gold", seg=6, rings=4, smooth=False)
+		arm_sleeve(mb, j, g, side, "steel_dark", 0.015, upper_to=1.0, n=6)
+		# Pans du tabard sous la ceinture : un par cuisse, devant et derrière, qui suivent la
+		# jambe (segments rigides, même compromis que la robe) ; ourlet doré.
+		hp = j[side + "Hip"]
+		for fy in (-1, 1):
+			y = fy * (pel[1] + 0.055)
+			box(mb, Vector((hp.x * 0.92, y, 0.84 * s)), (0.135 * s, 0.012, 0.26 * s), side + "UpperLeg", "tabard")
+			box(mb, Vector((hp.x * 0.92, y, 0.705 * s)), (0.14 * s, 0.016, 0.022 * s), side + "UpperLeg", "gold")
+	for angle in (60, 120, 240, 300):
+		a = math.radians(angle)
+		c = Vector((math.sin(a) * (pel[0] + 0.03), -math.cos(a) * (pel[1] + 0.03), 0.92 * s))
+		box(mb, c, (0.085 * s, 0.015 * s, 0.12 * s), "Hips", "steel", rot=Matrix.Rotation(-a, 4, "Z"))
+	out.append(mb.build(rig))
+
 	# Robe de mage : longue, manches évasées, bordure dorée ; les pans de jupe suivent les
 	# cuisses/tibias (segments rigides), un compromis low-poly contre le clipping en course.
 	mb = MeshBuilder("torso_robe", [])
@@ -588,6 +657,32 @@ def build_helmet_sets(g, j, rig):
 	ellipsoid(mb, head_c + Vector((0, 0, 0.08 * s)), (0.11 * s, 0.12 * s, 0.07 * s), "Head", "steel", seg=10, rings=5, smooth=False)
 	box(mb, head_c + Vector((0, -0.12 * s, 0.0)), (0.13 * s, 0.02 * s, 0.022 * s), "Head", "eyes")
 	box(mb, head_c + Vector((0, 0, 0.15 * s)), (0.02 * s, 0.2 * s, 0.03 * s), "Head", "gold")
+	out.append(mb.build(rig))
+	# Chapel de fer de la garde : calotte au-dessus des sourcils, large bord incliné, bandeau
+	# doré et arête. Visage dégagé et cheveux visibles dessous (queue de cheval de la femme
+	# comprise, voir HAIR_VISIBLE_HELMETS) : c'est ce qui distingue gardes hommes et femmes.
+	mb = MeshBuilder("helmet_guard", [])
+	base = head_c + Vector((0, 0.012 * s, 0.03 * s))
+	r0x, r0y, dome_h = 0.106 * s, 0.117 * s, 0.13 * s
+	X, Y = Vector((1, 0, 0)), Vector((0, 1, 0))
+	dome = []
+	for k in range(6):
+		h = dome_h * k / 6
+		f = math.sqrt(max(0.0, 1.0 - (h / dome_h) ** 2))
+		dome.append((base + Vector((0, 0, h)), X, Y, r0x * f, r0y * f))
+	loft(mb, dome, "Head", "steel", n=12, cap_start=False, smooth=False)
+	brim_in, brim_out, drop = 0.004 * s, 0.06 * s, 0.03 * s
+	brim = [
+		(base, X, Y, r0x + brim_in, r0y + brim_in),
+		(base + Vector((0, 0, -drop)), X, Y, r0x + brim_out, r0y + brim_out),
+		(base + Vector((0, 0, -drop - 0.012 * s)), X, Y, r0x + brim_out, r0y + brim_out),
+		(base + Vector((0, 0, -0.012 * s)), X, Y, r0x + brim_in, r0y + brim_in),
+		(base, X, Y, r0x + brim_in, r0y + brim_in),
+	]
+	loft(mb, brim, "Head", "steel_dark", n=12, cap_start=False, cap_end=False, smooth=False)
+	tube(mb, base + Vector((0, 0, 0.005 * s)), base + Vector((0, 0, 0.03 * s)), (r0x + 0.006 * s, r0y + 0.006 * s),
+		(r0x * 0.98 + 0.006 * s, r0y * 0.98 + 0.006 * s), "Head", "gold", hint=X, n=12, smooth=False)
+	box(mb, base + Vector((0, 0, dome_h - 0.005 * s)), (0.022 * s, 0.2 * s, 0.025 * s), "Head", "steel")
 	out.append(mb.build(rig))
 	# Capuche de mage
 	mb = MeshBuilder("helmet_hood", [])
@@ -679,6 +774,14 @@ def build_weapons(g, j, rig):
 	_blade(mb, c, b, lat, 0.08, 0.72, 0.028, 0.008, hand)
 	out.append(mb.build(rig))
 
+	# Épée courte de la garde : lame large et courte, garde et pommeau d'acier.
+	mb = MeshBuilder("weapon_shortsword", [])
+	handle(0.075, 0.05, 0.016)
+	ellipsoid(mb, c + p * 0.085, (0.022,) * 3, hand, "steel_dark", seg=6, rings=4, smooth=False)
+	box(mb, c + b * 0.058, (0.16, 0.028, 0.032), hand, "steel")
+	_blade(mb, c, b, lat, 0.07, 0.5, 0.032, 0.008, hand)
+	out.append(mb.build(rig))
+
 	mb = MeshBuilder("weapon_dagger", [])
 	handle(0.06, 0.05, 0.015)
 	box(mb, c + b * 0.055, (0.1, 0.025, 0.025), hand, "steel_dark")
@@ -765,7 +868,49 @@ def build_weapons(g, j, rig):
 	tube(mb, sc + up * 0.0, sc + up * 0.025, 0.28, 0.28, "LeftLowerArm", "steel_dark", hint=X, n=12, smooth=False)
 	ellipsoid(mb, sc + up * 0.04, (0.07, 0.07, 0.04), "LeftLowerArm", "gold", seg=8, rings=4, smooth=False)
 	out.append(mb.build(rig))
+
+	# Écu de la garde : bord plat côté coude, pointe côté poignet (vers le bas bras baissé),
+	# légèrement bombé ; chant d'acier, champ garance, croix dorée.
+	mb = MeshBuilder("shield_guard", [])
+	outline = [(-0.26, 0.22), (-0.26, -0.22)]
+	for k in range(7):
+		t = k / 6 * math.pi / 2
+		outline.append((0.34 * math.sin(t), -0.22 * math.cos(t)))
+	for k in range(1, 7):
+		t = math.pi / 2 - k / 6 * math.pi / 2
+		outline.append((0.34 * math.sin(t), 0.22 * math.cos(t)))
+	shield_slab(mb, sc, X, Y, up, outline, 1.0, 0.0, 0.03, "steel_dark")
+	shield_slab(mb, sc, X, Y, up, outline, 0.88, 0.02, 0.038, "tabard")
+	box(mb, sc + X * 0.03 + up * 0.041, (0.4, 0.055, 0.012), "LeftLowerArm", "gold")
+	box(mb, sc + X * -0.08 + up * 0.041, (0.055, 0.3, 0.012), "LeftLowerArm", "gold")
+	out.append(mb.build(rig))
 	return out
+
+
+# Bombé de l'écu : recul (vers le bras) = SHIELD_CURVE * v².
+SHIELD_CURVE = 0.3
+
+
+def shield_slab(mb, sc, U, V, N, outline, scale, z0, z1, mat, center=(0.03, 0.0)):
+	"""Plaque épaisse (z0 -> z1 le long de N) au contour convexe `outline` [(u, v)], réduit
+	de `scale` autour de `center`, bombée selon SHIELD_CURVE."""
+	uc, vc = center
+
+	def point(u, v, z):
+		u, v = uc + (u - uc) * scale, vc + (v - vc) * scale
+		return sc + U * u + V * v + N * (z - SHIELD_CURVE * v * v)
+
+	n = len(outline)
+	verts = [point(uc, vc, z1), point(uc, vc, z0)]
+	verts += [point(u, v, z1) for u, v in outline]
+	verts += [point(u, v, z0) for u, v in outline]
+	faces = []
+	for k in range(n):
+		a, b = k, (k + 1) % n
+		faces.append((0, 2 + a, 2 + b))
+		faces.append((1, 2 + n + b, 2 + n + a))
+		faces.append((2 + a, 2 + n + a, 2 + n + b, 2 + b))
+	mb.add(verts, faces, "LeftLowerArm", mat, smooth=False)
 
 
 # ---------------------------------------------------------------------------------------------

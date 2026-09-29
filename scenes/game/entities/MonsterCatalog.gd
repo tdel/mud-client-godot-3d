@@ -11,6 +11,7 @@ extends RefCounted
 
 const MODELS := {
 	"fox": preload("res://assets/monsters/fox/fox.tres"),
+	"brown keltir": preload("res://assets/monsters/keltir/brown_keltir.tres"),
 }
 
 

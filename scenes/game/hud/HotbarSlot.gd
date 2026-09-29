@@ -5,13 +5,15 @@ extends Control
 ##
 ## Rendu façon Lineage 2 : slot en creux, touche en petit en haut à gauche, recharge affichée
 ## comme un voile sombre qui se retire dans le sens horaire (plus le temps restant au centre),
-## charge soulshot/spiritshot armée signalée par un liseré doré pulsant.
+## charge soulshot/spiritshot armée signalée par une icône brillante animée.
 
 signal slot_drop_requested(
 	slot_index: int, kind: String, ref_id: String, ref_name: String, item_type: String, item_grade: String
 )
 ## Clic gauche : Hotbar.gd le traite comme un appui sur la touche F1-F12 correspondante.
 signal slot_clicked(slot_index: int)
+## Clic droit : bascule d'un objet "toggle" (soulshot/spiritshot), voir Hotbar.gd.
+signal slot_right_clicked(slot_index: int)
 
 const KEY_LABELS := ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12"]
 const ERROR_FLASH_DURATION := 0.4
@@ -30,7 +32,6 @@ const COOLDOWN_EDGE := Color(1.0, 0.92, 0.65, 0.85)
 var slot_index: int = 0
 var _kind: String = ""
 var _ref_name: String = ""
-var _active := false
 var _cooldown_end_msec: float = 0.0
 var _cooldown_total_msec: float = 0.0
 ## Une recharge est en cours et n'a pas encore été signalée comme terminée (voir _process).
@@ -58,6 +59,8 @@ func set_content(kind: String, ref_name: String, tooltip: String = "") -> void:
 	_ref_name = ref_name
 	set_insufficient_mana(false)
 	set_quantity(-1)
+	# Réappliqué par Hotbar._refresh_shot_active_states si le nouveau contenu est une charge armée.
+	_icon.material = null
 	if kind.is_empty():
 		_icon.texture = null
 		tooltip_text = ""
@@ -74,12 +77,11 @@ func clear_content() -> void:
 	set_active(false)
 
 
-## Surlignage persistant d'un slot "item" de charge (soulshot/spiritshot) armée en auto-use
-## — voir Hotbar._refresh_shot_active_states.
-func set_active(active: bool) -> void:
-	_active = active
-	_update_processing()
-	_overlay.queue_redraw()
+## Icône brillante (voir IconFactory.active_shot_material) d'un slot "item" de charge
+## (soulshot/spiritshot) armée en auto-use, icône normale sinon — voir
+## Hotbar._refresh_shot_active_states. Le shader s'anime seul, sans _process.
+func set_active(active: bool, item_type: String = "SOULSHOT") -> void:
+	_icon.material = IconFactory.active_shot_material(item_type) if active else null
 
 
 ## Démarre la recharge, ou la recale si elle est déjà en cours : seule l'heure de fin est
@@ -93,7 +95,7 @@ func set_cooldown_overlay(remaining_ms: float) -> void:
 		_cooldown_total_msec = remaining_ms
 	else:
 		_cooldown_total_msec = maxf(_cooldown_total_msec, remaining_ms)
-	_cooldown_end_msec = Time.get_ticks_msec() + remaining_ms
+	_cooldown_end_msec = GameClock.now_msec() + remaining_ms
 	_cooldown_pending = true
 	_cooldown_label.visible = true
 	_update_processing()
@@ -104,11 +106,11 @@ func is_cooling_down() -> bool:
 
 
 func _update_processing() -> void:
-	set_process(_active or _cooldown_remaining() > 0.0)
+	set_process(_cooldown_remaining() > 0.0)
 
 
 func _cooldown_remaining() -> float:
-	return maxf(_cooldown_end_msec - Time.get_ticks_msec(), 0.0)
+	return maxf(_cooldown_end_msec - GameClock.now_msec(), 0.0)
 
 
 func _process(_delta: float) -> void:
@@ -145,9 +147,6 @@ func _on_overlay_draw() -> void:
 		if points.size() >= 3:
 			_overlay.draw_colored_polygon(points, COOLDOWN_SHADE)
 			_overlay.draw_line(center, points[1], COOLDOWN_EDGE, 1.0, true)
-	if _active:
-		var pulse := 0.55 + 0.45 * sin(Time.get_ticks_msec() / 250.0)
-		_overlay.draw_rect(rect.grow(-0.5), Color(1.0, 0.82, 0.35, pulse), false, 2.0)
 
 
 ## Projette le rayon partant de `center` sur le bord du rectangle `rect`.
@@ -199,8 +198,12 @@ func _make_custom_tooltip(for_text: String) -> Object:
 
 
 func _gui_input(event: InputEvent) -> void:
-	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+	if not (event is InputEventMouseButton and event.pressed):
+		return
+	if event.button_index == MOUSE_BUTTON_LEFT:
 		slot_clicked.emit(slot_index)
+	elif event.button_index == MOUSE_BUTTON_RIGHT:
+		slot_right_clicked.emit(slot_index)
 
 
 func _can_drop_data(_pos: Vector2, data) -> bool:

@@ -35,9 +35,9 @@ const PAPER := Color(0.92, 0.85, 0.68)
 const CHANNEL_BY_TERRAIN := {
 	"pavedStone": 0, "gate": 0, "ironGate": 0,
 	"dirtPath": 1,
-	"tree": 2, "deadTree": 2, "forestFloor": 2, "bramble": 2,
+	"tree": 2, "deadTree": 2, "forestFloor": 2, "bramble": 2, "thicket": 2, "bridge": 1,
 	"rampart": 3, "auberge": 3, "forge": 3, "mausoleum": 3,
-	"fountain": 4,
+	"fountain": 4, "water": 4,
 	"rockWall": 5, "rubble": 5,
 }
 

@@ -41,6 +41,7 @@ const SPELL_FAMILY := {
 	SpellVfx.Element.HEAL: "heal",
 	SpellVfx.Element.BUFF: "buff",
 	SpellVfx.Element.PHYSICAL: "physical",
+	SpellVfx.Element.ESCAPE: "holy",
 }
 
 ## Slot d'équipement (EquipmentWindow.SLOT_ORDER) -> famille de sons ui_item_* ; tout slot

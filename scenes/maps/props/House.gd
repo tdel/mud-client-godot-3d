@@ -64,7 +64,7 @@ func set_night_factor(factor: float) -> void:
 
 
 func _process(_delta: float) -> void:
-	var t := Time.get_ticks_msec() / 1000.0
+	var t := GameClock.now()
 	var flicker := 1.0 + 0.05 * sin(t * 9.0 + _phase) + 0.03 * sin(t * 23.0 + _phase * 2.0)
 	if _lantern != null and _factor > 0.01:
 		_lantern.light_energy = lantern_energy * _factor * flicker

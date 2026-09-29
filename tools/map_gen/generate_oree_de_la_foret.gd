@@ -13,11 +13,19 @@ extends SceneTree
 ##     infranchissables le long des bords), percée de clairières reliées par des chemins de
 ##     terre en boucles ; une scierie abandonnée au nord, au bout d'un chemin de terre ;
 ##   - des panneaux indicateurs à chaque embranchement ;
+##   - un ruisseau (le Ru d'Argent) qui coupe la carte du nord au sud, à l'est de la fontaine :
+##     infranchissable à la nage, on le traverse par trois ponts — le vieux pont de pierre de
+##     la route, deux passerelles de bois sur les chemins de terre (Saulaie au nord, boucle du
+##     Vieux Chêne au sud). Cases "water" bloquantes, "bridge" praticables sous les tabliers ;
+##     le lit est creusé à l'affichage par TerrainGround ;
+##   - des fourrés (cases "thicket", bloquantes) : quelques massifs de forêt trop dense pour y
+##     passer, et toute la lisière du bord de carte ; la forêt praticable est clairsemée ;
 ##   - 300 points de spawn de monstres (Fox / Brown Keltir) en forêt et dans les clairières,
 ##     jamais sur la route, la place ou près des portails.
 ## Toute zone praticable d'une certaine taille est garantie accessible depuis le point de
-## spawn joueur (une trouée est creusée dans les arbres vers les grandes poches enclavées) ;
-## les petites poches isolées restent telles quelles (inaccessibles, sans spawn).
+## spawn joueur (une trouée est creusée dans les arbres — jamais dans l'eau ni dans un
+## fourré — vers les grandes poches enclavées) ; les poches qu'on ne peut relier ainsi, et
+## les petites, restent telles quelles (inaccessibles, sans spawn).
 ##
 ## Lancer avec :
 ##   godot --headless --path . --script res://tools/map_gen/generate_oree_de_la_foret.gd
@@ -30,7 +38,7 @@ const SEED := 20260926
 
 const MAP_ID := "9a884ac7-b954-4cd6-ab67-c677d472cb0f"
 const MAP_NAME := "Orée de la forêt"
-const DESCRIPTION := "Une vieille route pavée traverse la forêt, de la Clairière jusqu'aux portes du village. Une fontaine en marque le milieu ; des sentiers de terre s'enfoncent sous les arbres, jusqu'à une scierie abandonnée."
+const DESCRIPTION := "Une vieille route pavée traverse la forêt, de la Clairière jusqu'aux portes du village. Une fontaine en marque le milieu ; des sentiers de terre s'enfoncent sous les arbres, jusqu'à une scierie abandonnée. À l'est, le Ru d'Argent coule entre ses berges : on ne le passe que par ses ponts. Par endroits, la forêt se referme en fourrés impénétrables."
 const CLAIRIERE_ID := "7f55fd0c-23f8-4a3b-82a2-95a79bdbf2b5"
 const VILLAGE_ID := "5e4ada37-37e1-438c-9233-581f10c055c7"
 const FOX_ID := "0a88e27c-5487-40d5-b494-b7ea49148171"
@@ -50,26 +58,29 @@ const KEEP_CLEAR := [Vector2(128.15, 106.89), Vector2(27.75, 15.82), Vector2(22,
 		Vector2(23, 11), Vector2(54, 18), Vector2(50, 92)]
 
 ## Codes terrain internes -> noms d'items de la MeshLibrary.
-enum T { GRASS, FOREST, DIRT, PAVED, TREE }
-const T_NAMES := ["grass", "forestFloor", "dirtPath", "pavedStone", "tree"]
+enum T { GRASS, FOREST, DIRT, PAVED, TREE, WATER, THICKET, BRIDGE }
+const T_NAMES := ["grass", "forestFloor", "dirtPath", "pavedStone", "tree", "water", "thicket", "bridge"]
 
 ## Prolongée au-delà des deux bords : la route sort visuellement de la carte (voir
 ## TerrainGround.margin / Vegetation.outer_margin) vers la Clairière et le village.
 const ROAD := [Vector2(-6, 135), Vector2(8, 135), Vector2(30, 134), Vector2(58, 129), Vector2(90, 126), Vector2(122, 131),
-		Vector2(156, 141), Vector2(190, 139), Vector2(225, 135), Vector2(258, 130), Vector2(292, 124),
-		Vector2(330, 129), Vector2(368, 141), Vector2(404, 140), Vector2(442, 135), Vector2(456, 135)]
+		Vector2(156, 141), Vector2(190, 139), Vector2(225, 135), Vector2(258, 130), Vector2(280, 126),
+		Vector2(286, 125.5), Vector2(306, 125.5), Vector2(312, 126), Vector2(330, 129), Vector2(368, 141), Vector2(404, 140), Vector2(442, 135), Vector2(456, 135)]
 
 ## Chemins de terre : [nom, points]. Le premier point est sur la route/la place.
 var DIRT_PATHS := [
 	["sawmill", [Vector2(225, 126), Vector2(222, 110), Vector2(209, 96), Vector2(213, 81), Vector2(199, 69), Vector2(186, 60)]],
 	["south_loop", [Vector2(225, 144), Vector2(232, 163), Vector2(222, 184), Vector2(237, 204), Vector2(262, 220),
-			Vector2(290, 214), Vector2(317, 199), Vector2(337, 179), Vector2(344, 158), Vector2(338, 131)]],
+			Vector2(286, 216), Vector2(297, 214.5), Vector2(315, 214.5), Vector2(325, 205), Vector2(337, 183),
+			Vector2(344, 158), Vector2(338, 131)]],
 	["west", [Vector2(94, 126), Vector2(92, 109), Vector2(80, 92), Vector2(86, 73), Vector2(72, 55)]],
 	["west_sawmill", [Vector2(86, 73), Vector2(108, 64), Vector2(132, 58), Vector2(150, 55)]],
 	["south_west", [Vector2(60, 129), Vector2(64, 152), Vector2(52, 174), Vector2(62, 198), Vector2(50, 222)]],
 	["east_north", [Vector2(384, 140), Vector2(388, 120), Vector2(399, 100), Vector2(391, 80), Vector2(402, 60)]],
 	["east_south", [Vector2(410, 139), Vector2(415, 160), Vector2(405, 181), Vector2(420, 203)]],
 	["glade_link", [Vector2(262, 220), Vector2(240, 236), Vector2(205, 232), Vector2(180, 214), Vector2(160, 196)]],
+	["river_north", [Vector2(268, 128), Vector2(270, 112), Vector2(281, 97), Vector2(293, 89), Vector2(300, 88.5),
+			Vector2(320, 88.5), Vector2(328, 86), Vector2(340, 79), Vector2(358, 70), Vector2(378, 62), Vector2(398, 58)]],
 ]
 ## Clairières : [centre, rayon, nom affiché sur les panneaux].
 var GLADES := [
@@ -80,13 +91,38 @@ var GLADES := [
 	[Vector2(401, 57), 14.0, "Rochers de l'Est"],
 	[Vector2(421, 206), 10.0, "Sous-bois"],
 	[Vector2(158, 194), 10.0, "Mare aux Keltirs"],
+	[Vector2(346, 76), 10.0, "Saulaie"],
 ]
+
+## Le Ru d'Argent, du nord au sud. Il sort de la carte par les deux bords (TerrainGround le
+## prolonge dans la marge visuelle) ; tronçons rectilignes nord-sud au droit des ponts.
+const RIVER := [Vector2(288, -10), Vector2(290, 14), Vector2(300, 40), Vector2(312, 62), Vector2(310, 80),
+		Vector2(310, 88.5), Vector2(310, 97), Vector2(301, 110), Vector2(296, 118), Vector2(296, 125.5),
+		Vector2(296, 133), Vector2(303, 150), Vector2(317, 170), Vector2(314, 192), Vector2(306, 206),
+		Vector2(306, 214.5), Vector2(306, 223), Vector2(297, 244), Vector2(301, 280)]
+const RIVER_HALF_WIDTH := 4.4
+## Demi-largeur au droit des ponts (8 cases d'eau) : les tabliers débordent sur les berges.
+const RIVER_HALF_WIDTH_AT_BRIDGE := 3.9
+## Ponts est-ouest : centre (z au milieu d'une case, largeur praticable impaire : le tablier
+## tombe pile sur des rangées entières de cases), scène, longueur et largeur praticable (m) —
+## à garder alignées sur tools/env_gen/build_bridges.py.
+const BRIDGES := [
+	[Vector2(296, 125.5), "res://scenes/maps/props/BridgeStone.tscn", 15.0, 5, "Pont_Route"],
+	[Vector2(310, 88.5), "res://scenes/maps/props/BridgeWood.tscn", 13.0, 3, "Passerelle_Saulaie"],
+	[Vector2(306, 214.5), "res://scenes/maps/props/BridgeWood.tscn", 13.0, 3, "Passerelle_VieuxChene"],
+]
+## Massifs de forêt impénétrable (en plus de la lisière du bord de carte).
+const THICKET_COUNT := 9
+const EDGE_THICKET_DEPTH := 6
 
 var _terrain := PackedByteArray()
 var _road_d := PackedFloat32Array()
 var _dirt_d := PackedFloat32Array()
 var _open_d := PackedFloat32Array()  # distance hors des zones à garder sans arbre
 var _plaza_d := PackedFloat32Array()
+var _river_d := PackedFloat32Array()  # distance au bord du ruisseau (négative dans l'eau)
+var _core_open_d := PackedFloat32Array()  # _open_d sans les petites clairières aléatoires
+var _thicket_d := PackedFloat32Array()
 var _noise := FastNoiseLite.new()
 var _density := FastNoiseLite.new()
 var _rng := RandomNumberGenerator.new()
@@ -123,7 +159,7 @@ func _generate_layout() -> void:
 	_density.fractal_octaves = 3
 	var n := W * H
 	_terrain.resize(n)
-	for arr in [_road_d, _dirt_d, _open_d, _plaza_d]:
+	for arr in [_road_d, _dirt_d, _open_d, _plaza_d, _river_d, _thicket_d]:
 		arr.resize(n)
 		arr.fill(INF)
 
@@ -142,11 +178,21 @@ func _generate_layout() -> void:
 			_stamp(_open_d, p, 2.8, 8.0)
 	for glade in GLADES:
 		_stamp_blob(_open_d, glade[0], glade[1])
+	# Ruisseau : largeur modulée par un bruit, resserrée aux ponts ; berge d'herbe sans arbre.
+	var river_samples := _sample(RIVER, 0.5)
+	for k in river_samples.size():
+		var p: Vector2 = river_samples[k]
+		var hw := RIVER_HALF_WIDTH + _noise.get_noise_1d(k * 0.6) * 0.9
+		for bridge in BRIDGES:
+			hw = lerpf(RIVER_HALF_WIDTH_AT_BRIDGE, hw, smoothstep(9.0, 16.0, p.distance_to(bridge[0])))
+		_stamp(_river_d, p, hw, hw + 14.0)
+		_stamp(_open_d, p, hw + 1.0, hw + 9.0)
+	for p in KEEP_CLEAR:
+		_stamp(_open_d, p, 1.6, 4.0)
+	_core_open_d = _open_d.duplicate()
 	for i in 14:
 		var c := _random_forest_point(30.0)
 		_stamp_blob(_open_d, c, _rng.randf_range(4.0, 8.0))
-	for p in KEEP_CLEAR:
-		_stamp(_open_d, p, 1.6, 4.0)
 
 	# Terrain au sol.
 	for z in H:
@@ -164,13 +210,65 @@ func _generate_layout() -> void:
 			if _road_d[i] <= 2.25 + wobble * 0.25 or (plaza <= fountain_r and FOUNTAIN.distance_to(Vector2(x, z)) < 27.0) \
 					or (plaza <= 5.5 + wobble and _is_near_portal(x, z)):
 				t = T.PAVED
+			if _river_d[i] <= 0.0:
+				t = T.WATER
 			_terrain[i] = t
 	# Terre battue devant la scierie (chantier).
 	var front := Vector2(sin(deg_to_rad(SAWMILL_YAW_DEG)), cos(deg_to_rad(SAWMILL_YAW_DEG)))
 	_paint_blob(SAWMILL + front * 6.0, 7.0, T.DIRT)
 	_paint_blob(SAWMILL, 7.5, T.DIRT)
 
+	_paint_bridges()
+	_paint_thickets()
 	_place_trees()
+
+
+## Cases d'eau sous les tabliers -> "bridge" (praticables) ; cases de berge couvertes par le
+## tablier -> revêtement du chemin (pavés sur la route, terre ailleurs).
+func _paint_bridges() -> void:
+	for bridge in BRIDGES:
+		var c: Vector2 = bridge[0]
+		var half_len: float = bridge[2] / 2.0
+		var half_walk: float = bridge[3] / 2.0
+		var deck := T.PAVED if String(bridge[1]).contains("Stone") else T.DIRT
+		for z in range(floori(c.y - half_walk), ceili(c.y + half_walk)):
+			for x in range(floori(c.x - half_len), ceili(c.x + half_len)):
+				if absf(z + 0.5 - c.y) > half_walk or absf(x + 0.5 - c.x) > half_len:
+					continue
+				var i := z * W + x
+				_terrain[i] = T.BRIDGE if _terrain[i] == T.WATER else deck
+
+
+## Fourrés : lisière du bord de carte (hors route et ruisseau qui en sortent) et quelques
+## massifs au bord irrégulier en pleine forêt, loin des chemins, clairières et du ruisseau.
+func _paint_thickets() -> void:
+	var centers: Array[Vector2] = []
+	var tries := 0
+	while centers.size() < THICKET_COUNT and tries < 5000:
+		tries += 1
+		var c := _random_forest_point(22.0)
+		var i := int(c.y) * W + int(c.x)
+		if _core_open_d[i] < 12.0 or _dirt_d[i] < 16.0 or _road_d[i] < 22.0 or _river_d[i] < 12.0:
+			continue
+		if SAWMILL.distance_to(c) < 40.0 or centers.any(func(o: Vector2) -> bool: return o.distance_to(c) < 48.0) 				or KEEP_CLEAR.any(func(k: Vector2) -> bool: return k.distance_to(c) < 36.0):
+			continue
+		centers.append(c)
+		_stamp_blob(_thicket_d, c, _rng.randf_range(11.0, 19.0))
+	var cells := 0
+	for z in H:
+		for x in W:
+			var i := z * W + x
+			if _terrain[i] != T.GRASS and _terrain[i] != T.FOREST:
+				continue
+			var edge := mini(mini(x, z), mini(W - 1 - x, H - 1 - z))
+			var band := EDGE_THICKET_DEPTH + int(roundf(_noise.get_noise_2d(x * 1.7, z * 1.7) * 2.5))
+			var in_band := edge < band and _core_open_d[i] > 1.0 and _road_d[i] > 5.0 and _river_d[i] > 1.5
+			var in_blob := _thicket_d[i] <= 0.0 and _core_open_d[i] > 3.0 and _dirt_d[i] > 5.0 \
+					and _road_d[i] > 9.0 and _river_d[i] > 3.0
+			if in_band or in_blob:
+				_terrain[i] = T.THICKET
+				cells += 1
+	print("Fourrés : %d massifs, %d cases" % [centers.size(), cells])
 
 
 func _place_trees() -> void:
@@ -184,23 +282,21 @@ func _place_trees() -> void:
 	for i in order:
 		var x: int = i % W
 		var z: int = i / W
-		if _terrain[i] == T.PAVED or _terrain[i] == T.DIRT:
+		if _terrain[i] != T.GRASS and _terrain[i] != T.FOREST:
 			continue
 		var open := _open_d[i]
 		if open <= 0.0:
 			continue
 		var edge := mini(mini(x, z), mini(W - 1 - x, H - 1 - z))
 		var d := _density_at(x, z)
-		var thicket := edge < 7 or d > 0.8
-		var p := 0.1 + 0.34 * d
-		if edge < 7:
-			p = 0.9
-		elif edge < 12:
-			p = maxf(p, 0.45)
+		# Forêt praticable clairsemée : le dense est réservé aux fourrés (bloquants).
+		var p := 0.035 + 0.2 * d
+		if edge < 12:
+			p = maxf(p, 0.26)
 		p *= smoothstep(0.0, 5.0, open)
 		if _rng.randf() >= p:
 			continue
-		if not thicket and _has_tree_neighbour(x, z):
+		if _has_tree_neighbour(x, z):
 			continue
 		_terrain[i] = T.TREE
 
@@ -235,11 +331,32 @@ func _build_scene() -> void:
 	var teleporters := _add(_props, _node("Teleporteurs"))
 	_instance("res://scenes/maps/props/Teleporter.tscn", teleporters, PORTAL_WEST, 0.0).name = "Teleporteur_Clairiere"
 	_instance("res://scenes/maps/props/Teleporter.tscn", teleporters, PORTAL_EAST, 0.0).name = "Teleporteur_Village"
+	_place_bridges()
 	_place_lamps()
 	_place_signs()
 	_place_sawmill()
 	_place_forest_props()
 	_place_markers_static()
+
+
+func _place_bridges() -> void:
+	var group := _add(_props, _node("Ponts"))
+	for bridge in BRIDGES:
+		var c: Vector2 = bridge[0]
+		_clear_trees_around(c, bridge[2] / 2.0 + 2.0)
+		_instance(bridge[1], group, c, 0.0).name = bridge[4]
+
+
+func _near_bridge(p: Vector2, margin: float) -> bool:
+	for bridge in BRIDGES:
+		var c: Vector2 = bridge[0]
+		if absf(p.x - c.x) < bridge[2] / 2.0 + margin and absf(p.y - c.y) < bridge[3] / 2.0 + 1.5 + margin:
+			return true
+	return false
+
+
+func _river_at(p: Vector2) -> float:
+	return _river_d[clampi(int(p.y), 0, H - 1) * W + clampi(int(p.x), 0, W - 1)]
 
 
 func _place_lamps() -> void:
@@ -255,7 +372,8 @@ func _place_lamps() -> void:
 		if travelled < next_at:
 			continue
 		next_at += 15.0
-		if b.distance_to(FOUNTAIN) < 16.0 or b.distance_to(PORTAL_WEST) < 9.0 or b.distance_to(PORTAL_EAST) < 9.0:
+		if b.distance_to(FOUNTAIN) < 16.0 or b.distance_to(PORTAL_WEST) < 9.0 or b.distance_to(PORTAL_EAST) < 9.0 \
+				or _near_bridge(b, 3.0) or _river_at(b) < 5.0:
 			continue
 		var dir := (b - a).normalized()
 		var normal := Vector2(-dir.y, dir.x) * side
@@ -270,6 +388,11 @@ func _place_lamps() -> void:
 	for portal in [PORTAL_WEST, PORTAL_EAST]:
 		for s in [-1.0, 1.0]:
 			_lamp(lamps, portal + Vector2(2.5 if portal == PORTAL_WEST else -2.5, s * 5.2), Vector2(0.0, -s))
+	# Pont de pierre : un lampadaire à chaque tête de pont, en diagonale.
+	var road_bridge: Array = BRIDGES[0]
+	var rb: Vector2 = road_bridge[0]
+	for s in [-1.0, 1.0]:
+		_lamp(lamps, rb + Vector2(s * (road_bridge[2] / 2.0 + 1.2), s * 3.6), Vector2(0.0, -s))
 	# Début du chemin de la scierie (le reste, abandonné, n'est plus éclairé).
 	var saw_samples := _sample(DIRT_PATHS[0][1], 0.5)
 	for k in [16, 48]:
@@ -319,6 +442,13 @@ func _place_signs() -> void:
 	var saw_end: Vector2 = saw[saw.size() - 1]
 	_sign(signs, "Scierie", _beside(saw_end, saw[saw.size() - 2]), [["Fontaine", _heading(saw_end, saw[saw.size() - 2])],
 			["Bois des Renards", _heading(saw_end, ws[ws.size() - 2])]])
+	var north: Array = paths["river_north"]
+	_sign(signs, "Saulaie", _beside(north[0], north[1]), [["Saulaie", _heading(north[0], north[1])],
+			["Place du village", _road_heading_toward(north[0], PORTAL_EAST)],
+			["Fontaine", _road_heading_toward(north[0], PORTAL_WEST)]])
+	var north_end: Vector2 = north[north.size() - 1]
+	_sign(signs, "RochersOuest", _beside(north_end, north[north.size() - 2]), [
+		["Saulaie", _heading(north_end, north[north.size() - 2])]])
 	var link: Array = paths["glade_link"]
 	_sign(signs, "VieuxChene", _beside(link[0], link[1]), [["Mare aux Keltirs", _heading(link[0], link[1])],
 			["Fontaine", _heading(loop[4], loop[3])], ["Place du village", _heading(loop[4], loop[5])]])
@@ -380,7 +510,8 @@ func _place_forest_props() -> void:
 		tries += 1
 		var p := _random_forest_point(8.0)
 		var i := int(p.y) * W + int(p.x)
-		if _terrain[i] == T.TREE or _is_on_path(p, 4.0) or _open_d[i] <= 0.0:
+		if _terrain[i] != T.GRASS and _terrain[i] != T.FOREST or _is_on_path(p, 4.0) or _open_d[i] <= 0.0 \
+				or _river_d[i] < 4.0:
 			continue
 		var kind := placed % 3
 		var path: String = ["res://scenes/maps/props/RockMedium.tscn", "res://scenes/maps/props/LogFallen.tscn",
@@ -421,6 +552,8 @@ func _place_markers_static() -> void:
 func _write_scene() -> void:
 	var blocked := {}
 	for node in _root.get_tree().get_nodes_in_group(ObstacleFootprint3D.GROUP):
+		if not (node as ObstacleFootprint3D).blocks_movement:
+			continue
 		for cell in (node as ObstacleFootprint3D).blocked_cells():
 			blocked[cell] = true
 	# Aucun arbre sous un prop.
@@ -451,27 +584,29 @@ func _write_scene() -> void:
 		printerr("Échec de sauvegarde (%d)" % err)
 		quit(1)
 		return
-	var trees := 0
+	var counts := {}
 	for t in _terrain:
-		if t == T.TREE:
-			trees += 1
-	print("Scène écrite : %s (%dx%d, %d arbres, %d cases bloquées par des props)" % [OUT_PATH, W, H, trees, blocked.size()])
+		counts[T_NAMES[t]] = counts.get(T_NAMES[t], 0) + 1
+	print("Scène écrite : %s (%dx%d, %d cases bloquées par des props)" % [OUT_PATH, W, H, blocked.size()])
+	print("  cases par terrain : %s" % str(counts))
 	_root.free()
 	quit()
 
 
 func _ensure_connectivity(blocked: Dictionary) -> void:
 	var walkable := func(i: int) -> bool:
-		return _terrain[i] != T.TREE and not blocked.has(Vector2i(i % W, i / W))
+		return _is_walkable_terrain(_terrain[i]) and not blocked.has(Vector2i(i % W, i / W))
 	var start := int(PLAYER_SPAWN.y) * W + int(PLAYER_SPAWN.x)
 	var carved := 0
 	var small_pockets := 0
-	for pass_index in 50:
+	var enclosed := 0
+	var given_up := {}
+	for pass_index in 60:
 		var reached := _flood(start, walkable)
 		# Poches non atteintes.
 		var pocket_seed := -1
-		var pocket_size := 0
 		var seen := {}
+		small_pockets = 0
 		for i in W * H:
 			if reached[i] == 1 or not walkable.call(i) or seen.has(i):
 				continue
@@ -480,13 +615,28 @@ func _ensure_connectivity(blocked: Dictionary) -> void:
 				seen[c] = true
 			if pocket.size() < 25:
 				small_pockets += 1
-			elif pocket_seed == -1:
+			elif pocket_seed == -1 and not given_up.has(i):
 				pocket_seed = i
-				pocket_size = pocket.size()
 		if pocket_seed == -1:
 			break
-		carved += _carve_to(pocket_seed, reached, blocked)
-	print("Connexité : %d cases d'arbres creusées, %d petites poches isolées laissées" % [carved, small_pockets])
+		var dug := _carve_to(pocket_seed, reached, blocked)
+		if dug < 0:
+			# Enclavée par l'eau ou un fourré : reste inaccessible (et sans spawn).
+			given_up[pocket_seed] = true
+			print("  poche enclavée autour de %s" % Vector2i(pocket_seed % W, pocket_seed / W))
+			enclosed += 1
+		else:
+			carved += dug
+	print("Connexité : %d cases d'arbres creusées, %d petites poches et %d poches enclavées laissées"
+			% [carved, small_pockets, enclosed])
+	var reached := _flood(start, walkable)
+	for p in KEEP_CLEAR:
+		if reached[int(p.y) * W + int(p.x)] == 0:
+			printerr("ATTENTION : position de personnage %s inaccessible depuis le spawn" % p)
+
+
+func _is_walkable_terrain(t: int) -> bool:
+	return t != T.TREE and t != T.WATER and t != T.THICKET
 
 
 func _flood(start: int, walkable: Callable) -> PackedByteArray:
@@ -521,8 +671,9 @@ func _flood_list(start: int, walkable: Callable, reached: PackedByteArray) -> Ar
 	return result
 
 
-## Creuse le plus court chemin (en traversant les arbres, jamais les props) d'une poche vers
-## la zone atteinte, et retire les arbres rencontrés.
+## Creuse le plus court chemin (en traversant les arbres, jamais les props, l'eau ni les
+## fourrés) d'une poche vers la zone atteinte, et retire les arbres rencontrés. -1 si aucun
+## chemin n'existe.
 func _carve_to(from: int, reached: PackedByteArray, blocked: Dictionary) -> int:
 	var prev := {from: -1}
 	var queue := [from]
@@ -537,9 +688,12 @@ func _carve_to(from: int, reached: PackedByteArray, blocked: Dictionary) -> int:
 		var x := i % W
 		var z := i / W
 		for nb in [i - 1 if x > 1 else -1, i + 1 if x < W - 2 else -1, i - W if z > 1 else -1, i + W if z < H - 2 else -1]:
-			if nb >= 0 and not prev.has(nb) and not blocked.has(Vector2i(nb % W, nb / W)):
+			if nb >= 0 and not prev.has(nb) and not blocked.has(Vector2i(nb % W, nb / W)) \
+					and _terrain[nb] != T.WATER and _terrain[nb] != T.THICKET:
 				prev[nb] = i
 				queue.append(nb)
+	if target == -1:
+		return -1
 	var carved := 0
 	var c := target
 	while c != -1:
@@ -552,13 +706,13 @@ func _carve_to(from: int, reached: PackedByteArray, blocked: Dictionary) -> int:
 
 func _place_monster_spawns(blocked: Dictionary) -> void:
 	var reached := _flood(int(PLAYER_SPAWN.y) * W + int(PLAYER_SPAWN.x), func(i: int) -> bool:
-		return _terrain[i] != T.TREE and not blocked.has(Vector2i(i % W, i / W)))
+		return _is_walkable_terrain(_terrain[i]) and not blocked.has(Vector2i(i % W, i / W)))
 	var candidates_glade: Array[Vector2i] = []
 	var candidates_forest: Array[Vector2i] = []
 	for z in range(4, H - 4):
 		for x in range(4, W - 4):
 			var i := z * W + x
-			if reached[i] == 0 or _terrain[i] == T.PAVED:
+			if reached[i] == 0 or _terrain[i] == T.PAVED or _terrain[i] == T.BRIDGE or _river_d[i] < 2.0:
 				continue
 			if _road_d[i] < 11.0 or _plaza_d[i] < 20.0 and FOUNTAIN.distance_to(Vector2(x, z)) < 22.0:
 				continue

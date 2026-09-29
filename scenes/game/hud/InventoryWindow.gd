@@ -23,7 +23,7 @@ const EQUIPPABLE_TYPES := ["WEAPON", "HELMET", "ARMOR", "PANTS", "BOOTS", "GLOVE
 const TABS := [
 	["Tout", []],
 	["Équipement", EQUIPPABLE_TYPES],
-	["Consommables", ["POTION", "SOULSHOT", "SPIRITSHOT"]],
+	["Consommables", ["POTION", "SCROLL", "SOULSHOT", "SPIRITSHOT"]],
 	["Divers", null],
 ]
 const COLUMNS := 8
@@ -139,7 +139,12 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 			# GameState.active_*shot_grade est déjà à jour : on ne fait que redessiner le
 			# surlignage "actif" sans attendre un aller-retour "inventory".
 			_refresh()
-		"ItemUsed", "ManaPotionUsed", "ShotUsed":
+		"ItemOnCooldown":
+			if bool(payload.get("rejected", false)):
+				_show_message("%s n'est pas encore prêt (%.1f s)." % [
+					str(payload.get("name", "?")), float(payload.get("remainingMillis", 0)) / 1000.0,
+				])
+		"ItemUsed", "ManaPotionUsed", "ShotUsed", "ScrollUsed":
 			# GameState (autoload, abonné avant cette fenêtre) a déjà décrémenté la pile en
 			# place : pas d'aller-retour "inventory" à chaque tir/potion.
 			_refresh()
@@ -217,7 +222,7 @@ func _build_empty_cell() -> Control:
 
 
 ## Une case façon slot L2 : icône, pastille de grade en haut à droite, quantité en bas à
-## droite pour les charges empilées, liseré doré si la charge est armée en auto-use.
+## droite pour les charges empilées, icône brillante si la charge est armée en auto-use.
 func _build_cell(item: Dictionary) -> Control:
 	var item_id := str(item.get("id", ""))
 	var item_name := str(item.get("name", ""))
@@ -239,6 +244,8 @@ func _build_cell(item: Dictionary) -> Control:
 	icon.stretch_mode = TextureRect.STRETCH_SCALE
 	icon.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	icon.texture = IconFactory.item_icon(item)
+	if active:
+		icon.material = IconFactory.active_shot_material(type_key)
 	# ref_id = UUID d'instance : EquipmentSlot envoie "equip <uuid>" directement.
 	icon.drag_kind = "item"
 	icon.drag_ref_id = item_id

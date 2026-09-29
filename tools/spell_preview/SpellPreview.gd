@@ -8,8 +8,10 @@ extends Node3D
 ## --fx : cast (cercle en cours, --duration = temps de cast), release (cast terminé, --time
 ##        compté après la fin), break (cast interrompu à mi-parcours, --time compté après),
 ##        projectile (--time compté depuis le lancer, --duration = durée du vol), target
-##        (soin/buff/debuff/impact sur la cible selon l'élément), impact.
-## --element : fire, water, wind, holy, dark, arcane, heal, buff, debuff, physical.
+##        (soin/buff/debuff/impact sur la cible selon l'élément), impact, escape (fin d'un Scroll
+##        of Escape : cast blanc de --duration puis ascension, --time compté après la fin).
+## --element : fire, water, wind, holy, dark, arcane, heal, buff, debuff, physical, escape.
+## --charged=1 : cast chargé d'un spiritshot (couronnes flottantes, voir CastCircle).
 ## Sans --out, la scène rejoue l'effet en boucle (pratique dans l'éditeur).
 
 const CHARACTER_SCENE := preload("res://scenes/game/entities/Character.tscn")
@@ -17,13 +19,14 @@ const ELEMENTS := {
 	"fire": SpellVfx.Element.FIRE, "water": SpellVfx.Element.WATER, "wind": SpellVfx.Element.WIND,
 	"holy": SpellVfx.Element.HOLY, "dark": SpellVfx.Element.DARK, "arcane": SpellVfx.Element.ARCANE,
 	"heal": SpellVfx.Element.HEAL, "buff": SpellVfx.Element.BUFF, "debuff": SpellVfx.Element.DEBUFF,
-	"physical": SpellVfx.Element.PHYSICAL,
+	"physical": SpellVfx.Element.PHYSICAL, "escape": SpellVfx.Element.ESCAPE,
 }
 
 var _fx := "cast"
 var _element := SpellVfx.Element.FIRE
 var _time := 1.0
 var _duration := 2.0
+var _charged := false
 var _out := ""
 var _vfx: SpellVfx
 var _caster: Character
@@ -46,6 +49,8 @@ func _ready() -> void:
 				_duration = float(parts[1])
 			"out":
 				_out = parts[1]
+			"charged":
+				_charged = parts[1] in ["1", "true", "yes"]
 	_build_stage()
 	_vfx = SpellVfx.new()
 	add_child(_vfx)
@@ -116,16 +121,16 @@ func _play_once() -> void:
 	match _fx:
 		"cast":
 			_caster.play_cast(_duration)
-			_vfx.start_cast(_caster, _element, _duration)
+			_vfx.start_cast(_caster, _element, _duration, _charged)
 		"release":
 			_caster.play_cast(_duration)
-			var circle := _vfx.start_cast(_caster, _element, _duration)
+			var circle := _vfx.start_cast(_caster, _element, _duration, _charged)
 			await get_tree().create_timer(_duration).timeout
 			circle.finish(true)
 			_caster.play_launch()
 		"break":
 			_caster.play_cast(_duration)
-			var circle := _vfx.start_cast(_caster, _element, _duration)
+			var circle := _vfx.start_cast(_caster, _element, _duration, _charged)
 			await get_tree().create_timer(_duration * 0.5).timeout
 			circle.finish(false)
 			_caster.play_state(Character.IDLE_ANIM)
@@ -133,6 +138,13 @@ func _play_once() -> void:
 			_vfx.play_projectile(_caster, _target, _element, _duration)
 		"target":
 			_vfx.play_on_target(_target, _element)
+		"escape":
+			_caster.play_cast(_duration)
+			var circle := _vfx.start_cast(_caster, SpellVfx.Element.ESCAPE, _duration)
+			await get_tree().create_timer(_duration).timeout
+			circle.finish(true)
+			_caster.play_launch()
+			_vfx.play_escape(_caster, 1.6)
 		"impact":
 			_vfx.play_impact(_target.global_position, _element)
 	await get_tree().create_timer(wait).timeout

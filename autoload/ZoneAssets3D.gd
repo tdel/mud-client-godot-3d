@@ -36,6 +36,7 @@ const TERRAIN_COLORS := {
 	"grave": Color(0.45, 0.45, 0.50), "mausoleum": Color(0.55, 0.55, 0.58),
 	"rockWall": Color(0.30, 0.28, 0.27), "caveFloor": Color(0.32, 0.28, 0.26),
 	"rubble": Color(0.40, 0.38, 0.36),
+	"water": Color(0.20, 0.40, 0.56), "thicket": Color(0.13, 0.30, 0.15), "bridge": Color(0.52, 0.40, 0.26),
 }
 ## Terrains non franchissables : reprend telle quelle la propriété "walkable" des tilesets
 ## des .tmx historiques (aucun terrain n'y était praticable dans une carte et bloquant dans
@@ -45,6 +46,9 @@ const BLOCKING_TERRAINS := {
 	"rampart": true, "fountain": true, "auberge": true, "forge": true, "tree": true,
 	"fence": true, "hedge": true, "bramble": true, "deadTree": true, "denseTallGrass": true,
 	"grave": true, "mausoleum": true, "rockWall": true, "rubble": true,
+	# Rivière (on ne nage pas) et fourrés de forêt trop dense pour y passer ; "bridge" (tablier
+	# d'un pont posé sur la rivière) reste praticable.
+	"water": true, "thicket": true,
 	"__blocked_fallback__": true,
 }
 

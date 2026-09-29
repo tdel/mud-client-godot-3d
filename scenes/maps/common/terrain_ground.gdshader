@@ -2,6 +2,8 @@
 // piloté par une "splat map" à une texel par case, construite depuis le GridMap Terrain :
 //   R = sol forestier, G = chemin de terre, B = pavés, A = herbe sombre (sous-bois clair),
 //   reste (1 - somme) = herbe.
+// Sous le niveau du sol (lit et berges d'une rivière, voir TerrainGround.gd) : terre
+// assombrie et plus lisse (mouillée), galets en fond de lit.
 // Les frontières entre cases sont cassées par un décalage de bruit de la lecture de la splat
 // (bords organiques plutôt qu'en escalier) et un mélange par hauteur (les pavés dépassent de
 // l'herbe entre leurs joints, la terre s'infiltre entre les brins). Chaque texture est lue à
@@ -40,6 +42,8 @@ uniform float paved_desaturate : hint_range(0.0, 1.0) = 0.55;
 // Amplitude (cases) du décalage de bruit appliqué à la lecture de la splat.
 uniform float edge_warp = 0.85;
 uniform float blend_sharpness = 6.0;
+uniform vec3 wet_tint : source_color = vec3(0.42, 0.38, 0.33);
+uniform vec3 pebble_tint : source_color = vec3(0.55, 0.52, 0.47);
 
 varying vec3 world_pos;
 
@@ -119,6 +123,11 @@ void fragment() {
 
 	vec3 albedo = c_forest * b.x + c_dirt * b.y + c_paved * b.z + c_dark * b.w + c_grass * b_grass;
 	albedo *= mix(0.88, 1.08, macro);
+	float below = -world_pos.y;
+	float wet = smoothstep(0.03, 0.6, below);
+	float pebbles = smoothstep(1.2, 1.7, below) * smoothstep(0.45, 0.7, value_noise(p * 3.3));
+	albedo = mix(albedo, albedo * wet_tint, wet);
+	albedo = mix(albedo, pebble_tint * (0.7 + 0.5 * value_noise(p * 9.0)), pebbles);
 
 	vec3 n_grass = texture(grass_normal, uv_g).rgb;
 	vec3 n = texture(forest_normal, uv_f).rgb * b.x + texture(dirt_normal, uv_d).rgb * b.y
@@ -129,6 +138,6 @@ void fragment() {
 	ALBEDO = albedo;
 	NORMAL_MAP = n;
 	NORMAL_MAP_DEPTH = 1.0;
-	ROUGHNESS = clamp(r, 0.4, 1.0);
+	ROUGHNESS = mix(clamp(r, 0.4, 1.0), 0.45, wet * 0.7);
 	SPECULAR = 0.3;
 }

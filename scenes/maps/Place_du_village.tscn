@@ -41,6 +41,7 @@ map_id = "5e4ada37-37e1-438c-9233-581f10c055c7"
 map_name = "Place du village"
 description = "Le coeur fortifié du village : une place pavée autour d'une fontaine, entre l'auberge et la forge, à l'abri de hauts remparts gardés. Deux téléporteurs y mènent à l'Orée de la forêt et au Chemin du cimetière."
 is_starting_map = true
+is_town = true
 render_obstacle_blocks = false
 
 [node name="Terrain" type="GridMap" parent="." unique_id=817344331]

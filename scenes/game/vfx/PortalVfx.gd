@@ -97,7 +97,7 @@ func set_highlight(on: bool) -> void:
 
 func _process(delta: float) -> void:
 	_highlight = move_toward(_highlight, _highlight_target, delta * 4.0)
-	var t := Time.get_ticks_msec() / 1000.0 + _phase
+	var t := GameClock.now() + _phase
 	var pulse := 0.5 + 0.5 * sin(t * 2.2)
 	var boost := 1.0 + _highlight * 0.8
 	_circle_mat.set_shader_parameter("spin", t * 0.35)

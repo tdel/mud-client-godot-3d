@@ -1,7 +1,7 @@
 class_name MapData
 extends Node3D
 ## Métadonnées d'une carte (racine de chaque scène res://scenes/maps/*.tscn). Exportées vers
-## le serveur par tools/export_map_to_tmx.gd (propriétés id/name/description/isStartingMap
+## le serveur par tools/export_map_to_tmx.gd (propriétés id/name/description/isStartingMap/isTown
 ## du .tmx) ; en jeu, la marchabilité et les dimensions restent celles envoyées par le
 ## serveur (MapView), voir Game3D._rebuild_map.
 
@@ -13,6 +13,9 @@ enum Biome { NONE, FOREST }
 @export var map_name: String = ""
 @export_multiline var description: String = ""
 @export var is_starting_map: bool = false
+## Ville : destination d'un Scroll of Escape (ville la plus proche, point au hasard autour du
+## playerSpawn, voir WorldInstance.nearestTown / MapTemplate.randomTownPosition côté serveur).
+@export var is_town: bool = false
 @export var biome: Biome = Biome.NONE
 ## true (cartes converties depuis Tiled) : Game3D dessine un bloc gris sur chaque case non
 ## praticable, faute d'autre représentation. false pour une carte décorée à la main (arbres,

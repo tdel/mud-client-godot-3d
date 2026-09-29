@@ -220,7 +220,7 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 			max_mana = int(payload.get("maxMana", max_mana))
 			if type == "ManaPotionUsed":
 				_patch_item_quantity(str(payload.get("itemId", "")), int(payload.get("remainingQuantity", 0)))
-		"ItemUsed":
+		"ItemUsed", "ScrollUsed":
 			_patch_item_quantity(str(payload.get("itemId", "")), int(payload.get("remainingQuantity", 0)))
 		"ShotUsed":
 			# Pas d'itemId sur ce message : la pile de charges est unique par type+grade (voir

@@ -82,6 +82,21 @@ static func item_icon(item: Dictionary, size: int = BASE_SIZE) -> Texture2D:
 	return slot_icon("item", str(item.get("name", "")), _item_hint(item), size)
 
 
+## Matériau posé sur l'icône d'un soulshot/spiritshot armé en auto-use (hotbar et
+## inventaire) : icône brillante animée, doré pour le soulshot, cyan pour le spiritshot
+## (mêmes teintes que la lueur d'arme de Game3D). Partagé entre toutes les icônes.
+static func active_shot_material(item_type: String) -> ShaderMaterial:
+	var key := "shot_material|%s" % item_type
+	if _cache.has(key):
+		return _cache[key]
+	var material := ShaderMaterial.new()
+	material.shader = preload("res://scenes/game/hud/shot_active.gdshader")
+	var color := Color(0.45, 0.85, 1.0) if item_type == "SPIRITSHOT" else Color(1.0, 0.72, 0.28)
+	material.set_shader_parameter("glow_color", color)
+	_cache[key] = material
+	return material
+
+
 static func _item_hint(item: Dictionary) -> String:
 	var type_key := str(item.get("type", ""))
 	var weapon_type := str(item.get("weaponType", "")).to_upper()
@@ -108,6 +123,7 @@ static func guess_item_type(ref_name: String) -> String:
 	var n := ref_name.to_lower()
 	var table := {
 		"potion": "POTION", "elixir": "POTION", "soulshot": "SOULSHOT", "spiritshot": "SPIRITSHOT",
+		"scroll": "SCROLL", "parchemin": "SCROLL",
 		"sword": "WEAPON", "blade": "WEAPON", "saber": "WEAPON", "épée": "WEAPON",
 		"helmet": "HELMET", "helm": "HELMET", "cap": "HELMET", "casque": "HELMET",
 		"boots": "BOOTS", "shoes": "BOOTS", "bottes": "BOOTS", "gloves": "GLOVES", "gauntlets": "GLOVES",
@@ -233,6 +249,9 @@ static func _paint_item(img: Image, lower: String, hint: String, ref_name: Strin
 		"SPIRITSHOT":
 			_background(img, Color(0.04, 0.12, 0.25))
 			_shots(img, Color(0.30, 0.75, 1.0), Color(0.88, 1.0, 1.0))
+		"SCROLL":
+			_background(img, Color(0.10, 0.12, 0.18))
+			_scroll(img)
 		"KEY":
 			_background(img, Color(0.15, 0.13, 0.08))
 			_key(img)
@@ -770,6 +789,23 @@ static func _shots(img: Image, color: Color, core: Color) -> void:
 			return core.lerp(color, t).lerp(color.darkened(0.5), maxf(t - 0.7, 0.0) * 2.0), 1.2)
 
 
+## Parchemin roulé aux deux bouts, lignes d'écriture et sceau de cire, dans une lueur blanche
+## (Scroll of Escape).
+static func _scroll(img: Image) -> void:
+	_glow(img, Vector2(0.5, 0.48), 0.55, Color(0.85, 0.92, 1.0), 0.55)
+	var paper_l := Color(0.97, 0.91, 0.72)
+	var paper_d := Color(0.66, 0.52, 0.30)
+	_draw(img, func(p): return _sd_box(p, Vector2(0.5, 0.5), Vector2(0.20, 0.23), 0.0, 0.01), _lit_shade(paper_l, paper_d, 0.15))
+	for y in [0.27, 0.73]:
+		var roll_y: float = y
+		_draw(img, func(p): return _sd_capsule(p, Vector2(0.26, roll_y), Vector2(0.74, roll_y), 0.055), _lit_shade(paper_l.lightened(0.1), paper_d.darkened(0.2), 0.35), 1.2)
+	for i in 4:
+		var line_y := 0.38 + 0.065 * i
+		var line_end := 0.64 if i % 2 == 0 else 0.58
+		_draw(img, func(p): return _sd_capsule(p, Vector2(0.37, line_y), Vector2(line_end, line_y), 0.012), _flat(Color(0.35, 0.24, 0.12, 0.8)), 0.0)
+	_draw(img, func(p): return _sd_circle(p, Vector2(0.63, 0.63), 0.075), _lit_shade(Color(0.95, 0.25, 0.20), Color(0.45, 0.04, 0.04), 0.3), 1.0)
+
+
 static func _key(img: Image) -> void:
 	var brass_l := Color(0.95, 0.80, 0.45)
 	var brass_d := Color(0.40, 0.28, 0.08)
@@ -887,3 +923,4 @@ static func _ui_map(img: Image) -> void:
 static func _ui_coin(img: Image) -> void:
 	_draw(img, func(p): return _sd_circle(p, Vector2(0.5, 0.5), 0.40), _lit_shade(Color(1.0, 0.92, 0.55), Color(0.62, 0.40, 0.08), 0.5), 2.5)
 	_draw(img, func(p): return absf(_sd_circle(p, Vector2(0.5, 0.5), 0.28)) - 0.03 * BASE_SIZE, _flat(Color(0.60, 0.40, 0.08, 0.9)), 0.0)
+

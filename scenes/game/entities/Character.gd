@@ -33,7 +33,17 @@ const TWO_HANDED_WEAPONS := ["weapon_greatsword", "weapon_hammer", "weapon_staff
 ## L'arc occupe la main gauche : pas de bouclier non plus.
 const OFF_HAND_BLOCKING_WEAPONS := ["weapon_greatsword", "weapon_hammer", "weapon_staff", "weapon_spear", "weapon_bow"]
 ## Couvre-chefs qui laissent voir les cheveux.
-const HAIR_VISIBLE_HELMETS := ["helmet_circlet"]
+const HAIR_VISIBLE_HELMETS := ["helmet_circlet", "helmet_guard"]
+
+## Tenue d'un PNJ par EntityView.npcType (backend NpcType) : slot -> mesh, posée telle quelle
+## par set_outfit. Le sexe (EntityView.gender) choisit le gabarit ; le chapel de fer laisse
+## voir visage et cheveux (queue de cheval des gardes femmes).
+const NPC_OUTFITS := {
+	"GUARD": {
+		"CHEST": "torso_guard", "LEGS": "legs_plate", "HEAD": "helmet_guard", "HANDS": "gloves_plate",
+		"FEET": "boots_plate", "WEAPON": "weapon_shortsword", "OFF_HAND": "shield_guard",
+	},
+}
 
 ## WeaponType serveur (champ `weaponType` d'Inventory/EquipmentView, voir
 ## app.domain.item.WeaponType côté backend) -> mesh d'arme.
@@ -161,6 +171,21 @@ func set_equipment(equipped: Dictionary, animate := true) -> void:
 			_play_mesh_effect(mesh_name, false)
 
 
+## Tenue fixe d'un PNJ (voir NPC_OUTFITS), sans effet d'apparition. Faux si `npc_type` n'a
+## pas de tenue connue (le PNJ garde alors une capsule, voir Game3D._ensure_entity_node).
+func set_outfit(npc_type: String) -> bool:
+	if not NPC_OUTFITS.has(npc_type):
+		return false
+	_equipment_initialized = true
+	_visuals = NPC_OUTFITS[npc_type].duplicate()
+	_apply_visuals()
+	return true
+
+
+static func has_outfit(npc_type: String) -> bool:
+	return NPC_OUTFITS.has(npc_type)
+
+
 ## `items` : entrées Inventory ou EquipmentView ({slot, name, type, armorCategory, weaponType,
 ## ...}) -> dictionnaire slot -> item attendu par set_equipment ; seules les entrées dont
 ## `slot` est renseigné sont portées.
@@ -184,6 +209,8 @@ static func visual_for_item(slot: String, item: Dictionary) -> String:
 	match slot:
 		"WEAPON":
 			# Sans `weaponType` (backend antérieur à ce champ) : même devinette que les icônes.
+			if item_name.contains("short sword"):
+				return "weapon_shortsword"
 			var weapon_type := str(item.get("weaponType", "")).to_upper()
 			if not WEAPON_VISUALS.has(weapon_type):
 				weapon_type = IconFactory.guess_weapon_type(item_name)
