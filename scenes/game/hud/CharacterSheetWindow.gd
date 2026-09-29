@@ -25,6 +25,12 @@ const ATTRIBUTE_LABELS := {
 	"strength": "Force", "dexterity": "Dextérité", "constitution": "Constitution",
 	"intelligence": "Intelligence", "wit": "Sagesse (WIT)", "men": "Mental (MEN)",
 }
+## Stats pilotées par chaque attribut (formules backend, docs/lineage2/combat.md).
+const ATTRIBUTE_EFFECTS := {
+	"strength": "P. Atk.", "dexterity": "précision, esquive, critique, vit. atk.",
+	"constitution": "PV, P. Déf., régén. PV", "intelligence": "M. Atk.",
+	"wit": "vit. d'incantation, critique magique", "men": "PM, M. Déf., régén. PM, résistance",
+}
 
 ## Deux colonnes "physique | magique", même groupement que la fenêtre Status de L2 :
 ## chaque ligne de %CombatGrid = libellé, valeur, libellé, valeur.
@@ -155,13 +161,15 @@ func _refresh() -> void:
 		for stat_key in pair:
 			_add_stat(_combat_grid, COMBAT_STAT_LABELS.get(stat_key, stat_key), _format_stat(stats, stat_key), "")
 
-	# Score brut uniquement (pas de modificateur) : c'est lui qu'utilisent les formules de
-	# combat côté backend.
+	# Score L2 retail (Human Fighter STR 40...), et en infobulle son bonus L2 en % (backend
+	# AttributeScore.modifier, cf. Attribute.bonus) sur les stats qu'il pilote.
 	_clear(_attributes_grid)
 	for attr_key in ATTRIBUTE_KEYS:
 		var attr = stats.get(attr_key, {})
 		var score = attr.get("score", 0) if typeof(attr) == TYPE_DICTIONARY else 0
-		_add_stat(_attributes_grid, ATTRIBUTE_SHORT[attr_key], str(score), ATTRIBUTE_LABELS[attr_key])
+		var bonus := int(attr.get("modifier", 0)) if typeof(attr) == TYPE_DICTIONARY else 0
+		var tooltip := "%s : %+d %% (%s)" % [ATTRIBUTE_LABELS[attr_key], bonus, ATTRIBUTE_EFFECTS[attr_key]]
+		_add_stat(_attributes_grid, ATTRIBUTE_SHORT[attr_key], str(score), tooltip)
 
 	_clear(_social_grid)
 	for stat_key in SOCIAL_KEYS:
