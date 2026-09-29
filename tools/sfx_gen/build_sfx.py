@@ -783,6 +783,24 @@ def party():
     }
 
 
+def skill_learning():
+    """Compétence apprise auprès du maître des compétences (bus "UI", voir
+    Game3D "SkillLearned"). Évalué après party() : ses tirages aléatoires ne décalent pas
+    ceux des recettes existantes."""
+    return {
+        # Révélation : accord de chœur qui s'ouvre (ré majeur), arpège de cloches qui monte
+        # vers l'aigu et poussière d'étincelles, dans une réverbe de temple.
+        "ui_skill_learn": finish(cathedral(mix(
+            (choir(notes("D4", "F#4", "A4"), 1.3, "o", attack=0.15, release=0.7), 0.0, 0.28),
+            (bell(notes("A5")[0], 1.0, 3.8, 0.6), 0.05, 0.35),
+            (bell(notes("D6")[0], 1.0, 3.8, 0.6), 0.13, 0.35),
+            (bell(notes("F#6")[0], 1.1, 3.6, 0.55), 0.21, 0.32),
+            (bell(notes("A6")[0], 1.2, 3.4, 0.5), 0.29, 0.3),
+            (highpass(sparkle(0.7, 14, 3500, 8000), 2500), 0.25, 0.14),
+        ), 0.35, 2.2), -24.0, 0.15),
+    }
+
+
 def equipment():
     """Équiper / retirer un objet, par famille (voir Sfx.EQUIP_FAMILY) : comme dans L2, une
     arme se dégaine avec un tintement métallique, une armure bruisse (cuir, boucle), un bijou
@@ -850,7 +868,7 @@ def main():
     args = parser.parse_args()
     fetch_sources()
     os.makedirs(OUT, exist_ok=True)
-    sounds = {**spells(), **ui(), **combat(), **events(), **party()}
+    sounds = {**spells(), **ui(), **combat(), **events(), **party(), **skill_learning()}
     written = []
     for name, x in sorted(sounds.items()):
         if not name.startswith(args.only):

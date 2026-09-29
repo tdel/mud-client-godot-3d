@@ -22,7 +22,7 @@ const LINEUP := [
 	["woman", {}],
 	["man", {
 		"WEAPON": {"name": "Long Sword"}, "OFF_HAND": {"name": "Wooden Shield", "type": "SHIELD"},
-		"CHEST": {"name": "Leather Armor", "armorCategory": "MEDIUM"}, "LEGS": {"name": "Leather Pants"},
+		"CHEST": {"name": "Leather Armor", "armorCategory": "LIGHT"}, "LEGS": {"name": "Leather Pants"},
 		"FEET": {"name": "Leather Boots"}, "HANDS": {"name": "Leather Gloves"}, "HEAD": {"name": "Leather Cap"},
 	}],
 	["woman", {
@@ -35,20 +35,20 @@ const LINEUP := [
 		"FEET": {"name": "Dark Crystal Boots", "armorCategory": "HEAVY"}, "HEAD": {"name": "Helm of Terror", "armorCategory": "HEAVY"},
 	}],
 	["woman", {
-		"WEAPON": {"name": "Staff of Healing"}, "CHEST": {"name": "Major Arcana Robe", "armorCategory": "LIGHT"},
+		"WEAPON": {"name": "Staff of Healing"}, "CHEST": {"name": "Major Arcana Robe", "armorCategory": "ROBE"},
 		"HEAD": {"name": "Major Arcana Circlet", "armorCategory": "LIGHT"},
 	}],
 	["man", {
-		"WEAPON": {"name": "Wand of Flames"}, "CHEST": {"name": "Tallum Tunic", "armorCategory": "LIGHT"},
+		"WEAPON": {"name": "Wand of Flames"}, "CHEST": {"name": "Tallum Tunic", "armorCategory": "ROBE"},
 		"HEAD": {"name": "Tallum Hood", "armorCategory": "LIGHT"}, "FEET": {"name": "Leather Boots"},
 	}],
 	["woman", {
-		"WEAPON": {"name": "Wooden Bow"}, "CHEST": {"name": "Leather Tunic", "armorCategory": "MEDIUM"},
+		"WEAPON": {"name": "Wooden Bow"}, "CHEST": {"name": "Leather Tunic", "armorCategory": "LIGHT"},
 		"LEGS": {"name": "Leather Pants"}, "FEET": {"name": "Leather Boots"},
 	}],
 	["man", {"WEAPON": {"name": "Dagger"}, "CHEST": {"name": "Padded Armor", "armorCategory": "LIGHT"}}],
 	["woman", {"WEAPON": {"name": "Battle Axe"}, "OFF_HAND": {"name": "Draconic Shield", "type": "SHIELD"},
-		"CHEST": {"name": "Zealot's Armor", "armorCategory": "MEDIUM"}}],
+		"CHEST": {"name": "Zealot's Armor", "armorCategory": "LIGHT"}}],
 ]
 ## PNJ : [sexe, npcType] — tenue fixe (Character.set_outfit).
 const GUARD_LINEUP := [["man", "GUARD"], ["woman", "GUARD"]]

@@ -179,11 +179,89 @@ static func _paint_slot(img: Image, kind: String, ref_name: String, hint: String
 
 
 static func _paint_skill(img: Image, lower: String, hint: String, ref_name: String) -> void:
-	if lower == "wind strike":
-		_background(img, Color(0.06, 0.20, 0.18))
-		_wind_spiral(img)
-		return
+	# Compétences L2 des classes de base (Human Fighter / Human Mystic, skills.xml backend) :
+	# un pictogramme dédié par nom ; les autres retombent sur celui de leur type.
+	match lower:
+		"wind strike":
+			_background(img, Color(0.06, 0.20, 0.18))
+			_wind_spiral(img)
+			return
+		"power strike":
+			_skill_power_strike(img)
+			return
+		"mortal blow":
+			_skill_mortal_blow(img)
+			return
+		"power shot":
+			_background(img, Color(0.10, 0.17, 0.07))
+			_glow(img, Vector2(0.78, 0.22), 0.30, Color(1.0, 0.85, 0.4), 0.9)
+			_bow(img)
+			return
+		"relax":
+			_skill_relax(img)
+			return
+		"weapon mastery":
+			_background(img, Color(0.14, 0.15, 0.22))
+			_glow(img, Vector2(0.5, 0.45), 0.55, Color(1.0, 0.80, 0.35), 0.55)
+			_crossed_swords(img)
+			return
+		"armor mastery":
+			_background(img, Color(0.22, 0.14, 0.07))
+			_glow(img, Vector2(0.5, 0.5), 0.55, Color(1.0, 0.75, 0.35), 0.45)
+			_armor(img)
+			return
+		"anti magic":
+			_skill_anti_magic(img)
+			return
+		"expertise grade":
+			_background(img, Color(0.26, 0.20, 0.04))
+			_laurel(img)
+			_gem(img, Vector2(0.5, 0.48), 0.19, Color(1.0, 0.78, 0.22))
+			return
+		"ice bolt":
+			_skill_ice_bolt(img)
+			return
+		"vampiric touch":
+			_skill_vampiric_touch(img)
+			return
+		"self heal":
+			_background(img, Color(0.08, 0.24, 0.12))
+			_glow(img, Vector2(0.5, 0.5), 0.55, Color(1.0, 0.55, 0.55), 0.7)
+			_heart(img, Vector2(0.5, 0.52), 1.0)
+			return
+		"battle heal":
+			_skill_battle_heal(img)
+			return
+		"group heal":
+			_background(img, Color(0.08, 0.24, 0.12))
+			_glow(img, Vector2(0.5, 0.52), 0.6, Color(0.70, 0.95, 0.45), 0.8)
+			for c in [Vector2(0.5, 0.30), Vector2(0.28, 0.66), Vector2(0.72, 0.66)]:
+				var cross_c: Vector2 = c
+				_small_cross(img, cross_c, 0.62)
+			return
+		"might":
+			_skill_might(img)
+			return
+		"shield":
+			_background(img, Color(0.06, 0.12, 0.30))
+			_glow(img, Vector2(0.5, 0.5), 0.6, Color(0.45, 0.70, 1.0), 0.8)
+			_shield(img)
+			return
+		"curse: weakness":
+			_skill_curse_weakness(img)
+			return
+		"curse: poison":
+			_skill_curse_poison(img)
+			return
+		"cure poison":
+			_skill_cure_poison(img)
+			return
 	match hint:
+		"PASSIVE":
+			_background(img, Color(0.22, 0.18, 0.06))
+			_laurel(img)
+			_gem(img, Vector2(0.5, 0.48), 0.17, _gem_color(ref_name))
+			return
 		"HEALING":
 			_background(img, Color(0.08, 0.24, 0.12))
 			_holy_cross(img)
@@ -867,6 +945,183 @@ static func _wind_spiral(img: Image) -> void:
 		var r := lerpf(0.03, 0.075, t)
 		var col := Color(0.70, 1.0, 0.80).lerp(Color(1, 1, 1), t * 0.5)
 		_draw(img, func(p): return _sd_circle(p, c, r), _flat(col), 0.0)
+
+
+# --- Compétences L2 (Human Fighter / Human Mystic) -----------------------------
+
+## Étoile à `spikes` branches centrée en `c` (rayons normalisés), dégradé cœur -> bord.
+static func _star(img: Image, c: Vector2, r_out: float, r_in: float, spikes: int, color: Color, core: Color, turn := 0.0) -> void:
+	var pts := []
+	for i in spikes * 2:
+		var a := TAU * i / (spikes * 2) - PI / 2.0 + turn
+		pts.append(c + Vector2(cos(a), sin(a)) * (r_out if i % 2 == 0 else r_in))
+	_draw(img, func(p): return _sd_poly(p, pts), func(q: Vector2, _d: float) -> Color:
+		return core.lerp(color, clampf(q.distance_to(c) / r_out, 0.0, 1.0)), 0.8)
+
+
+## Arc de croissant (entaille d'une lame) : anneau de rayon `r` autour de `c`, épaisseur
+## maximale `w` au milieu de l'arc [a0, a1] (radians), effilé aux extrémités.
+static func _slash_arc(img: Image, c: Vector2, r: float, w: float, a0: float, a1: float, light: Color, dark: Color) -> void:
+	var sdf := func(p: Vector2) -> float:
+		var rel: Vector2 = p - _px(c)
+		var ang := atan2(rel.y, rel.x)
+		var t := clampf((ang - a0) / (a1 - a0), 0.0, 1.0)
+		var thickness := sin(t * PI) * w * BASE_SIZE
+		var d := absf(rel.length() - r * BASE_SIZE) - thickness
+		return d if ang >= a0 and ang <= a1 else maxf(d, 4.0)
+	var shade := func(q: Vector2, _d: float) -> Color:
+		return light.lerp(dark, clampf(q.distance_to(c) / (r * 1.4), 0.0, 1.0))
+	_draw(img, sdf, shade, 1.0)
+
+
+static func _drop_sdf(p: Vector2, c: Vector2, scale: float) -> float:
+	var body := _sd_circle(p, c + Vector2(0, 0.10) * scale, 0.20 * scale)
+	var tip := _sd_poly(p, [c + Vector2(0, -0.26) * scale, c + Vector2(0.175, 0.02) * scale, c + Vector2(-0.175, 0.02) * scale])
+	return minf(body, tip)
+
+
+static func _heart(img: Image, c: Vector2, scale: float) -> void:
+	var sdf := func(p: Vector2) -> float:
+		var lobes := minf(_sd_circle(p, c + Vector2(-0.12, -0.08) * scale, 0.15 * scale), _sd_circle(p, c + Vector2(0.12, -0.08) * scale, 0.15 * scale))
+		return minf(lobes, _sd_poly(p, [c + Vector2(-0.262, -0.02) * scale, c + Vector2(0.262, -0.02) * scale, c + Vector2(0, 0.30) * scale]))
+	_draw(img, sdf, _lit_shade(Color(1.0, 0.62, 0.66), Color(0.62, 0.05, 0.12), 0.4))
+
+
+static func _small_cross(img: Image, c: Vector2, scale: float) -> void:
+	_draw(img, func(p): return minf(_sd_box(p, c, Vector2(0.07, 0.22) * scale, 0.0, 0.015), _sd_box(p, c, Vector2(0.22, 0.07) * scale, 0.0, 0.015)),
+		_lit_shade(Color(1.0, 1.0, 0.88), Color(0.95, 0.80, 0.40), 0.3), 1.1)
+
+
+## Couronne de laurier dorée (passifs) : deux branches de feuilles en arc.
+static func _laurel(img: Image) -> void:
+	for side in [-1.0, 1.0]:
+		var s: float = side
+		for i in 6:
+			var a := lerpf(PI * 0.62, PI * 1.12, i / 5.0)
+			var leaf_c := Vector2(0.5, 0.50) + Vector2(cos(a) * s, sin(a)) * 0.31
+			var leaf_angle := a + PI / 2.0
+			if s > 0.0:
+				leaf_angle = PI - leaf_angle
+			_draw(img, func(p): return _sd_box(p, leaf_c, Vector2(0.075, 0.03), leaf_angle, 0.028), _lit_shade(GOLD_LIGHT, GOLD_DARK, 0.3), 1.0)
+
+
+static func _skill_power_strike(img: Image) -> void:
+	_background(img, Color(0.34, 0.10, 0.03))
+	_glow(img, Vector2(0.74, 0.26), 0.42, Color(1.0, 0.55, 0.15), 1.0)
+	# Traînées du coup, derrière la lame.
+	for k in 3:
+		var off := Vector2(0.06, 0.06) * (k + 1)
+		_draw(img, func(p): return _sd_capsule(p, Vector2(0.20, 0.52) + off, Vector2(0.48, 0.24) + off, 0.012), _flat(Color(1.0, 0.75, 0.35, 0.55 - k * 0.15)), 0.0)
+	_sword(img, Vector2(0.30, 0.70), -PI / 4.0, 0.92)
+	_star(img, Vector2(0.76, 0.24), 0.17, 0.06, 6, Color(1.0, 0.55, 0.12), Color(1.0, 0.97, 0.75), 0.2)
+
+
+static func _skill_mortal_blow(img: Image) -> void:
+	_background(img, Color(0.22, 0.03, 0.05))
+	_glow(img, Vector2(0.55, 0.45), 0.5, Color(0.9, 0.1, 0.1), 0.7)
+	_dagger(img)
+	_slash_arc(img, Vector2(0.30, 0.72), 0.52, 0.045, -PI * 0.52, -PI * 0.02, Color(1.0, 0.85, 0.85), Color(0.85, 0.05, 0.08))
+	for c in [Vector2(0.78, 0.72), Vector2(0.70, 0.84)]:
+		var drop_c: Vector2 = c
+		_draw(img, func(p): return _drop_sdf(p, drop_c, 0.28), _lit_shade(Color(1.0, 0.35, 0.35), Color(0.45, 0.0, 0.02), 0.4), 1.0)
+
+
+static func _skill_relax(img: Image) -> void:
+	_background(img, Color(0.05, 0.12, 0.22))
+	_glow(img, Vector2(0.42, 0.42), 0.45, Color(0.55, 0.75, 1.0), 0.55)
+	_draw(img, func(p): return maxf(_sd_circle(p, Vector2(0.44, 0.46), 0.26), -_sd_circle(p, Vector2(0.56, 0.38), 0.22)),
+		_lit_shade(Color(1.0, 0.98, 0.85), Color(0.85, 0.72, 0.35), 0.3))
+	for entry in [[Vector2(0.72, 0.26), 0.07], [Vector2(0.80, 0.52), 0.05], [Vector2(0.62, 0.74), 0.045]]:
+		var c: Vector2 = entry[0]
+		var r: float = entry[1]
+		_star(img, c, r, r * 0.35, 4, Color(0.85, 0.92, 1.0), Color.WHITE)
+
+
+static func _skill_anti_magic(img: Image) -> void:
+	_background(img, Color(0.11, 0.07, 0.26))
+	_glow(img, Vector2(0.5, 0.5), 0.55, Color(0.65, 0.45, 1.0), 0.8)
+	var ring_shade := _lit_shade(Color(0.92, 0.85, 1.0), Color(0.45, 0.25, 0.85), 0.35)
+	_draw(img, func(p): return absf(_sd_circle(p, Vector2(0.5, 0.5), 0.32)) - 0.025 * BASE_SIZE, ring_shade, 1.0)
+	var tri_a := []
+	var tri_b := []
+	for i in 3:
+		tri_a.append(Vector2(0.5, 0.5) + Vector2.from_angle(-PI / 2.0 + TAU * i / 3.0) * 0.30)
+		tri_b.append(Vector2(0.5, 0.5) + Vector2.from_angle(PI / 2.0 + TAU * i / 3.0) * 0.30)
+	for tri in [tri_a, tri_b]:
+		var pts: Array = tri
+		_draw(img, func(p): return absf(_sd_poly(p, pts)) - 0.012 * BASE_SIZE, ring_shade, 0.6)
+	_draw(img, func(p): return _sd_circle(p, Vector2(0.5, 0.5), 0.07), _sphere_shade(Vector2(0.5, 0.5), 0.07, Color(1, 1, 1), Color(0.55, 0.35, 1.0)), 1.0)
+
+
+static func _skill_ice_bolt(img: Image) -> void:
+	_background(img, Color(0.04, 0.10, 0.26))
+	_glow(img, Vector2(0.62, 0.38), 0.5, Color(0.45, 0.80, 1.0), 0.9)
+	var shard := [Vector2(0.84, 0.16), Vector2(0.60, 0.50), Vector2(0.52, 0.46), Vector2(0.20, 0.82), Vector2(0.46, 0.40), Vector2(0.42, 0.34)]
+	_draw(img, func(p): return _sd_poly(p, shard), func(q: Vector2, _d: float) -> Color:
+		var t := clampf((q.x - q.y + 0.6) * 0.8, 0.0, 1.0)
+		return Color(0.55, 0.80, 1.0).lerp(Color(0.95, 1.0, 1.0), t), 1.2)
+	for entry in [[Vector2(0.28, 0.30), 0.07], [Vector2(0.76, 0.66), 0.06], [Vector2(0.18, 0.56), 0.04]]:
+		var c: Vector2 = entry[0]
+		var r: float = entry[1]
+		_star(img, c, r, r * 0.3, 6, Color(0.7, 0.9, 1.0), Color.WHITE)
+
+
+static func _skill_vampiric_touch(img: Image) -> void:
+	_background(img, Color(0.14, 0.02, 0.07))
+	_glow(img, Vector2(0.5, 0.52), 0.55, Color(0.55, 0.05, 0.35), 0.9)
+	# Filets de vie aspirés vers la goutte.
+	for k in 4:
+		var a := TAU * k / 4.0 + PI / 4.0
+		var from := Vector2(0.5, 0.52) + Vector2.from_angle(a) * 0.42
+		var to := Vector2(0.5, 0.52) + Vector2.from_angle(a) * 0.26
+		_draw(img, func(p): return _sd_capsule(p, from, to, 0.018), _flat(Color(1.0, 0.45, 0.55, 0.8)), 0.6)
+	_draw(img, func(p): return _drop_sdf(p, Vector2(0.5, 0.50), 1.0), _lit_shade(Color(1.0, 0.30, 0.35), Color(0.35, 0.0, 0.05), 0.5))
+
+
+static func _skill_battle_heal(img: Image) -> void:
+	_background(img, Color(0.18, 0.22, 0.05))
+	_glow(img, Vector2(0.56, 0.5), 0.55, Color(0.9, 1.0, 0.45), 0.8)
+	for k in 3:
+		var y := 0.36 + k * 0.14
+		_draw(img, func(p): return _sd_capsule(p, Vector2(0.12, y), Vector2(0.34 - k * 0.03, y), 0.016), _flat(Color(1.0, 1.0, 0.75, 0.75)), 0.0)
+	_small_cross(img, Vector2(0.60, 0.50), 1.2)
+
+
+static func _skill_might(img: Image) -> void:
+	_background(img, Color(0.32, 0.12, 0.03))
+	_glow(img, Vector2(0.5, 0.45), 0.55, Color(1.0, 0.6, 0.2), 0.9)
+	_sword(img, Vector2(0.5, 0.80), -PI / 2.0, 0.78)
+	for i in 2:
+		var oy := 0.13 * i
+		_draw(img, func(p): return _sd_poly(p, [Vector2(0.80, 0.30 + oy), Vector2(0.92, 0.42 + oy), Vector2(0.87, 0.45 + oy), Vector2(0.80, 0.38 + oy), Vector2(0.73, 0.45 + oy), Vector2(0.68, 0.42 + oy)]),
+			_lit_shade(Color(1.0, 0.96, 0.70), Color(0.95, 0.60, 0.15), 0.3), 1.0)
+
+
+static func _skill_curse_weakness(img: Image) -> void:
+	_background(img, Color(0.20, 0.06, 0.24))
+	_glow(img, Vector2(0.5, 0.5), 0.55, Color(0.7, 0.3, 0.9), 0.7)
+	# Épée brisée : deux tronçons décalés de part et d'autre de la cassure.
+	_sword(img, Vector2(0.30, 0.72), -PI / 4.0, 0.9, 0.18, 0.05, 0.0)
+	var blade_top := [Vector2(0.52, 0.42), Vector2(0.60, 0.36), Vector2(0.80, 0.16), Vector2(0.80, 0.26), Vector2(0.62, 0.44), Vector2(0.55, 0.47)]
+	_draw(img, func(p): return _sd_poly(p, blade_top), _lit_shade(STEEL_LIGHT.darkened(0.2), STEEL_DARK, 0.3), 1.2)
+	_star(img, Vector2(0.50, 0.47), 0.09, 0.03, 5, Color(0.8, 0.4, 1.0), Color.WHITE)
+
+
+static func _skill_curse_poison(img: Image) -> void:
+	_background(img, Color(0.12, 0.05, 0.16))
+	_glow(img, Vector2(0.5, 0.55), 0.55, Color(0.45, 0.95, 0.25), 0.8)
+	_draw(img, func(p): return _drop_sdf(p, Vector2(0.46, 0.48), 1.0), _lit_shade(Color(0.75, 1.0, 0.45), Color(0.12, 0.40, 0.05), 0.45))
+	for entry in [[Vector2(0.76, 0.30), 0.06], [Vector2(0.72, 0.16), 0.04], [Vector2(0.84, 0.44), 0.035]]:
+		var c: Vector2 = entry[0]
+		var r: float = entry[1]
+		_draw(img, func(p): return _sd_circle(p, c, r), _sphere_shade(c, r, Color(0.85, 1.0, 0.6), Color(0.25, 0.6, 0.1)), 1.0)
+
+
+static func _skill_cure_poison(img: Image) -> void:
+	_background(img, Color(0.05, 0.22, 0.20))
+	_glow(img, Vector2(0.5, 0.5), 0.55, Color(0.55, 1.0, 0.85), 0.8)
+	_draw(img, func(p): return _drop_sdf(p, Vector2(0.46, 0.50), 0.95), _lit_shade(Color(0.75, 1.0, 0.95), Color(0.10, 0.45, 0.40), 0.45))
+	_star(img, Vector2(0.72, 0.28), 0.15, 0.04, 4, Color(0.85, 1.0, 0.95), Color.WHITE, PI / 4.0)
 
 
 # --- Pictogrammes d'interface (fond transparent, métal argent/or) ---------------

@@ -1,21 +1,21 @@
 extends WindowFrame
 ## Fenêtre "Compétences" (touche K) façon Lineage 2 : onglets de filtre (Toutes / Attaque /
-## Soutien), puis une ligne par sort connu — icône dans un slot, nom, et en dessous
+## Soutien / Passives), puis une ligne par compétence connue — icône dans un slot, nom, et en dessous
 ## "Niv. X · effet · coût". Seule l'icône (DraggableIcon) est la poignée de glisser-déposer
-## vers la barre de raccourcis ; les caractéristiques complètes passent en infobulle.
+## vers la barre de raccourcis (sauf pour une passive, toujours active, qui ne se lance
+## pas) ; les caractéristiques complètes passent en infobulle (SkillTooltip).
 ## Backend : verbe "skills" / message "KnownSkills".
 
 const DraggableIcon := preload("res://scenes/game/hud/DraggableIcon.gd")
 
-const EFFECT_LABELS := {
-	"DAMAGE": "Dégâts", "HEALING": "Soin", "BUFF": "Bonus", "DEBUFF": "Malus",
-}
-## Onglets : [libellé, types de sort affichés (vide = tous)].
+## Onglets : [libellé, types de compétence affichés (vide = tous)].
 const TABS := [
 	["Toutes", []],
 	["Attaque", ["DAMAGE", "DEBUFF"]],
-	["Soutien", ["HEALING", "BUFF"]],
+	["Soutien", ["HEALING", "BUFF", "CURE"]],
+	["Passives", ["PASSIVE"]],
 ]
+const SlotPanel := preload("res://scenes/game/hud/SlotPanel.gd")
 const ICON_SIZE := Vector2(36, 36)
 
 @onready var _skills_container: VBoxContainer = %SkillsContainer
@@ -97,22 +97,31 @@ func _build_row(skill: Dictionary) -> Control:
 	var skill_name := str(skill.get("name", ""))
 	var effect := str(skill.get("skillType", ""))
 
-	var slot := Panel.new()
+	var passive := effect == "PASSIVE"
+	var slot: Panel = SlotPanel.new() if passive else Panel.new()
 	slot.theme_type_variation = &"SlotPanel"
 	slot.custom_minimum_size = ICON_SIZE + Vector2(4, 4)
-	var icon := DraggableIcon.new()
+	var icon: TextureRect
+	if passive:
+		# Toujours active : rien à glisser sur la barre de raccourcis.
+		icon = TextureRect.new()
+		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		slot.tooltip_text = SkillTooltip.build(skill)
+	else:
+		var draggable := DraggableIcon.new()
+		draggable.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		draggable.drag_kind = "skill"
+		draggable.drag_ref_id = str(skill.get("id", ""))
+		draggable.drag_ref_name = skill_name
+		draggable.drag_preview_text = skill_name
+		draggable.tooltip_text = SkillTooltip.build(skill, ["Glisser sur la barre de raccourcis pour l'utiliser."])
+		icon = draggable
 	icon.position = Vector2(2, 2)
 	icon.size = ICON_SIZE
 	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	icon.stretch_mode = TextureRect.STRETCH_SCALE
-	icon.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	icon.texture = IconFactory.slot_icon("skill", skill_name, effect)
-	icon.drag_kind = "skill"
-	icon.drag_ref_id = str(skill.get("id", ""))
-	icon.drag_ref_name = skill_name
-	icon.drag_preview_text = skill_name
 	icon.custom_minimum_size = ICON_SIZE
-	icon.tooltip_text = _skill_tooltip(skill)
 	slot.add_child(icon)
 	row.add_child(slot)
 
@@ -128,7 +137,7 @@ func _build_row(skill: Dictionary) -> Control:
 	column.add_child(name_label)
 
 	var detail := Label.new()
-	var parts := PackedStringArray(["Niv. %s" % skill.get("level", "?"), EFFECT_LABELS.get(effect, effect)])
+	var parts := PackedStringArray(["Niv. %s" % skill.get("level", "?"), SkillTooltip.type_label(effect)])
 	if int(skill.get("manaCost", 0)) > 0:
 		parts.append("%s MP" % skill.get("manaCost", 0))
 	if skill.get("granted", false):
@@ -139,25 +148,3 @@ func _build_row(skill: Dictionary) -> Control:
 	column.add_child(detail)
 
 	return card
-
-
-## Caractéristiques complètes du sort, en BBCode (voir UITheme.make_rich_tooltip).
-func _skill_tooltip(skill: Dictionary) -> String:
-	var effect := str(skill.get("skillType", ""))
-	var lines := PackedStringArray()
-	lines.append("[b]%s[/b]  [color=#%s]Niv. %s[/color]" % [skill.get("name", ""), UITheme.TEXT_LABEL.to_html(false), skill.get("level", "?")])
-	lines.append("[color=#%s]%s[/color]" % [UITheme.TEXT_DIM.to_html(false), EFFECT_LABELS.get(effect, effect)])
-	lines.append(UITheme.tooltip_stat("MP consommés :", str(skill.get("manaCost", 0))))
-	lines.append(UITheme.tooltip_stat("Recharge :", "%s s" % skill.get("cooldownSeconds", 0)))
-	if int(skill.get("range", 0)) > 0:
-		lines.append(UITheme.tooltip_stat("Portée :", str(skill.get("range", 0))))
-	if int(skill.get("durationSeconds", 0)) > 0:
-		lines.append(UITheme.tooltip_stat("Durée :", "%s s" % skill.get("durationSeconds", 0)))
-	var description := str(skill.get("description", ""))
-	if not description.is_empty():
-		lines.append("")
-		lines.append(description)
-	if skill.get("granted", false):
-		lines.append("")
-		lines.append("[color=#%s]Octroyée par un objet équipé.[/color]" % UITheme.TEXT_DIM.to_html(false))
-	return "\n".join(lines)

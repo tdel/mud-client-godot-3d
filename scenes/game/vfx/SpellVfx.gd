@@ -17,7 +17,11 @@ enum Element { FIRE, WATER, WIND, HOLY, DARK, ARCANE, HEAL, BUFF, DEBUFF, PHYSIC
 
 const DEFAULT_ELEMENT := Element.ARCANE
 const ELEMENT_BY_SKILL := {
-	"Power Strike": Element.PHYSICAL,
+	# Compétences L2 des classes de base Human Fighter / Human Mystic.
+	"Power Strike": Element.PHYSICAL, "Mortal Blow": Element.PHYSICAL, "Power Shot": Element.PHYSICAL,
+	"Relax": Element.BUFF, "Ice Bolt": Element.WATER, "Vampiric Touch": Element.DARK,
+	"Self Heal": Element.HEAL, "Battle Heal": Element.HEAL, "Group Heal": Element.HEAL, "Cure Poison": Element.HEAL,
+	"Shield": Element.BUFF, "Curse: Poison": Element.DEBUFF,
 	"Flame Strike": Element.FIRE, "Prominence": Element.FIRE,
 	"Aqua Strike": Element.WATER,
 	"Wind Strike": Element.WIND, "Twister": Element.WIND,
@@ -56,6 +60,28 @@ const FIRE_RAMP := [
 const SMOKE_RAMP := [
 	[0.0, Color(0.12, 0.1, 0.1, 0.0)], [0.2, Color(0.14, 0.11, 0.1, 0.45)], [1.0, Color(0.1, 0.1, 0.1, 0.0)],
 ]
+
+
+## Projectile propre à une compétence plutôt qu'à son élément : éclat de glace (Ice Bolt),
+## flèche (Power Shot, physique).
+const PROJECTILE_STYLE_BY_SKILL := {"Ice Bolt": "ice", "Power Shot": "arrow"}
+## Couleur de l'énergie qui charge l'arme pendant une compétence martiale.
+const WEAPON_CHARGE_COLORS := {
+	"Power Strike": Color(1.0, 0.62, 0.2), "Mortal Blow": Color(1.0, 0.15, 0.12), "Power Shot": Color(1.0, 0.88, 0.45),
+}
+const POISON_COLOR := Color(0.45, 0.95, 0.2)
+const POISON_DARK := Color(0.32, 0.06, 0.42)
+const DRAIN_COLOR := Color(1.0, 0.12, 0.2)
+
+
+static func projectile_style_for_skill(skill_name: String) -> String:
+	return PROJECTILE_STYLE_BY_SKILL.get(skill_name, "")
+
+
+## Compétence (non magique) animée par un projectile : son impact et son raté se jouent à
+## l'arrivée (voir Game3D._on_skill_projectile_launched).
+static func is_projectile_skill(skill_name: String) -> bool:
+	return PROJECTILE_STYLE_BY_SKILL.get(skill_name, "") == "arrow"
 
 
 static func element_for_skill(skill_name: String) -> int:
@@ -177,7 +203,7 @@ func play_impact(feet: Vector3, element: int) -> void:
 ## cible si elle bouge, joue l'impact de l'élément à l'arrivée puis appelle
 ## `on_impact(point: Vector3)` — pieds de la cible à l'arrivée (dernière position connue si
 ## elle a disparu en route).
-func play_projectile(caster: Node3D, target: Node3D, element: int, duration_sec: float, on_impact: Callable = Callable()) -> void:
+func play_projectile(caster: Node3D, target: Node3D, element: int, duration_sec: float, on_impact: Callable = Callable(), style := "") -> void:
 	var start := caster.global_position + Vector3.UP * HAND_HEIGHT
 	var flat := (target.global_position - caster.global_position) * Vector3(1, 0, 1)
 	if flat.length() > 0.01:
@@ -186,7 +212,7 @@ func play_projectile(caster: Node3D, target: Node3D, element: int, duration_sec:
 	root.name = "Projectile"
 	add_child(root)
 	root.global_position = start
-	var parts := _build_projectile(root, element)
+	var parts := _build_projectile(root, element, style)
 	var arc: float = parts.get("arc", 0.0)
 	var orient: bool = parts.get("orient", false)
 	var target_ref: WeakRef = weakref(target)
@@ -435,7 +461,12 @@ func _debuff_land(root: Node3D, sigil: MeshInstance3D, color: Color) -> void:
 
 ## Retourne {hide: nœuds à masquer à l'impact, trails: particules à arrêter, light, arc (m),
 ## orient (le projectile s'aligne sur sa trajectoire, -Z vers l'avant)}.
-func _build_projectile(root: Node3D, element: int) -> Dictionary:
+func _build_projectile(root: Node3D, element: int, style := "") -> Dictionary:
+	match style:
+		"ice":
+			return _projectile_ice(root)
+		"arrow":
+			return _projectile_arrow(root)
 	match element:
 		Element.FIRE:
 			return _projectile_fire(root)
@@ -681,3 +712,313 @@ func _impact_generic(feet: Vector3, color: Color) -> void:
 	}), {"one_shot": true, "explosiveness": 1.0, "shape": VfxLib.SHAPE_SPARK, "energy": 2.2}), center)
 	_ground_wave(root, color, 2.6, 0.1, 0.9, 0.5, 0.06)
 	_light_flash(root, color, center, 4.0, 0.45, 4.0)
+
+
+# ---------------------------------------------------------------------------
+# Compétences L2 des classes de base (Human Fighter / Human Mystic)
+# ---------------------------------------------------------------------------
+
+## Effet sur la cible d'une compétence nommée (CastResult/SkillCastAnnounced/
+## SkillModifierAnnounced) : variante propre à la compétence quand elle en a une, sinon
+## l'effet générique de son élément (voir play_on_target).
+func play_skill_on_target(target: Node3D, skill_name: String, element: int) -> void:
+	if target == null or not target.is_inside_tree():
+		return
+	match skill_name:
+		"Relax":
+			_play_rest(target)
+		"Shield":
+			_play_buff(target)
+			_shield_dome(target)
+		"Might":
+			_play_buff(target)
+			_power_flare(target)
+		"Curse: Poison":
+			_play_debuff(target)
+			_poison_cloud(target)
+		"Cure Poison":
+			_play_heal(target)
+			_purge(target)
+		"Power Strike":
+			_impact_power_strike(target.global_position)
+		"Mortal Blow":
+			_impact_blow(target.global_position)
+		_:
+			play_on_target(target, element)
+
+
+## Compétence martiale en préparation (castingTimeMs) : l'énergie converge vers la main de
+## l'arme et y grossit, couleur propre à la compétence ; s'éteint d'elle-même à la frappe.
+func play_weapon_charge(caster: Node3D, skill_name: String, duration_sec: float) -> void:
+	var color: Color = WEAPON_CHARGE_COLORS.get(skill_name, color_of(Element.PHYSICAL))
+	var d := maxf(duration_sec, 0.2)
+	var root := _attach_root(caster, d + 0.4)
+	var hand := Vector3(0.3, HAND_HEIGHT - 0.1, -0.25)
+	var glow := VfxLib.glow_sprite(color, 0.7, 0.0, 0.6)
+	glow.position = hand
+	glow.scale = Vector3.ONE * 0.3
+	root.add_child(glow)
+	var gm := VfxLib.mat_of(glow)
+	var gt := glow.create_tween().set_parallel(true)
+	gt.tween_property(glow, "scale", Vector3.ONE * 1.2, d).set_ease(Tween.EASE_IN)
+	VfxLib.tween_param(gt, gm, "energy", 0.4, 2.6, d).set_ease(Tween.EASE_IN)
+	gt.chain().tween_property(glow, "scale", Vector3.ONE * 0.01, 0.15)
+
+	var gather := VfxLib.particles(40, 0.45, 0.07, VfxLib.process({
+		"radius": 0.9, "velocity": Vector2(0.0, 0.1), "radial_accel": Vector2(-9.0, -6.0),
+		"scale_curve": [Vector2(0, 0.3), Vector2(1, 1.0)],
+		"colors": [[0.0, VfxLib.clear(color)], [0.4, color], [1.0, Color.WHITE]],
+	}), {"shape": VfxLib.SHAPE_SPARK, "energy": 2.0, "local": true})
+	VfxLib.emit(root, gather, hand)
+	var stop := gather.create_tween()
+	stop.tween_interval(maxf(d - 0.2, 0.05))
+	stop.tween_callback(func() -> void: gather.emitting = false)
+
+	var aura := VfxLib.ring(color, 1.8, 0.6, 0.04, {"energy": 1.6, "alpha": 0.0})
+	aura.position.y = 0.05
+	root.add_child(aura)
+	var am := VfxLib.mat_of(aura)
+	var at := aura.create_tween().set_parallel(true)
+	VfxLib.tween_param(at, am, "alpha", 0.0, 0.8, d * 0.5)
+	VfxLib.tween_param(at, am, "radius", 0.85, 0.45, d)
+	VfxLib.tween_param(at.chain(), am, "alpha", 0.8, 0.0, 0.2)
+	_light_flash(root, color, hand, 1.6, 0.3, 2.5, d)
+
+
+## Poison qui ronge sa cible (EffectDamage) : quelques bulles vertes qui montent du corps et
+## une bouffée violacée.
+func play_poison_tick(target: Node3D) -> void:
+	if target == null or not target.is_inside_tree():
+		return
+	var root := _attach_root(target, 1.6)
+	VfxLib.emit(root, VfxLib.particles(14, 1.0, 0.12, VfxLib.process({
+		"radius": 0.35, "direction": Vector3.UP, "spread": 25.0, "velocity": Vector2(0.4, 0.9),
+		"scale_curve": [Vector2(0, 0.4), Vector2(0.7, 1.0), Vector2(1, 0.0)],
+		"colors": [[0.0, Color(0.8, 1.0, 0.5)], [0.5, POISON_COLOR], [1.0, VfxLib.clear(POISON_COLOR)]],
+	}), {"one_shot": true, "explosiveness": 0.6, "energy": 1.6}), Vector3(0, CHEST_HEIGHT, 0))
+	VfxLib.emit(root, VfxLib.particles(6, 1.1, 0.7, VfxLib.process({
+		"radius": 0.25, "direction": Vector3.UP, "spread": 60.0, "velocity": Vector2(0.2, 0.5),
+		"scale_curve": [Vector2(0, 0.4), Vector2(1, 1.0)],
+		"colors": [[0.0, VfxLib.clear(POISON_DARK)], [0.2, Color(POISON_DARK, 0.45)], [1.0, VfxLib.clear(POISON_DARK)]],
+	}), {"one_shot": true, "explosiveness": 0.8, "smoke": true}), Vector3(0, CHEST_HEIGHT, 0))
+
+
+## Vampiric Touch : des filets de vie rouges quittent la cible et viennent se fondre dans le
+## lanceur, qui s'illumine brièvement. Sans cible connue, seule la lueur du lanceur se joue.
+func play_drain(from_target: Node3D, to_caster: Node3D) -> void:
+	if to_caster == null or not to_caster.is_inside_tree():
+		return
+	var end := to_caster.global_position + Vector3.UP * CHEST_HEIGHT
+	var travel := 0.0
+	if from_target != null and from_target.is_inside_tree():
+		var start := from_target.global_position + Vector3.UP * CHEST_HEIGHT
+		travel = 0.55
+		var world_root := _spawn_root(Vector3.ZERO, 2.2)
+		for i in 6:
+			var orb := VfxLib.glow_sprite(DRAIN_COLOR, 0.55, 2.4, 0.5)
+			world_root.add_child(orb)
+			orb.global_position = start
+			var side := Vector3(randf_range(-0.8, 0.8), randf_range(0.2, 1.0), randf_range(-0.8, 0.8))
+			var tw := orb.create_tween()
+			tw.tween_interval(i * 0.07)
+			tw.tween_method(func(t: float) -> void:
+				if is_instance_valid(orb):
+					orb.global_position = start.lerp(end, t) + side * sin(t * PI) * 0.6
+			, 0.0, 1.0, travel)
+			tw.tween_callback(orb.queue_free)
+	var root := _attach_root(to_caster, travel + 1.6)
+	var halo := VfxLib.glow_sprite(DRAIN_COLOR, 1.8, 0.0, 0.4)
+	halo.position.y = CHEST_HEIGHT
+	root.add_child(halo)
+	var hm := VfxLib.mat_of(halo)
+	var ht := halo.create_tween()
+	ht.tween_interval(travel)
+	VfxLib.tween_param(ht, hm, "energy", 0.0, 2.2, 0.15)
+	VfxLib.tween_param(ht, hm, "energy", 2.2, 0.0, 0.7).set_ease(Tween.EASE_IN)
+	var sparks := VfxLib.particles(24, 1.0, 0.09, VfxLib.process({
+		"emission": "ring", "radius": 0.5, "inner": 0.3, "direction": Vector3.UP, "spread": 10.0,
+		"velocity": Vector2(0.6, 1.4), "tangential_accel": Vector2(2.0, 4.0),
+		"colors": [[0.0, Color(1.0, 0.8, 0.8)], [0.4, DRAIN_COLOR], [1.0, VfxLib.clear(DRAIN_COLOR)]],
+	}), {"one_shot": true, "explosiveness": 0.4, "shape": VfxLib.SHAPE_SPARK, "energy": 2.0})
+	sparks.position.y = 0.2
+	root.add_child(sparks)
+	var st := sparks.create_tween()
+	st.tween_interval(travel)
+	st.tween_callback(func() -> void: sparks.emitting = true)
+
+
+## Relax : le personnage se pose ; un cercle doré apaisé s'étend au sol et des lueurs douces
+## montent lentement autour de lui.
+func _play_rest(target: Node3D) -> void:
+	var color := color_of(Element.BUFF)
+	var root := _attach_root(target, 3.6)
+	var circle := VfxLib.magic_circle(color, 2.0, {"energy": 0.9, "reveal": 0.0, "alpha": 0.8})
+	circle.position.y = 0.04
+	root.add_child(circle)
+	var cm := VfxLib.mat_of(circle)
+	var ct := circle.create_tween().set_parallel(true)
+	VfxLib.tween_param(ct, cm, "reveal", 0.0, 1.0, 0.8).set_ease(Tween.EASE_OUT)
+	VfxLib.tween_param(ct, cm, "spin", 0.0, 1.2, 3.4)
+	VfxLib.tween_param(ct, cm, "alpha", 0.8, 0.0, 0.8).set_delay(2.6)
+	VfxLib.emit(root, VfxLib.particles(24, 2.4, 0.14, VfxLib.process({
+		"emission": "ring", "radius": 0.8, "inner": 0.2, "direction": Vector3.UP, "spread": 12.0,
+		"velocity": Vector2(0.3, 0.6), "scale_curve": [Vector2(0, 0.3), Vector2(0.5, 1.0), Vector2(1, 0.0)],
+		"colors": [[0.0, VfxLib.clear(color)], [0.3, Color(1.0, 0.95, 0.75)], [1.0, VfxLib.clear(color)]],
+	}), {"one_shot": true, "explosiveness": 0.1, "energy": 1.4}), Vector3(0, 0.1, 0))
+	_light_flash(root, color, Vector3(0, 0.6, 0), 1.2, 2.2, 3.0, 0.4)
+
+
+## Shield : un dôme doré translucide enveloppe la cible puis se dissout.
+func _shield_dome(target: Node3D) -> void:
+	var color := color_of(Element.BUFF)
+	var root := _attach_root(target, 2.0)
+	var dome := VfxLib.orb(color, Color(1.0, 1.0, 0.9), 1.05, {
+		"energy": 1.1, "noise_scale": 2.0, "core_amount": 0.0, "rim_power": 3.5,
+	})
+	dome.position.y = CHEST_HEIGHT
+	dome.scale = Vector3.ONE * 0.6
+	root.add_child(dome)
+	var dt := dome.create_tween().set_parallel(true)
+	dt.tween_property(dome, "scale", Vector3.ONE, 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	VfxLib.tween_param(dt, VfxLib.mat_of(dome), "dissolve", 0.0, 1.2, 1.0).set_delay(0.6)
+
+
+## Might : gerbe d'étincelles orangées qui jaillit des mains vers le ciel.
+func _power_flare(target: Node3D) -> void:
+	var color := Color(1.0, 0.55, 0.15)
+	var root := _attach_root(target, 1.8)
+	VfxLib.emit(root, VfxLib.particles(30, 0.9, 0.1, VfxLib.process({
+		"radius": 0.25, "direction": Vector3.UP, "spread": 20.0, "velocity": Vector2(2.5, 4.5),
+		"gravity": Vector3(0, -3.0, 0),
+		"colors": [[0.0, Color.WHITE], [0.35, color], [1.0, VfxLib.clear(color)]],
+	}), {"one_shot": true, "explosiveness": 0.8, "shape": VfxLib.SHAPE_SPARK, "energy": 2.2}), Vector3(0, HAND_HEIGHT, 0))
+
+
+## Curse: Poison : un nuage verdâtre et violacé s'accroche quelques secondes à la cible.
+func _poison_cloud(target: Node3D) -> void:
+	var root := _attach_root(target, 3.2)
+	var cloud := VfxLib.particles(16, 1.6, 0.9, VfxLib.process({
+		"emission": "ring", "radius": 0.45, "inner": 0.1, "height": 1.2, "direction": Vector3.UP, "spread": 70.0,
+		"velocity": Vector2(0.1, 0.35), "scale_curve": [Vector2(0, 0.4), Vector2(1, 1.0)],
+		"colors": [[0.0, VfxLib.clear(POISON_DARK)], [0.25, Color(0.25, 0.45, 0.1, 0.5)], [1.0, VfxLib.clear(POISON_DARK)]],
+	}), {"smoke": true})
+	VfxLib.emit(root, cloud, Vector3(0, 0.6, 0))
+	var bubbles := VfxLib.particles(22, 1.2, 0.1, VfxLib.process({
+		"radius": 0.4, "direction": Vector3.UP, "spread": 30.0, "velocity": Vector2(0.4, 1.0),
+		"colors": [[0.0, Color(0.8, 1.0, 0.5)], [0.5, POISON_COLOR], [1.0, VfxLib.clear(POISON_COLOR)]],
+	}), {"energy": 1.5})
+	VfxLib.emit(root, bubbles, Vector3(0, CHEST_HEIGHT, 0))
+	var stop := root.create_tween()
+	stop.tween_interval(1.4)
+	stop.tween_callback(func() -> void:
+		cloud.emitting = false
+		bubbles.emitting = false
+	)
+
+
+## Cure Poison : le poison est expulsé du corps (éclats vert sombre projetés au loin, qui
+## blanchissent en s'éloignant).
+func _purge(target: Node3D) -> void:
+	var root := _attach_root(target, 1.8)
+	VfxLib.emit(root, VfxLib.particles(28, 0.8, 0.1, VfxLib.process({
+		"radius": 0.3, "velocity": Vector2(2.0, 3.5), "damping": Vector2(2.0, 3.0),
+		"colors": [[0.0, Color(0.2, 0.55, 0.1)], [0.5, POISON_COLOR], [1.0, VfxLib.clear(Color.WHITE)]],
+	}), {"one_shot": true, "explosiveness": 0.9, "shape": VfxLib.SHAPE_SPARK, "energy": 2.0}), Vector3(0, CHEST_HEIGHT, 0))
+
+
+## Power Strike : grande entaille dorée doublée d'une onde de choc et d'une gerbe d'étincelles.
+func _impact_power_strike(feet: Vector3) -> void:
+	var root := _spawn_root(feet, 1.4)
+	var color := Color(1.0, 0.7, 0.3)
+	var center := Vector3.UP * CHEST_HEIGHT
+	_slash(root, color, center, 1.7, 0.0)
+	_slash(root, Color(1.0, 0.9, 0.6), center, 1.2, 0.05)
+	_ground_wave(root, color, 2.8, 0.1, 0.9, 0.4, 0.05)
+	VfxLib.emit(root, VfxLib.particles(34, 0.6, 0.09, VfxLib.process({
+		"radius": 0.15, "velocity": Vector2(2.5, 5.0), "gravity": Vector3(0, -7.0, 0),
+		"colors": [[0.0, Color.WHITE], [0.35, color], [1.0, VfxLib.clear(Color(1.0, 0.4, 0.1))]],
+	}), {"one_shot": true, "explosiveness": 1.0, "shape": VfxLib.SHAPE_SPARK, "energy": 2.4}), center)
+	_light_flash(root, color, center, 4.0, 0.35, 4.0)
+
+
+## Mortal Blow : deux entailles cramoisies croisées et une giclée d'étincelles rouges.
+func _impact_blow(feet: Vector3) -> void:
+	var root := _spawn_root(feet, 1.3)
+	var color := Color(1.0, 0.15, 0.12)
+	var center := Vector3.UP * CHEST_HEIGHT
+	_slash(root, color, center, 1.3, 0.0)
+	_slash(root, Color(1.0, 0.55, 0.5), center, 1.3, 0.09)
+	VfxLib.emit(root, VfxLib.particles(26, 0.55, 0.08, VfxLib.process({
+		"radius": 0.1, "velocity": Vector2(2.0, 4.0), "gravity": Vector3(0, -8.0, 0),
+		"colors": [[0.0, Color(1.0, 0.8, 0.8)], [0.3, color], [1.0, VfxLib.clear(Color(0.4, 0.0, 0.0))]],
+	}), {"one_shot": true, "explosiveness": 1.0, "shape": VfxLib.SHAPE_SPARK, "energy": 2.0}), center)
+	_light_flash(root, color, center, 3.0, 0.3, 3.0)
+
+
+## Maillage émissif sans ombrage (projectiles façonnés : flèche, éclat de glace).
+static func _emissive(color: Color, energy: float) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.albedo_color = color
+	m.emission_enabled = true
+	m.emission = color
+	m.emission_energy_multiplier = energy
+	return m
+
+
+## Cône (ou cylindre si top_radius > 0) couché le long de -Z (avant du projectile orienté).
+static func _forward_mesh(bottom_radius: float, top_radius: float, height: float, mat: Material, z: float) -> MeshInstance3D:
+	var mesh := CylinderMesh.new()
+	mesh.bottom_radius = bottom_radius
+	mesh.top_radius = top_radius
+	mesh.height = height
+	mesh.radial_segments = 8
+	mesh.rings = 1
+	var inst := MeshInstance3D.new()
+	inst.mesh = mesh
+	inst.material_override = mat
+	inst.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	inst.rotation.x = -PI / 2.0
+	inst.position.z = z
+	return inst
+
+
+## Power Shot : flèche dorée (hampe, pointe, lueur) et sa traînée d'étincelles.
+func _projectile_arrow(root: Node3D) -> Dictionary:
+	var gold := Color(1.0, 0.85, 0.45)
+	var holder := Node3D.new()
+	root.add_child(holder)
+	holder.add_child(_forward_mesh(0.04, 0.04, 1.1, _emissive(Color(0.95, 0.8, 0.5), 1.6), 0.0))
+	holder.add_child(_forward_mesh(0.1, 0.0, 0.28, _emissive(Color(1.0, 0.95, 0.8), 2.5), -0.68))
+	var glow := VfxLib.glow_sprite(gold, 0.45, 1.4, 0.6)
+	glow.position.z = -0.7
+	root.add_child(glow)
+	var trail := VfxLib.emit(root, VfxLib.particles(40, 0.35, 0.07, VfxLib.process({
+		"radius": 0.05, "velocity": Vector2(0.05, 0.2),
+		"colors": [[0.0, Color.WHITE], [0.4, gold], [1.0, VfxLib.clear(gold)]],
+	}), {"shape": VfxLib.SHAPE_SPARK, "energy": 2.0}))
+	var omni := VfxLib.light(gold, 1.2, 2.5)
+	root.add_child(omni)
+	return {"hide": [holder, glow], "trails": [trail], "light": omni, "arc": 0.3, "orient": true}
+
+
+## Ice Bolt : éclat de glace effilé, halo glacé, traînée de givre scintillant.
+func _projectile_ice(root: Node3D) -> Dictionary:
+	var ice := Color(0.6, 0.88, 1.0)
+	var shard := _forward_mesh(0.13, 0.0, 0.75, _emissive(Color(0.75, 0.93, 1.0), 1.8), -0.05)
+	root.add_child(shard)
+	var tail := _forward_mesh(0.02, 0.13, 0.25, _emissive(Color(0.45, 0.75, 1.0), 1.2), 0.45)
+	root.add_child(tail)
+	var halo := VfxLib.glow_sprite(Color(0.3, 0.65, 1.0), 0.9, 1.0, 0.1)
+	root.add_child(halo)
+	var frost := VfxLib.emit(root, VfxLib.particles(40, 0.6, 0.07, VfxLib.process({
+		"radius": 0.18, "velocity": Vector2(0.1, 0.4), "gravity": Vector3(0, -1.5, 0),
+		"colors": [[0.0, Color.WHITE], [0.4, ice], [1.0, VfxLib.clear(ice)]],
+	}), {"shape": VfxLib.SHAPE_SPARK, "energy": 2.0}))
+	var mist := VfxLib.emit(root, VfxLib.particles(18, 0.4, 0.3, VfxLib.process({
+		"radius": 0.1, "velocity": Vector2(0.05, 0.2), "scale_curve": [Vector2(0, 0.5), Vector2(1, 1.0)],
+		"colors": [[0.0, Color(0.6, 0.85, 1.0, 0.35)], [1.0, VfxLib.clear(ice)]],
+	}), {"energy": 0.9}))
+	var omni := VfxLib.light(ice, 1.8, 3.0)
+	root.add_child(omni)
+	return {"hide": [shard, tail, halo], "trails": [frost, mist], "light": omni, "arc": 0.12, "orient": true}

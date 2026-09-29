@@ -5,7 +5,9 @@ extends Node
 ## Usage :
 ##   Godot_console.exe --path . res://tools/ui_preview/UIPreview.tscn -- --shot=game --out=C:/tmp/game.png
 ## Scénarios : login, charselect, create, game, game_select_self, game_select_party, game_party[_menu],
-## game_party_invite, game_invite_button, game_windows, game_2h, game_shop, game_misc, game_death, game_options[_sound|_system], game_worldmap, loading.
+## game_party_invite, game_invite_button, game_windows, game_2h, game_shop, game_misc, game_death, game_options[_sound|_system], game_worldmap,
+## game_skill_learn[_menu] (maître des compétences), game_skillbook, game_l2_skills (effets des compétences L2),
+## skill_icons (planche des icônes de compétences), loading.
 ## game_worldmap accepte --map=<nom de carte> (autre carte que la Place du village) et
 ## --map-size=LxH (taille du parchemin, pour vérifier le redimensionnement).
 ## Suffixe _menu sur login/charselect/create : ouvre le Menu système hors jeu (SystemMenu).
@@ -62,7 +64,7 @@ func _run() -> void:
 				{"name": "Morwen", "race": "HUMAN", "characterClass": "MYSTIC", "level": 27, "gender": "WOMAN",
 					"equipment": [
 						{"slot": "WEAPON", "name": "Staff of Healing", "weaponType": "STAFF"},
-						{"slot": "CHEST", "name": "Major Arcana Robe", "armorCategory": "LIGHT"},
+						{"slot": "CHEST", "name": "Major Arcana Robe", "armorCategory": "ROBE"},
 						{"slot": "HEAD", "name": "Major Arcana Circlet", "armorCategory": "LIGHT"},
 					]},
 				{"name": "Thorgal", "race": "HUMAN", "characterClass": "FIGHTER", "level": 3, "gender": "MAN",
@@ -73,6 +75,8 @@ func _run() -> void:
 			_open_scene("res://scenes/charselect/CharacterCreate.tscn")
 		"icons":
 			_build_icon_sheet()
+		"skill_icons":
+			_build_skill_icon_sheet()
 		"loading":
 			LoadingScreen.begin(MAP_NAME)
 			LoadingScreen.set_progress(0.42)
@@ -89,6 +93,8 @@ func _run() -> void:
 		get_tree().current_scene.get_node("SystemMenu/OptionsWindow").open()
 	if _shot == "game_spells":
 		await _play_spell_scenario()
+	elif _shot == "game_l2_skills":
+		await _play_l2_skill_scenario()
 	await _frames(20)
 	await RenderingServer.frame_post_draw
 	var image := get_viewport().get_texture().get_image()
@@ -182,6 +188,51 @@ func _build_icon_sheet() -> void:
 		col.add_child(bar)
 
 
+## Compétences L2 des classes de base (skills.xml backend) : une icône par compétence, nom
+## dessous, en grand et à la taille réelle de la barre de raccourcis.
+const L2_SKILLS := [
+	["Power Strike", "DAMAGE"], ["Mortal Blow", "DAMAGE"], ["Power Shot", "DAMAGE"], ["Relax", "BUFF"],
+	["Weapon Mastery", "PASSIVE"], ["Armor Mastery", "PASSIVE"], ["Expertise Grade", "PASSIVE"],
+	["Wind Strike", "DAMAGE"], ["Ice Bolt", "DAMAGE"], ["Vampiric Touch", "DAMAGE"], ["Self Heal", "HEALING"],
+	["Heal", "HEALING"], ["Battle Heal", "HEALING"], ["Group Heal", "HEALING"], ["Might", "BUFF"], ["Shield", "BUFF"],
+	["Curse: Weakness", "DEBUFF"], ["Curse: Poison", "DEBUFF"], ["Cure Poison", "CURE"], ["Anti Magic", "PASSIVE"],
+	["Empower", "BUFF"],
+]
+
+
+func _build_skill_icon_sheet() -> void:
+	var root := PanelContainer.new()
+	root.theme_type_variation = &"WindowPanel"
+	root.position = Vector2(20, 20)
+	get_tree().root.add_child.call_deferred(root)
+	var grid := GridContainer.new()
+	grid.columns = 7
+	grid.add_theme_constant_override("h_separation", 10)
+	grid.add_theme_constant_override("v_separation", 10)
+	root.add_child(grid)
+	for e in L2_SKILLS:
+		var cell := VBoxContainer.new()
+		var row := HBoxContainer.new()
+		cell.add_child(row)
+		for size in [110, 36]:
+			var slot := Panel.new()
+			slot.theme_type_variation = &"SlotPanel"
+			slot.custom_minimum_size = Vector2(size + 8, size + 8)
+			slot.size_flags_vertical = Control.SIZE_SHRINK_END
+			var tr := TextureRect.new()
+			tr.texture = IconFactory.slot_icon("skill", e[0], e[1])
+			tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+			tr.stretch_mode = TextureRect.STRETCH_SCALE
+			tr.position = Vector2(4, 4)
+			tr.size = Vector2(size, size)
+			slot.add_child(tr)
+			row.add_child(slot)
+		var label := Label.new()
+		label.text = e[0]
+		cell.add_child(label)
+		grid.add_child(cell)
+
+
 func _emit(type: String, payload: Dictionary) -> void:
 	Net.message_received.emit(type, payload)
 
@@ -207,7 +258,7 @@ func _feed_game_state() -> void:
 			{"id": "i3", "name": "Soulshot", "grade": "NOGRADE", "type": "SOULSHOT", "quantity": 1520},
 			{"id": "i4", "name": "Spiritshot", "grade": "D", "type": "SPIRITSHOT", "quantity": 340},
 			{"id": "i5", "name": "Bastard Sword", "grade": "C", "type": "WEAPON", "pAtk": 107, "atkSpd": 379, "critBonus": 8, "enchant": 3},
-			{"id": "i6", "name": "Mithril Tunic", "grade": "D", "type": "ARMOR", "armorCategory": "LIGHT", "pDef": 64},
+			{"id": "i6", "name": "Mithril Tunic", "grade": "D", "type": "ARMOR", "armorCategory": "ROBE", "pDef": 64},
 			{"id": "i7", "name": "Old Key", "grade": "NOGRADE", "type": "KEY"},
 			{"id": "i9", "name": "Scroll of Escape", "grade": "NOGRADE", "type": "SCROLL", "quantity": 12, "description": "Après 8 secondes d'incantation, ramène à un endroit au hasard de la ville la plus proche."},
 			{"id": "i8", "name": "Ring of Wisdom", "grade": "B", "type": "RING", "mDef": 21},
@@ -338,6 +389,51 @@ func _setup_game_scene() -> void:
 			(options._tab_row.get_child(tab) as Button).button_pressed = true
 			options._show_page(tab)
 			options.position = Vector2(620, 240)
+		"game_skill_learn", "game_skill_learn_menu":
+			_emit("EntityAppeared", {"entities": [
+				{"id": "n9", "name": "Skill Learner", "kind": "npc", "title": "Grand Master", "x": 75.5, "y": 55.4,
+					"heading": -1.57, "npcType": "SKILL_LEARNER", "gender": "MAN"},
+			]})
+			game._apply_selection("n9", "Skill Learner")
+			if _shot == "game_skill_learn_menu":
+				await _frames(4)
+				game._handle_right_click()
+			else:
+				_emit("LearnableSkills", {"npcId": "n9", "npcName": "Skill Learner", "characterLevel": 14, "nextLevel": 20,
+					"skills": [
+						{"id": "k1", "name": "Wind Strike", "skillType": "DAMAGE", "level": 4, "currentLevel": 3, "maxLevel": 5,
+							"requiredLevel": 14, "manaCost": 14, "castTimeMs": 4000, "cooldownSeconds": 1, "range": 30,
+							"description": "Projette une lame de vent tranchante sur l'ennemi. Attaque magique de vent."},
+						{"id": "k2", "name": "Heal", "skillType": "HEALING", "level": 4, "currentLevel": 3, "maxLevel": 6,
+							"requiredLevel": 14, "manaCost": 17, "castTimeMs": 5000, "cooldownSeconds": 3, "range": 30},
+						{"id": "k3", "name": "Vampiric Touch", "skillType": "DAMAGE", "level": 1, "currentLevel": 0, "maxLevel": 2,
+							"requiredLevel": 14, "manaCost": 25, "castTimeMs": 4000, "cooldownSeconds": 3, "range": 30},
+						{"id": "k4", "name": "Battle Heal", "skillType": "HEALING", "level": 1, "currentLevel": 0, "maxLevel": 3,
+							"requiredLevel": 14, "manaCost": 25, "castTimeMs": 2000, "cooldownSeconds": 1, "range": 30},
+						{"id": "k5", "name": "Group Heal", "skillType": "HEALING", "level": 1, "currentLevel": 0, "maxLevel": 3,
+							"requiredLevel": 14, "manaCost": 33, "castTimeMs": 7000, "cooldownSeconds": 6},
+						{"id": "k6", "name": "Curse: Weakness", "skillType": "DEBUFF", "level": 1, "currentLevel": 0, "maxLevel": 1,
+							"requiredLevel": 14, "manaCost": 3, "castTimeMs": 1500, "cooldownSeconds": 2, "range": 30},
+						{"id": "k7", "name": "Anti Magic", "skillType": "PASSIVE", "level": 3, "currentLevel": 2, "maxLevel": 4,
+							"requiredLevel": 14},
+					]})
+				_emit("SkillLearned", {"skillName": "Ice Bolt", "level": 3, "upgraded": true})
+		"game_skillbook":
+			_emit("KnownSkills", {"skills": [
+				{"id": "s1", "name": "Power Strike", "level": 6, "maxLevel": 9, "skillType": "DAMAGE", "manaCost": 13, "cooldownSeconds": 3, "range": 2,
+					"castTimeMs": 1080, "target": "ONE", "element": "NONE", "weaponTypes": ["SWORD", "BIG_SWORD", "BLUNT", "BIG_BLUNT", "AXE"],
+					"description": "Rassemble sa force pour porter un coup puissant à l'ennemi."},
+				{"id": "s2", "name": "Mortal Blow", "level": 6, "maxLevel": 9, "skillType": "DAMAGE", "manaCost": 11, "cooldownSeconds": 3, "range": 2,
+					"weaponTypes": ["DAGGER"]},
+				{"id": "s3", "name": "Power Shot", "level": 3, "maxLevel": 9, "skillType": "DAMAGE", "manaCost": 19, "cooldownSeconds": 6, "range": 35,
+					"weaponTypes": ["BOW"]},
+				{"id": "s4", "name": "Relax", "level": 1, "maxLevel": 1, "skillType": "BUFF", "manaCost": 2, "cooldownSeconds": 1, "target": "SELF",
+					"durationSeconds": 600},
+				{"id": "s5", "name": "Weapon Mastery", "level": 2, "maxLevel": 3, "skillType": "PASSIVE",
+					"description": "Maîtrise des armes : augmente l'attaque physique."},
+				{"id": "s6", "name": "Armor Mastery", "level": 3, "maxLevel": 5, "skillType": "PASSIVE"},
+			]})
+			hud.get_node("SkillBook").open()
 		"game_misc":
 			hud.get_node("SkillBook").open()
 			hud.get_node("OptionsWindow").open()
@@ -444,3 +540,29 @@ func _play_spell_scenario() -> void:
 	await get_tree().create_timer(0.2).timeout
 	_emit("SkillCastCancelled", {"casterId": "c1", "casterName": "Kaelis", "skillName": "Curse: Doom"})
 	await get_tree().create_timer(0.15).timeout
+
+
+## --shot=game_l2_skills : compétences L2 des classes de base dans la vraie scène de jeu —
+## Power Strike chargé puis frappe, poison qui ronge, Vampiric Touch qui draine, Ice Bolt et
+## Power Shot en vol, Shield sur un allié, et les messages de progression (journal).
+func _play_l2_skill_scenario() -> void:
+	_emit("SkillCastStarted", {"casterId": "c1", "casterName": "Kaelis", "skillName": "Power Strike",
+		"targetId": "m2", "castingTimeMs": 1080, "casterHeading": 0.0})
+	_emit("SkillCastStarted", {"casterId": "p1", "casterName": "Aelwyn", "skillName": "Ice Bolt",
+		"targetId": "m1", "castingTimeMs": 3100, "casterHeading": 0.0})
+	_emit("EffectDamage", {"targetId": "m2", "targetName": "Gobelin", "skillName": "Curse: Poison", "amount": 11,
+		"targetHealthAfter": 69, "targetMaxHealth": 80, "targetDefeated": false, "sourceId": "p1"})
+	_emit("SkillWeaponRequired", {"skillName": "Mortal Blow", "weaponTypes": ["DAGGER"]})
+	_emit("NewSkillsAvailable", {"level": 14, "count": 7})
+	_emit("SkillLearned", {"skillName": "Vampiric Touch", "level": 1, "upgraded": false})
+	await get_tree().create_timer(0.5).timeout
+	_emit("SkillProjectileLaunched", {"casterId": "c1", "skillName": "Power Shot", "targetId": "m1",
+		"travelDurationMs": 900, "hit": true})
+	_emit("SkillProjectileLaunched", {"casterId": "p1", "skillName": "Ice Bolt", "targetId": "m2",
+		"travelDurationMs": 1400, "hit": true})
+	_emit("CastResult", {"skillName": "Vampiric Touch", "targetId": "m1", "targetName": "Loup gris", "hit": true,
+		"amount": 38, "targetCurrentHealth": 26, "targetMaxHealth": 120})
+	_emit("SkillDrained", {"casterId": "p1", "casterName": "Aelwyn", "targetId": "m1", "skillName": "Vampiric Touch",
+		"amount": 15, "casterHealth": 357, "casterMaxHealth": 480})
+	_emit("SkillModifierAnnounced", {"casterId": "p1", "targetId": "c1", "skillName": "Shield", "hit": true, "beneficial": true})
+	await get_tree().create_timer(0.35).timeout

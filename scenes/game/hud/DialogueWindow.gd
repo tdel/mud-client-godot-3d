@@ -65,5 +65,9 @@ func _on_option_pressed(option: Dictionary) -> void:
 		"SHOP":
 			Net.send_command("shop", _npc_id)
 			close_window()
+		"SKILL_LEARN":
+			# Maître des compétences : %SkillLearnWindow s'ouvre sur LearnableSkills.
+			Net.send_command("skill-list", _npc_id)
+			close_window()
 		_:
 			close_window()

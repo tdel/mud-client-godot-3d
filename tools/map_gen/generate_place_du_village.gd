@@ -42,6 +42,9 @@ const GATE_GUARD_IDS := ["318a4b28-4aae-46fa-ab99-2bc62738f1c3", "6fea25d2-5d6f-
 		"a760adde-b995-4ab8-a073-ac5f4d4e5a23", "b748cda3-b7ed-4e50-863e-a31bc4815d9f"]
 const VILLAGE_GUARD_IDS := ["b0362279-5a46-4461-9672-6f4e0b2cf7e0", "a38d3420-52b9-498a-ba7a-0248158c1acc",
 		"f006ec9d-60f1-46e3-9dc8-e10c3fd43338", "7d014cb8-a199-484b-a7b8-24c086f6c797"]
+## Maître des compétences (backend NpcType SKILL_LEARNER), au sud de la fontaine, face à
+## l'arrivée des joueurs.
+const SKILL_LEARNER_ID := "b982da01-7dd0-4c8c-84d3-1ce6795fecee"
 
 ## Axe des courtines.
 const WALL_X0 := 26.0
@@ -429,6 +432,7 @@ func _place_markers() -> void:
 		["Garde_PlaceE", VILLAGE_GUARD_IDS[1], Vector2(86.4, 44.0)],
 		["Garde_RueNord", VILLAGE_GUARD_IDS[2], Vector2(71.0, 21.5)],
 		["Garde_RueSud", VILLAGE_GUARD_IDS[3], Vector2(73.0, 70.5)],
+		["MaitreCompetences", SKILL_LEARNER_ID, Vector2(75.5, 55.4)],
 	]
 	for entry in npcs:
 		var m := _marker("NpcSpawn_" + entry[0], "res://map_objects/NpcSpawnMarker3D.gd", entry[2])

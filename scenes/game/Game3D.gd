@@ -288,7 +288,9 @@ const MONSTER_CORPSE_LINGER := 0.8
 ## Sorts à dégâts sans projectile (portée "toucher" côté backend) : impact direct de leur
 ## élément sur la cible plutôt qu'un projectile lancé, voir _play_skill_animation. L'élément
 ## (et donc la couleur/forme des effets) de chaque sort est défini dans SpellVfx.
-const NON_PROJECTILE_DAMAGE_SKILLS := ["Twister", "Prominence"]
+const NON_PROJECTILE_DAMAGE_SKILLS := ["Twister", "Prominence", "Vampiric Touch"]
+## EntityView.npcType du maître des compétences (backend NpcType.SKILL_LEARNER).
+const SKILL_LEARNER_NPC_TYPE := "SKILL_LEARNER"
 
 ## Son de cible abattue (voir _play_kill_sound) : léger retard pour qu'il se détache du son
 ## d'impact du coup fatal plutôt que de s'y fondre ; une même cible ne le rejoue pas dans
@@ -516,6 +518,7 @@ func _ready() -> void:
 
 	_npc_menu.add_item("Parler", 0)
 	_npc_menu.add_item("Boutique", 1)
+	_npc_menu.add_item("Apprendre des compétences", 2)
 	_npc_menu.id_pressed.connect(_on_npc_menu_id_pressed)
 	_player_frame.self_clicked.connect(_on_player_frame_self_clicked)
 	_target_status_bar.teleport_requested.connect(_on_teleport_button_pressed)
@@ -1072,6 +1075,29 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 			])
 		"PeaceZoneExited":
 			_log("Vous quittez la zone paisible : %s." % _bbcode_escape(str(payload.get("zoneName", "?"))))
+		"SkillLearned":
+			# Maître des compétences (learn-skill) ou compétence acquise d'office en montant de
+			# niveau : on redemande la liste (livre, barre) et les stats (passifs).
+			Sfx.play_ui("skill_learn")
+			_log("[color=%s]Vous apprenez %s (niv. %s).[/color]" % [
+				LOG_COLOR_GAIN, _bbcode_escape(str(payload.get("skillName", "?"))), str(payload.get("level", "?")),
+			])
+			Net.send_command("skills")
+			Net.send_command("stats")
+		"NewSkillsAvailable":
+			_log("[color=%s]De nouvelles compétences vous attendent auprès du Maître des compétences de la Place du village.[/color]" % LOG_COLOR_GAIN)
+		"SkillNotLearnable":
+			Sfx.play_ui("action_denied")
+		"SkillWeaponRequired":
+			Sfx.play_ui("action_denied")
+			_log("[i]%s nécessite une arme adaptée : %s.[/i]" % [
+				_bbcode_escape(str(payload.get("skillName", "?"))),
+				SkillTooltip.weapons_label(payload.get("weaponTypes", [])),
+			])
+		"EffectDamage":
+			_on_effect_damage(payload)
+		"SkillDrained":
+			_on_skill_drained(payload)
 		"Error":
 			_log(_bbcode_escape(str(payload.get("message", "Erreur."))))
 		"GameTimeSync":
@@ -1601,7 +1627,8 @@ func _handle_right_click() -> void:
 	if not _selected_target_id.is_empty():
 		var target_node := _entity_node_by_id(_selected_target_id)
 		if target_node != null and str(target_node.get_meta("kind", "")) == "npc":
-			_open_npc_menu(bool(target_node.get_meta("has_shop", false)))
+			_open_npc_menu(bool(target_node.get_meta("has_shop", false)),
+				str(target_node.get_meta("npc_type", "")) == SKILL_LEARNER_NPC_TYPE)
 
 
 ## Début d'un appui du bouton droit : ne fait encore rien de visible, voir _process pour la
@@ -1649,8 +1676,10 @@ func _apply_camera_orbit() -> void:
 
 ## has_shop : EntityView.hasShop côté backend — désactive "Boutique" pour un PNJ qui ne
 ## vend rien (voir _apply_appeared_entity), "Parler" reste toujours disponible.
-func _open_npc_menu(has_shop: bool) -> void:
+## teaches_skills : PNJ SKILL_LEARNER — seul à activer "Apprendre des compétences".
+func _open_npc_menu(has_shop: bool, teaches_skills := false) -> void:
 	_npc_menu.set_item_disabled(1, not has_shop)
+	_npc_menu.set_item_disabled(2, not teaches_skills)
 	_npc_menu.popup(Rect2i(get_viewport().get_mouse_position(), Vector2i.ZERO))
 
 
@@ -1665,6 +1694,8 @@ func _on_npc_menu_id_pressed(id: int) -> void:
 			Net.send_command("talk", _selected_target_id)
 		1:
 			Net.send_command("shop", _selected_target_id)
+		2:
+			Net.send_command("skill-list", _selected_target_id)
 
 
 func _select_portal(portal_id: String) -> void:
@@ -2026,6 +2057,9 @@ func _apply_appeared_entity(entry: Dictionary) -> void:
 	# EntityView.hasShop côté backend (2026-09-04, "Shop PNJ") : détermine si le clic droit sur
 	# ce PNJ, une fois sélectionné, propose "Boutique" (voir _handle_right_click/_open_npc_menu).
 	node.set_meta("has_shop", bool(entry.get("hasShop", false)))
+	# Maître des compétences (NpcType SKILL_LEARNER) : le menu propose "Apprendre des
+	# compétences" (commande skill-list, voir %SkillLearnWindow).
+	node.set_meta("npc_type", npc_type)
 	# Détermine si le clic droit propose le menu PNJ ("Parler"/"Boutique") du tout, voir
 	# _handle_right_click.
 	node.set_meta("kind", kind)
@@ -2879,11 +2913,19 @@ func _on_skill_cast_started(payload: Dictionary) -> void:
 	# Le lanceur fait face à sa cible (inchangé côté serveur pour un sort sur soi-même).
 	if caster_node != null and payload.has("casterHeading"):
 		_face_heading(caster_node, float(payload.get("casterHeading", 0.0)))
-	_play_body_cast(caster_node, total_ms / 1000.0)
 	# Cercle d'incantation calé sur castingTimeMs (voir CastCircle), couleur selon l'élément,
 	# avec couronnes flottantes seulement si le cast est chargé d'un spiritshot.
 	var element := SpellVfx.element_for_skill(skill_name)
 	state["element"] = element
+	if element == SpellVfx.Element.PHYSICAL:
+		# Compétence martiale (Power Strike, Mortal Blow, Power Shot) : pas de pose
+		# d'incantation — le combattant reste en garde pendant que son arme se charge
+		# d'énergie, puis frappe (voir _clear_casting).
+		state["physical"] = true
+		if caster_node != null:
+			_spell_vfx.play_weapon_charge(caster_node, skill_name, total_ms / 1000.0)
+	else:
+		_play_body_cast(caster_node, total_ms / 1000.0)
 	var shot_at: int = _spiritshot_at_by_key.get(key, -SPIRITSHOT_CAST_WINDOW_MS - 1)
 	_spiritshot_at_by_key.erase(key)
 	var charged := Time.get_ticks_msec() - shot_at <= SPIRITSHOT_CAST_WINDOW_MS
@@ -2908,7 +2950,10 @@ func _clear_casting(key: String, completed: bool = false) -> void:
 	var node: Node3D = _entities_by_key.get(key)
 	_play_body_state(node, Character.RUN_ANIM if _moving.has(key) else Character.IDLE_ANIM)
 	if completed:
-		_play_body_launch(node)
+		if state.get("physical", false):
+			_play_body_attack(node)
+		else:
+			_play_body_launch(node)
 		if state.has("element"):
 			Sfx.play_spell(int(state["element"]), "launch", node)
 
@@ -2954,11 +2999,15 @@ func _play_skill_animation(target_id: String, skill_name: String) -> void:
 		return
 	var element := SpellVfx.element_for_skill(skill_name)
 	match element:
-		SpellVfx.Element.HEAL, SpellVfx.Element.BUFF, SpellVfx.Element.DEBUFF, SpellVfx.Element.PHYSICAL:
-			_spell_vfx.play_on_target(target_node, element)
+		SpellVfx.Element.HEAL, SpellVfx.Element.BUFF, SpellVfx.Element.DEBUFF:
+			_spell_vfx.play_skill_on_target(target_node, skill_name, element)
+		SpellVfx.Element.PHYSICAL:
+			# Power Shot : l'impact de la flèche est joué à l'arrivée du projectile.
+			if not SpellVfx.is_projectile_skill(skill_name):
+				_spell_vfx.play_skill_on_target(target_node, skill_name, element)
 		_:
 			if skill_name in NON_PROJECTILE_DAMAGE_SKILLS:
-				_spell_vfx.play_on_target(target_node, element)
+				_spell_vfx.play_skill_on_target(target_node, skill_name, element)
 				_flash_entity(target_node)
 				Sfx.play_spell_at_point(element, "impact", _spell_vfx, target_node.global_position)
 
@@ -2968,7 +3017,7 @@ func _play_skill_animation(target_id: String, skill_name: String) -> void:
 ## (voir _on_skill_projectile_launched), il n'y a rien à rejouer ici.
 func _play_skill_miss(target_id: String, skill_name: String) -> void:
 	var element := SpellVfx.element_for_skill(skill_name)
-	var projectile := skill_name not in NON_PROJECTILE_DAMAGE_SKILLS and element not in [
+	var projectile := SpellVfx.is_projectile_skill(skill_name) or skill_name not in NON_PROJECTILE_DAMAGE_SKILLS and element not in [
 		SpellVfx.Element.HEAL, SpellVfx.Element.BUFF, SpellVfx.Element.DEBUFF, SpellVfx.Element.PHYSICAL,
 	]
 	var target_node := _entity_node_by_id(target_id)
@@ -3000,6 +3049,7 @@ func _on_skill_projectile_launched(payload: Dictionary) -> void:
 	var hit := bool(payload.get("hit", true))
 	# Sons posés au point d'impact plutôt qu'attachés à la cible : un coup fatal la fait
 	# disparaître (MonsterDefeated/EntityDisappeared) et couperait net un son enfant de son nœud.
+	var projectile_style := SpellVfx.projectile_style_for_skill(str(payload.get("skillName", "")))
 	_spell_vfx.play_projectile(caster_node, target_node, element, duration_sec, func(point: Vector3) -> void:
 		if not hit:
 			Sfx.play_at_point("combat_miss", _spell_vfx, point)
@@ -3007,7 +3057,7 @@ func _on_skill_projectile_launched(payload: Dictionary) -> void:
 		if is_instance_valid(target_node):
 			_flash_entity(target_node)
 		Sfx.play_spell_at_point(element, "impact", _spell_vfx, point)
-	)
+	, projectile_style)
 
 
 ## Résultat de notre propre incantation (envoyé uniquement au lanceur). selfHeal :
@@ -3032,11 +3082,53 @@ func _on_own_cast_result(payload: Dictionary) -> void:
 		_play_skill_miss(target_id, skill_name)
 		return
 	var amount := int(payload.get("amount", 0))
-	if amount > 0:
+	# Soin (Heal sur un allié) ou purification : pas de chiffre de dégâts.
+	if amount > 0 and SpellVfx.element_for_skill(skill_name) not in [SpellVfx.Element.HEAL, SpellVfx.Element.BUFF]:
 		_show_damage_number(_entity_node_by_id(target_id), amount, false)
 	_play_skill_animation(target_id, skill_name)
 	if bool(payload.get("targetDefeated", false)):
 		_play_kill_sound(target_id)
+
+
+## Période d'un poison (EffectDamage, Curse: Poison) sur une entité à portée : PV à jour,
+## chiffre de dégâts et bulles de poison ; si c'est notre poison qui achève la cible, son de
+## coup fatal comme pour un coup direct.
+func _on_effect_damage(payload: Dictionary) -> void:
+	var target_id := str(payload.get("targetId", ""))
+	var amount := int(payload.get("amount", 0))
+	_apply_target_current_health(target_id, int(payload.get("targetHealthAfter", 0)), int(payload.get("targetMaxHealth", 0)))
+	var node := _entity_node_by_id(target_id)
+	if node != null:
+		if amount > 0:
+			_show_damage_number(node, amount, false)
+		_spell_vfx.play_poison_tick(node)
+	var my_id := str(GameState.player_stats.get("id", ""))
+	if bool(payload.get("targetDefeated", false)) and str(payload.get("sourceId", "")) == my_id:
+		_play_kill_sound(target_id)
+	if target_id == my_id:
+		_log("[i]%s vous fait perdre %d PV.[/i]" % [_bbcode_escape(str(payload.get("skillName", "Le poison"))), amount])
+
+
+## Vampiric Touch (SkillDrained) : filets de vie de la cible vers le lanceur, dont les PV
+## remontent d'autant.
+func _on_skill_drained(payload: Dictionary) -> void:
+	var caster_id := str(payload.get("casterId", ""))
+	_apply_target_current_health(caster_id, int(payload.get("casterHealth", 0)), int(payload.get("casterMaxHealth", 0)))
+	var caster_node := _entity_node_by_id(caster_id)
+	if caster_node != null:
+		_spell_vfx.play_drain(_entity_node_by_id(str(payload.get("targetId", ""))), caster_node)
+	if caster_id == str(GameState.player_stats.get("id", "")):
+		_log("[color=%s]Vous absorbez %s PV avec %s.[/color]" % [
+			LOG_COLOR_GAIN, str(payload.get("amount", 0)), _bbcode_escape(str(payload.get("skillName", "?"))),
+		])
+
+
+## Type backend (KnownSkills.skillType) d'une de nos compétences, "" si inconnue.
+func _known_skill_type(skill_name: String) -> String:
+	for skill in GameState.known_skills.get("skills", []):
+		if str(skill.get("name", "")) == skill_name:
+			return str(skill.get("skillType", ""))
+	return ""
 
 
 ## Sort d'un AUTRE lanceur observé ou subi (diffusé à toute la zone SAUF au lanceur, qui a
@@ -3061,7 +3153,8 @@ func _on_skill_cast_announced(payload: Dictionary) -> void:
 		_play_skill_miss(target_id, skill_name)
 		return
 	var amount := int(payload.get("amount", 0))
-	if amount > 0:
+	# Soin (Heal sur un allié) ou purification : pas de chiffre de dégâts.
+	if amount > 0 and SpellVfx.element_for_skill(skill_name) not in [SpellVfx.Element.HEAL, SpellVfx.Element.BUFF]:
 		_show_damage_number(_entity_node_by_id(target_id), amount, false)
 	_play_skill_animation(target_id, skill_name)
 
@@ -3396,6 +3489,16 @@ func _log_cast_result(payload: Dictionary) -> void:
 		_log("Vous récupérez %s PV avec %s." % [str(payload.get("amount", 0)), skill_name])
 		return
 	var target_name := _bbcode_escape(str(payload.get("targetName", "?")))
+	match _known_skill_type(str(payload.get("skillName", ""))):
+		"HEALING":
+			_log("Vous rendez %s PV à %s avec %s." % [str(payload.get("amount", 0)), target_name, skill_name])
+			return
+		"CURE":
+			if bool(payload.get("hit", false)):
+				_log("Vous purifiez %s avec %s." % [target_name, skill_name])
+			else:
+				_log("[i]%s n'est affligé d'aucun poison.[/i]" % target_name)
+			return
 	if not bool(payload.get("hit", false)):
 		_log("Vous manquez %s avec %s." % [target_name, skill_name])
 		return

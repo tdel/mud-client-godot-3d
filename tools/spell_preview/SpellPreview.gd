@@ -12,6 +12,10 @@ extends Node3D
 ##        of Escape : cast blanc de --duration puis ascension, --time compté après la fin).
 ## --element : fire, water, wind, holy, dark, arcane, heal, buff, debuff, physical, escape.
 ## --charged=1 : cast chargé d'un spiritshot (couronnes flottantes, voir CastCircle).
+## --skill=<nom> : compétence nommée (élément et projectile déduits du nom) — --fx=target joue
+##        son effet propre (SpellVfx.play_skill_on_target), --fx=projectile son projectile
+##        (Ice Bolt, Power Shot) ; --fx=charge (arme qui se charge, --duration), drain (Vampiric
+##        Touch, cible -> lanceur), poison (période de Curse: Poison).
 ## Sans --out, la scène rejoue l'effet en boucle (pratique dans l'éditeur).
 
 const CHARACTER_SCENE := preload("res://scenes/game/entities/Character.tscn")
@@ -28,6 +32,7 @@ var _time := 1.0
 var _duration := 2.0
 var _charged := false
 var _out := ""
+var _skill := ""
 var _vfx: SpellVfx
 var _caster: Character
 var _target: Character
@@ -51,6 +56,9 @@ func _ready() -> void:
 				_out = parts[1]
 			"charged":
 				_charged = parts[1] in ["1", "true", "yes"]
+			"skill":
+				_skill = parts[1].replace("_", " ")
+				_element = SpellVfx.element_for_skill(_skill)
 	_build_stage()
 	_vfx = SpellVfx.new()
 	add_child(_vfx)
@@ -82,7 +90,7 @@ func _build_stage() -> void:
 	add_child(ground)
 
 	_caster = _make_character("woman", Vector3(-2.2, 0, 0), {"WEAPON": {"name": "Staff of Healing"}})
-	_target = _make_character("man", Vector3(2.2, 0, 0), {"CHEST": {"name": "Leather Armor", "armorCategory": "MEDIUM"}})
+	_target = _make_character("man", Vector3(2.2, 0, 0), {"CHEST": {"name": "Leather Armor", "armorCategory": "LIGHT"}})
 	_caster.look_at(_target.position, Vector3.UP)
 	_target.look_at(_caster.position, Vector3.UP)
 
@@ -135,9 +143,18 @@ func _play_once() -> void:
 			circle.finish(false)
 			_caster.play_state(Character.IDLE_ANIM)
 		"projectile":
-			_vfx.play_projectile(_caster, _target, _element, _duration)
+			_vfx.play_projectile(_caster, _target, _element, _duration, Callable(), SpellVfx.projectile_style_for_skill(_skill))
 		"target":
-			_vfx.play_on_target(_target, _element)
+			if _skill.is_empty():
+				_vfx.play_on_target(_target, _element)
+			else:
+				_vfx.play_skill_on_target(_target, _skill, _element)
+		"charge":
+			_vfx.play_weapon_charge(_caster, _skill, _duration)
+		"drain":
+			_vfx.play_drain(_target, _caster)
+		"poison":
+			_vfx.play_poison_tick(_target)
 		"escape":
 			_caster.play_cast(_duration)
 			var circle := _vfx.start_cast(_caster, SpellVfx.Element.ESCAPE, _duration)

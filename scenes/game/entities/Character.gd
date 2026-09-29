@@ -43,6 +43,11 @@ const NPC_OUTFITS := {
 		"CHEST": "torso_guard", "LEGS": "legs_plate", "HEAD": "helmet_guard", "HANDS": "gloves_plate",
 		"FEET": "boots_plate", "WEAPON": "weapon_shortsword", "OFF_HAND": "shield_guard",
 	},
+	# Maître des compétences (Grand Master) : robe de mage, diadème et bâton.
+	"SKILL_LEARNER": {
+		"CHEST": "torso_robe", "LEGS": "legs_cloth", "HEAD": "helmet_circlet", "HANDS": "gloves_leather",
+		"FEET": "boots_leather", "WEAPON": "weapon_staff",
+	},
 }
 
 ## WeaponType serveur (champ `weaponType` d'Inventory/EquipmentView, voir
@@ -226,6 +231,10 @@ static func visual_for_item(slot: String, item: Dictionary) -> String:
 				return "helmet_leather"
 			return "helmet_plate"
 		"CHEST":
+			# Type d'armure L2 (backend ArmorCategory HEAVY/LIGHT/ROBE) : une robe est une robe,
+			# quel que soit son nom (Tallum Tunic, Apprentice's Robe...).
+			if category == "ROBE":
+				return "torso_robe"
 			if item_name.contains("leather"):
 				return "torso_leather"
 			if _has_any(item_name, ["robe", "tunic", "arcana"]):
@@ -236,6 +245,8 @@ static func visual_for_item(slot: String, item: Dictionary) -> String:
 				return "torso_cloth"
 			return _by_category(category, "torso_", "cloth")
 		"LEGS":
+			if category == "ROBE" or _has_any(item_name, ["stockings", "hose"]):
+				return "legs_cloth"
 			if _has_any(item_name, ["leather", "pants"]):
 				return "legs_leather"
 			if _has_any(item_name, ["leggings", "greaves", "plate"]):
@@ -261,12 +272,11 @@ static func _has_any(text: String, words: Array) -> bool:
 	return false
 
 
-## LIGHT/MEDIUM/HEAVY (ArmorCategory backend) -> variante de mesh, `fallback` si absent.
-## LIGHT regroupe cuir ET robes côté serveur (Leather Tunic, Major Arcana Robe...) : les robes
-## sont reconnues avant, par leur nom (voir visual_for_item) ; MEDIUM = cottes de mailles.
+## HEAVY/LIGHT (ArmorCategory backend, types d'armure L2) -> variante de mesh, `fallback`
+## sinon ; les robes (ROBE) sont traitées avant, dans visual_for_item.
 static func _by_category(category: String, prefix: String, fallback: String) -> String:
 	match category:
-		"HEAVY", "MEDIUM":
+		"HEAVY":
 			return prefix + "plate"
 		"LIGHT":
 			return prefix + "leather"

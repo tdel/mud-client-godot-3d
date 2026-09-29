@@ -22,10 +22,6 @@ const CONFIG_PATH := "user://hotbar.cfg"
 ## Types empilés côté backend (ItemType.maxStack() > 1) : compteur affiché même à 1.
 const STACKABLE_TYPES := ["SOULSHOT", "SPIRITSHOT", "POTION", "SCROLL"]
 
-const EFFECT_LABELS := {
-	"DAMAGE": "Dégâts", "HEALING": "Soin", "BUFF": "Bonus", "DEBUFF": "Malus",
-}
-
 @onready var _slots_container: HBoxContainer = %SlotsContainer
 
 ## Array[Dictionary], indices 0-11 = F1-F12. {} = vide, sinon {kind, ref_id, ref_name}.
@@ -238,24 +234,7 @@ func _build_tooltip(kind: String, ref_name: String) -> String:
 
 
 func _skill_tooltip(skill: Dictionary) -> String:
-	var effect := str(skill.get("skillType", ""))
-	var lines := PackedStringArray()
-	lines.append("[b]%s[/b]  [color=#%s]Niv. %s[/color]" % [skill.get("name", ""), UITheme.TEXT_LABEL.to_html(false), skill.get("level", "?")])
-	lines.append("[color=#%s]%s[/color]" % [UITheme.TEXT_DIM.to_html(false), EFFECT_LABELS.get(effect, effect)])
-	lines.append(UITheme.tooltip_stat("MP consommés :", str(skill.get("manaCost", 0))))
-	lines.append(UITheme.tooltip_stat("Recharge :", "%s s" % skill.get("cooldownSeconds", 0)))
-	if int(skill.get("range", 0)) > 0:
-		lines.append(UITheme.tooltip_stat("Portée :", str(skill.get("range", 0))))
-	if int(skill.get("durationSeconds", 0)) > 0:
-		lines.append(UITheme.tooltip_stat("Durée :", "%s s" % skill.get("durationSeconds", 0)))
-	var description := str(skill.get("description", ""))
-	if not description.is_empty():
-		lines.append("")
-		lines.append(description)
-	if skill.get("granted", false):
-		lines.append("")
-		lines.append("[color=#%s]Octroyée par un objet équipé.[/color]" % UITheme.TEXT_DIM.to_html(false))
-	return "\n".join(lines)
+	return SkillTooltip.build(skill)
 
 
 ## KnownSkills peut arriver après que des slots aient déjà été chargés depuis

@@ -12,7 +12,8 @@ const ITEM_TYPE_LABELS := {
 	"EARRING": "Boucle d'oreille", "RING": "Anneau", "POTION": "Potion", "SCROLL": "Parchemin", "KEY": "Clé",
 	"TOOL": "Outil", "MISC": "Objet", "SOULSHOT": "Soulshot", "SPIRITSHOT": "Spiritshot",
 }
-const ARMOR_CATEGORY_LABELS := {"LIGHT": "légère", "MEDIUM": "moyenne", "HEAVY": "lourde"}
+## Types d'armure L2 (backend ArmorCategory).
+const ARMOR_CATEGORY_LABELS := {"HEAVY": "armure lourde", "LIGHT": "armure légère", "ROBE": "robe"}
 
 const STAT_LINES := [
 	["pAtk", "P. Atk."], ["mAtk", "M. Atk."], ["pDef", "P. Déf."], ["mDef", "M. Déf."],
@@ -35,7 +36,13 @@ static func build(item: Dictionary, footer_lines: Array = []) -> String:
 	var type_line: String = ITEM_TYPE_LABELS.get(type_key, type_key)
 	var armor_category = item.get("armorCategory")
 	if armor_category != null and not str(armor_category).is_empty():
-		type_line += " (%s)" % ARMOR_CATEGORY_LABELS.get(str(armor_category), str(armor_category))
+		var category_label: String = ARMOR_CATEGORY_LABELS.get(str(armor_category), str(armor_category))
+		# Plastron : "Armure lourde" / "Armure légère" / "Robe" comme dans L2 ; autre pièce :
+		# "Jambières (armure lourde)".
+		if type_key == "ARMOR":
+			type_line = category_label[0].to_upper() + category_label.substr(1)
+		else:
+			type_line += " (%s)" % category_label
 	if not type_line.is_empty():
 		lines.append("[color=#%s]%s[/color]" % [UITheme.TEXT_DIM.to_html(false), type_line])
 
