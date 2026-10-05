@@ -77,8 +77,9 @@ const MONSTER_COLOR := Color(0.85, 0.30, 0.28)
 const NPC_COLOR := Color(0.85, 0.75, 0.30)
 ## Mannequin partagé par tous les personnages (voir _make_entity_node, modèles générés par
 ## tools/character_gen/build_characters.py), donc PLAYER_COLOR/OTHER_PLAYER_COLOR ne teintent
-## plus rien pour ces entités (le nom flottant/l'anneau de sélection suffisent à les distinguer),
-## seuls les monstres/PNJ (toujours des capsules) restent colorés.
+## ces entités qu'en mode "craie" (animations et skins désactivés dans le menu système, voir
+## ChalkBody — monstres animés compris, en MONSTER_COLOR) ; les monstres/PNJ sans modèle
+## (capsules) restent colorés.
 const CHARACTER_SCENE := preload("res://scenes/game/entities/Character.tscn")
 ## Périmètre runique du cercle de portée des skills (voir show_skill_range).
 const RANGE_RING_SHADER := preload("res://scenes/game/vfx/range_ring.gdshader")
@@ -2175,10 +2176,13 @@ func _make_entity_node(
 
 	var body: Node3D
 	if humanoid:
-		body = CHARACTER_SCENE.instantiate()
+		var character: Character = CHARACTER_SCENE.instantiate()
+		character.set_chalk_color(color)
+		body = character
 	elif monster_model != null:
 		var monster := Monster.new()
 		monster.setup(monster_model)
+		monster.set_chalk_color(color)
 		body = monster
 	else:
 		var mesh_instance := MeshInstance3D.new()
@@ -2839,9 +2843,9 @@ func _flash_entity(
 	node: Node3D, color: Color = Color(1.0, 0.3, 0.3),
 	up_duration: float = 0.05, down_duration: float = 0.15
 ) -> void:
-	var monster := node.get_node_or_null("Body") as Monster
-	if monster != null:
-		monster.flash(color, up_duration, down_duration)
+	var animated := _animated_body(node)
+	if animated != null:
+		animated.flash(color, up_duration, down_duration)
 		return
 	var body := node.get_node_or_null("Body") as MeshInstance3D
 	if body == null or body.mesh == null or body.mesh.material == null:

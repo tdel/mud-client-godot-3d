@@ -8,11 +8,19 @@ extends Node3D
 ## play_state("idle"/"run") pour l'état tenu, play_attack() revient seul à cet état une fois
 ## le coup fini, play_death() reste figé sur la dernière image. Les noms logiques sont
 ## traduits en clips du .glb par la fiche MonsterModel.
+##
+## Case "Animations et skins (personnages et monstres)" décochée (Settings.character_models_enabled) :
+## le modèle est remplacé par une craie (ChalkBody) haute comme le monstre (head_height), qui
+## se couche à la mort ; bascule à chaud comme Character.
 
 const IDLE_STATE := "idle"
 const RUN_STATE := "run"
 const BLEND_TIME := 0.15
 const FLASH_MATERIAL_ALPHA := 0.55
+## Proportions de la craie d'un monstre : celles de la craie d'un personnage (0.35 / 1.6).
+const CHALK_RADIUS_RATIO := 0.22
+const CHALK_DEFAULT_COLOR := Color(0.85, 0.30, 0.28)
+const ChalkBody := preload("res://scenes/game/entities/ChalkBody.gd")
 
 var model: MonsterModel
 
@@ -22,6 +30,9 @@ var _base_state := IDLE_STATE
 var _dead := false
 var _flash_material: StandardMaterial3D
 var _flash_tween: Tween
+## Craie affichée à la place du modèle (null en mode modèle).
+var _chalk: ChalkBody
+var _chalk_color := CHALK_DEFAULT_COLOR
 
 
 ## Doit être appelé avant l'entrée dans l'arbre (voir Game3D._make_entity_node).
@@ -29,7 +40,50 @@ func setup(monster_model: MonsterModel) -> void:
 	model = monster_model
 
 
+## Teinte de la craie (MONSTER_COLOR de Game3D) ; sans effet visible en mode modèle.
+func set_chalk_color(color: Color) -> void:
+	_chalk_color = color
+	if _chalk != null:
+		_chalk.set_color(color)
+
+
 func _ready() -> void:
+	Settings.character_models_changed.connect(_on_character_models_changed)
+	_refresh_body()
+
+
+func _on_character_models_changed(_enabled: bool) -> void:
+	_refresh_body()
+
+
+## Modèle animé ou craie selon le réglage courant.
+func _refresh_body() -> void:
+	if Settings.character_models_enabled():
+		if _chalk != null:
+			_chalk.queue_free()
+			_chalk = null
+		if _model == null:
+			_instance_model()
+	else:
+		_free_model()
+		if _chalk == null:
+			var height := model.head_height if model != null else 1.0
+			_chalk = ChalkBody.new(height * CHALK_RADIUS_RATIO, height, _chalk_color)
+			add_child(_chalk)
+			_chalk.set_lying(_dead, false)
+
+
+func _free_model() -> void:
+	if _flash_tween != null and _flash_tween.is_valid():
+		_flash_tween.kill()
+	_flash_material = null
+	if _model != null:
+		_model.queue_free()
+		_model = null
+	_animation_player = null
+
+
+func _instance_model() -> void:
 	if model == null or model.scene == null:
 		push_warning("Monster: pas de modèle")
 		return
@@ -76,6 +130,8 @@ func play_attack() -> void:
 
 func play_death() -> void:
 	_dead = true
+	if _chalk != null:
+		_chalk.set_lying(true, true)
 	if _animation_player != null and _animation_player.has_animation(model.death_anim):
 		_animation_player.play(model.death_anim, BLEND_TIME)
 
@@ -84,6 +140,8 @@ func revive() -> void:
 	if not _dead:
 		return
 	_dead = false
+	if _chalk != null:
+		_chalk.set_lying(false, true)
 	_play_base()
 
 
@@ -93,6 +151,8 @@ func is_dead() -> bool:
 
 ## Durée du clip de mort (pour caler la disparition du corps, voir Game3D._despawn_monster).
 func death_duration() -> float:
+	if _chalk != null:
+		return ChalkBody.FALL_TIME
 	if _animation_player == null or not _animation_player.has_animation(model.death_anim):
 		return 0.0
 	return _animation_player.get_animation(model.death_anim).length
@@ -101,6 +161,9 @@ func death_duration() -> float:
 ## Éclair de couleur au coup reçu (équivalent de Game3D._flash_entity pour la capsule) :
 ## overlay non éclairé posé sur tous les meshes du modèle, dont l'opacité monte puis retombe.
 func flash(color: Color, up_duration: float, down_duration: float) -> void:
+	if _chalk != null:
+		_chalk.flash(color, up_duration, down_duration)
+		return
 	if _model == null:
 		return
 	if _flash_material == null:

@@ -377,6 +377,26 @@ func _build_theme() -> Theme:
 	t.set_color("font_hover_pressed_color", "TabButton", TEXT_TITLE)
 	t.set_font_size("font_size", "TabButton", 12)
 
+	# Case à cocher (menu système) : pas de fond, petite case en creux cochée d'un trait doré.
+	for state in ["normal", "hover", "pressed", "hover_pressed", "disabled", "focus"]:
+		var empty := StyleBoxEmpty.new()
+		empty.content_margin_top = 2
+		empty.content_margin_bottom = 2
+		t.set_stylebox(state, "CheckBox", empty)
+	t.set_icon("unchecked", "CheckBox", _checkbox_icon(false))
+	t.set_icon("checked", "CheckBox", _checkbox_icon(true))
+	t.set_icon("unchecked_disabled", "CheckBox", _checkbox_icon(false))
+	t.set_icon("checked_disabled", "CheckBox", _checkbox_icon(true))
+	t.set_font_size("font_size", "CheckBox", 12)
+	t.set_color("font_color", "CheckBox", TEXT_NORMAL)
+	t.set_color("font_hover_color", "CheckBox", Color.WHITE)
+	t.set_color("font_pressed_color", "CheckBox", TEXT_NORMAL)
+	t.set_color("font_hover_pressed_color", "CheckBox", Color.WHITE)
+	t.set_color("font_focus_color", "CheckBox", TEXT_NORMAL)
+	t.set_color("font_outline_color", "CheckBox", Color(0, 0, 0, 1))
+	t.set_constant("outline_size", "CheckBox", 2)
+	t.set_constant("h_separation", "CheckBox", 6)
+
 	# --- TabBar (chat) ------------------------------------------------------
 	t.set_font_size("font_size", "TabBar", 12)
 	t.set_stylebox("tab_selected", "TabBar", _sbt(_tab_image(true, false), 4, 10, 3, 10, 3))
@@ -891,6 +911,36 @@ func _slider_grabber_icon(highlight: bool) -> ImageTexture:
 			elif x * 2 == w and y > 3 and y < h - 4:
 				col = col.darkened(0.45)
 			img.set_pixel(x, y, col)
+	return ImageTexture.create_from_image(img)
+
+
+## Case à cocher : carré en creux cerclé de métal (biseau sombre en haut, clair en bas),
+## coche dorée antialiasée quand `checked`.
+func _checkbox_icon(checked: bool) -> ImageTexture:
+	var size := 14
+	var img := Image.create(size, size, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0, 0, 0, 0))
+	for y in size:
+		for x in size:
+			var col := Color(0.015, 0.015, 0.02, 0.9)
+			if x == 0 or y == 0 or x == size - 1 or y == size - 1:
+				col = METAL
+			elif x == 1 or y == 1:
+				col = METAL_DARK
+			elif x == size - 2 or y == size - 2:
+				col = METAL_LIGHT.darkened(0.2)
+			img.set_pixel(x, y, col)
+	if checked:
+		var a := Vector2(3.5, 7.0)
+		var b := Vector2(6.0, 10.0)
+		var c := Vector2(10.5, 3.5)
+		for y in range(2, size - 2):
+			for x in range(2, size - 2):
+				var p := Vector2(x + 0.5, y + 0.5)
+				var dist := minf(_seg_dist(p, a, b), _seg_dist(p, b, c))
+				var cover := clampf(1.6 - dist, 0.0, 1.0)
+				if cover > 0.0:
+					img.set_pixel(x, y, img.get_pixel(x, y).lerp(GOLD_BRIGHT, cover))
 	return ImageTexture.create_from_image(img)
 
 

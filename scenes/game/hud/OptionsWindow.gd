@@ -1,6 +1,7 @@
 extends WindowFrame
 ## Menu système (icône bas-droite, voir BottomRightIcons), en trois onglets façon L2 :
-##   - Graphisme : résolution de la fenêtre ;
+##   - Graphisme : résolution de la fenêtre, animations et skins des personnages (décochée :
+##     "craies", voir Character) ;
 ##   - Son : niveaux global / effets / interface / musique, sliders 0-100 % (bus audio, voir
 ##     Settings) ;
 ##   - Système : se déconnecter (retour à l'écran de connexion) / quitter le jeu.
@@ -19,6 +20,7 @@ const VOLUME_ROWS := [
 @onready var _tab_row: HBoxContainer = %TabRow
 @onready var _pages: Array[Control] = [%GraphicsPage, %SoundPage, %SystemPage]
 @onready var _resolution_option: OptionButton = %ResolutionOption
+@onready var _character_models_check: CheckBox = %CharacterModelsCheck
 @onready var _volume_grid: GridContainer = %VolumeGrid
 @onready var _logout_button: Button = %LogoutButton
 @onready var _quit_button: Button = %QuitButton
@@ -35,6 +37,8 @@ func _ready() -> void:
 	_build_tabs()
 	_build_volume_rows()
 	_resolution_option.item_selected.connect(_on_resolution_selected)
+	_character_models_check.set_pressed_no_signal(Settings.character_models_enabled())
+	_character_models_check.toggled.connect(Settings.set_character_models_enabled)
 	_logout_button.pressed.connect(_on_logout_pressed)
 	_quit_button.pressed.connect(_on_quit_pressed)
 	_confirm_dialog.confirmed.connect(_on_confirm_confirmed)

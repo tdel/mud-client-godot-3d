@@ -13,6 +13,12 @@ extends Node3D
 ## launch reviennent à l'état de base (idle ou run) une fois finies ; death reste figée sur
 ## sa dernière image jusqu'à revive(). Pilotage direct de l'AnimationPlayer (fondu enchaîné
 ## via BLEND_TIME) : plus besoin d'AnimationTree, et la vitesse du cast se règle par clip.
+##
+## Case "Animations et skins (personnages et monstres)" décochée (Settings.character_models_enabled,
+## menu système > Graphisme) : le mannequin est remplacé par une "craie" (ChalkBody), simple
+## bâton coloré sans squelette ni animation (comme les PNJ sans modèle), qui se couche à la
+## mort. Bascule à chaud : équipement, gabarit et état (mort comprise) sont conservés pour le
+## retour au mannequin.
 
 const IDLE_ANIM := "idle"
 const RUN_ANIM := "run"
@@ -80,6 +86,13 @@ const EFFECT_BONES := {
 	"boots_": [["LeftFoot", "RightFoot"], 0.1],
 }
 
+## Gabarit de la craie : celui des capsules de PNJ/monstres sans modèle (voir
+## Game3D._make_entity_node).
+const CHALK_RADIUS := 0.35
+const CHALK_HEIGHT := 1.6
+const CHALK_DEFAULT_COLOR := Color(0.35, 0.65, 0.95)
+const ChalkBody := preload("res://scenes/game/entities/ChalkBody.gd")
+
 static var _sparkle_mesh: QuadMesh
 
 @export var male_scene: PackedScene
@@ -102,28 +115,60 @@ var _effect_tweens: Dictionary = {}
 var _vanishing: Dictionary = {}
 var _base_state := IDLE_ANIM
 var _dead := false
+## Craie affichée à la place du mannequin (null en mode mannequin), voir _show_chalk.
+var _chalk: ChalkBody
+var _chalk_color := CHALK_DEFAULT_COLOR
 
 
 func _ready() -> void:
-	_instance_model()
+	Settings.character_models_changed.connect(_on_character_models_changed)
+	_refresh_body()
+
+
+## Teinte de la craie (couleur d'entité de Game3D : nous, autres joueurs, PNJ) ; sans effet
+## visible en mode mannequin.
+func set_chalk_color(color: Color) -> void:
+	_chalk_color = color
+	if _chalk != null:
+		_chalk.set_color(color)
 
 
 ## "man"/"woman" (GamePlayerStats.gender) ou "male"/"female" ; ré-instancie le modèle si le
 ## gabarit change, en conservant équipement et état (mort comprise).
 func set_gender(gender: String) -> void:
 	var normalized := "female" if gender.to_lower() in ["woman", "female", "f"] else "male"
-	if normalized == _gender and _model != null:
+	if normalized == _gender and (_model != null or _chalk != null):
 		return
 	_gender = normalized
 	if is_inside_tree():
+		_refresh_body()
+
+
+func _on_character_models_changed(_enabled: bool) -> void:
+	_refresh_body()
+
+
+## Mannequin ou craie selon le réglage courant.
+func _refresh_body() -> void:
+	if Settings.character_models_enabled():
+		_hide_chalk()
 		_instance_model()
+	else:
+		_free_model()
+		_show_chalk()
 
 
-func _instance_model() -> void:
+func _free_model() -> void:
 	_clear_mesh_effects()
 	if _model != null:
 		_model.queue_free()
 		_model = null
+	_skeleton = null
+	_animation_player = null
+
+
+func _instance_model() -> void:
+	_free_model()
 	var scene := female_scene if _gender == "female" else male_scene
 	if scene == null:
 		return
@@ -144,6 +189,32 @@ func _instance_model() -> void:
 		_animation_player.seek(_animation_player.current_animation_length, true)
 	else:
 		_play(_base_state)
+
+
+# ---------------------------------------------------------------------------
+# Craie (animations et skins désactivés)
+# ---------------------------------------------------------------------------
+
+## Craie (voir ChalkBody) couchée d'emblée si le personnage est déjà mort.
+func _show_chalk() -> void:
+	if _chalk != null:
+		return
+	_chalk = ChalkBody.new(CHALK_RADIUS, CHALK_HEIGHT, _chalk_color)
+	add_child(_chalk)
+	_chalk.set_lying(_dead, false)
+
+
+func _hide_chalk() -> void:
+	if _chalk != null:
+		_chalk.queue_free()
+	_chalk = null
+
+
+## Éclair de couleur sur la craie (coup reçu, voir Game3D._flash_entity) ; rien sur le
+## mannequin, dont les matériaux importés sont partagés entre instances.
+func flash(color: Color, up_duration: float, down_duration: float) -> void:
+	if _chalk != null:
+		_chalk.flash(color, up_duration, down_duration)
 
 
 # ---------------------------------------------------------------------------
@@ -511,6 +582,8 @@ func play_cast(duration_sec: float) -> void:
 func play_death() -> void:
 	_dead = true
 	_play(DEATH_ANIM)
+	if _chalk != null:
+		_chalk.set_lying(true, true)
 
 
 func revive() -> void:
@@ -518,6 +591,8 @@ func revive() -> void:
 		return
 	_dead = false
 	_play(_base_state)
+	if _chalk != null:
+		_chalk.set_lying(false, true)
 
 
 func is_dead() -> bool:

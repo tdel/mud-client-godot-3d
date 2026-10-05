@@ -1,5 +1,6 @@
 extends Node
-## Réglages client persistants (user://settings.cfg) : résolution de la fenêtre et niveaux
+## Réglages client persistants (user://settings.cfg) : résolution de la fenêtre, rendu des
+## personnages (mannequins animés ou "craies", voir character_models_enabled) et niveaux
 ## sonores par bus (Master = global, SFX = effets de jeu, UI = sons d'interface, Music =
 ## musique de fond — voir
 ## res://default_bus_layout.tres). Édités depuis l'onglet Graphisme/Son du Menu système
@@ -17,9 +18,14 @@ const RESOLUTIONS: Array[Vector2i] = [
 	Vector2i(2560, 1440), Vector2i(3840, 2160),
 ]
 
+## Émis quand la case "Animations et skins (personnages et monstres)" change (voir
+## set_character_models_enabled) : chaque Character bascule aussitôt de rendu.
+signal character_models_changed(enabled: bool)
+
 var _config := ConfigFile.new()
 ## Niveau 0..1 par bus, tel qu'affiché par les sliders (0-100 %).
 var _volumes := {BUS_MASTER: 1.0, BUS_SFX: 1.0, BUS_UI: 1.0, BUS_MUSIC: 1.0}
+var _character_models := true
 
 
 func _ready() -> void:
@@ -27,6 +33,7 @@ func _ready() -> void:
 	for bus in BUSES:
 		_volumes[bus] = clampf(float(_config.get_value("audio", String(bus), 1.0)), 0.0, 1.0)
 		_apply_volume(bus)
+	_character_models = bool(_config.get_value("display", "character_models", true))
 	# La résolution n'est imposée que si le joueur en a choisi une : sinon on garde la taille
 	# de project.godot (et celle de l'éditeur quand le jeu y est intégré). Un --resolution en
 	# ligne de commande (enregistrement Movie Maker, voir tools/demo_video) garde la priorité.
@@ -57,6 +64,21 @@ func _apply_volume(bus: StringName) -> void:
 	var value: float = _volumes[bus]
 	AudioServer.set_bus_mute(index, value <= 0.0)
 	AudioServer.set_bus_volume_db(index, linear_to_db(maxf(value * value, 0.0001)))
+
+
+## Vrai (défaut) : personnages en mannequins animés et habillés ; faux : simples bâtons
+## colorés sans animation ("craies", voir Character._show_chalk).
+func character_models_enabled() -> bool:
+	return _character_models
+
+
+func set_character_models_enabled(enabled: bool) -> void:
+	if enabled == _character_models:
+		return
+	_character_models = enabled
+	_config.set_value("display", "character_models", enabled)
+	_config.save(PATH)
+	character_models_changed.emit(enabled)
 
 
 func get_resolution() -> Vector2i:
