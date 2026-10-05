@@ -82,23 +82,51 @@ text = "Affichage"
 [node name="DisplaySeparator" type="HSeparator" parent="Panel/VBox/BodyMargin/Body/Pages/GraphicsPage"]
 layout_mode = 2
 
-[node name="ResolutionRow" type="HBoxContainer" parent="Panel/VBox/BodyMargin/Body/Pages/GraphicsPage"]
+[node name="DisplayGrid" type="GridContainer" parent="Panel/VBox/BodyMargin/Body/Pages/GraphicsPage"]
+unique_name_in_owner = true
 layout_mode = 2
-theme_override_constants/separation = 8
+theme_override_constants/h_separation = 8
+theme_override_constants/v_separation = 6
+columns = 2
 
-[node name="ResolutionLabel" type="Label" parent="Panel/VBox/BodyMargin/Body/Pages/GraphicsPage/ResolutionRow"]
+[node name="ResolutionLabel" type="Label" parent="Panel/VBox/BodyMargin/Body/Pages/GraphicsPage/DisplayGrid"]
 custom_minimum_size = Vector2(110, 0)
 layout_mode = 2
 theme_type_variation = &"StatLabel"
 text = "Résolution"
 
-[node name="ResolutionOption" type="OptionButton" parent="Panel/VBox/BodyMargin/Body/Pages/GraphicsPage/ResolutionRow"]
+[node name="ResolutionOption" type="OptionButton" parent="Panel/VBox/BodyMargin/Body/Pages/GraphicsPage/DisplayGrid"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
 focus_mode = 0
 
-[node name="CharacterModelsCheck" type="CheckBox" parent="Panel/VBox/BodyMargin/Body/Pages/GraphicsPage"]
+[node name="DisplayChecks" type="VBoxContainer" parent="Panel/VBox/BodyMargin/Body/Pages/GraphicsPage"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 2
+
+[node name="QualityHeader" type="Label" parent="Panel/VBox/BodyMargin/Body/Pages/GraphicsPage"]
+layout_mode = 2
+theme_type_variation = &"HeaderLabel"
+text = "Qualité"
+
+[node name="QualitySeparator" type="HSeparator" parent="Panel/VBox/BodyMargin/Body/Pages/GraphicsPage"]
+layout_mode = 2
+
+[node name="QualityGrid" type="GridContainer" parent="Panel/VBox/BodyMargin/Body/Pages/GraphicsPage"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/h_separation = 8
+theme_override_constants/v_separation = 6
+columns = 2
+
+[node name="QualityChecks" type="VBoxContainer" parent="Panel/VBox/BodyMargin/Body/Pages/GraphicsPage"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 2
+
+[node name="CharacterModelsCheck" type="CheckBox" parent="Panel/VBox/BodyMargin/Body/Pages/GraphicsPage/QualityChecks"]
 unique_name_in_owner = true
 layout_mode = 2
 focus_mode = 0

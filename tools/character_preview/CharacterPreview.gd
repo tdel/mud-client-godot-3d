@@ -11,7 +11,8 @@ extends Node3D
 ## disparition de l'équipement, voir Character._play_mesh_effect) ; --time : secondes dans le
 ## clip/l'effet.
 ## Sans --out, la scène reste ouverte (animations en boucle, pratique dans l'éditeur).
-## --lineup=guards : gardes PNJ (homme, femme) en tenue Character.NPC_OUTFITS, vus de plus près.
+## --lineup=guards : PNJ (gardes homme/femme, maître, marchande, forgeron, villageois sans
+## type) en tenue Character.NPC_OUTFITS, vus de plus près.
 
 const CHARACTER_SCENE := preload("res://scenes/game/entities/Character.tscn")
 
@@ -51,7 +52,10 @@ const LINEUP := [
 		"CHEST": {"name": "Zealot's Armor", "armorCategory": "LIGHT"}}],
 ]
 ## PNJ : [sexe, npcType] — tenue fixe (Character.set_outfit).
-const GUARD_LINEUP := [["man", "GUARD"], ["woman", "GUARD"]]
+const GUARD_LINEUP := [
+	["man", "GUARD"], ["woman", "GUARD"], ["man", "SKILL_LEARNER"], ["woman", "MERCHANT"],
+	["man", "BLACKSMITH"], ["man", ""],
+]
 const SPACING := 1.1
 
 var _anim := "idle"

@@ -500,6 +500,8 @@ func _ready() -> void:
 	_world.add_child(_spell_vfx)
 	Net.message_received.connect(_on_message_received)
 	Net.disconnected.connect(_on_net_disconnected)
+	Settings.graphics_changed.connect(_on_graphics_changed)
+	_apply_environment_settings()
 	_chat_input.text_submitted.connect(_on_chat_submitted)
 	_chat_input.focus_entered.connect(_on_chat_input_focus_entered)
 	_chat_input.focus_exited.connect(_on_chat_input_focus_exited)
@@ -1150,6 +1152,16 @@ func _rebuild_map(payload: Dictionary) -> void:
 	_hide_move_marker()
 	_clear_portals()
 	_release_input_for_loading()
+	# Au changement de carte (portail, Scroll of Escape, respawn), le backend fait
+	# leave()-puis-join() avant d'envoyer MapView : les EntityAppeared/PortalAppeared de la
+	# nouvelle carte sont donc déjà arrivés (et effacés ci-dessus). GameState les a gardés en
+	# cache (l'ancienne carte en a été retirée par les EntityDisappeared/PortalDisappeared de
+	# KnownList.clear()) : on les rejoue, sinon PNJ et téléporteurs immobiles n'apparaîtraient
+	# qu'en sortant puis en revenant dans leur portée.
+	for entry in GameState.appeared_entities.values():
+		_apply_appeared_entity(entry)
+	for entry in GameState.appeared_portals.values():
+		_apply_appeared_portal(entry)
 
 	for child in _map_scene_root.get_children():
 		child.queue_free()
@@ -2045,7 +2057,7 @@ func _apply_appeared_entity(entry: Dictionary) -> void:
 	# EntityView.npcType/gender (backend, 2026-09-27) : un garde est un mannequin homme ou
 	# femme en armure lourde, écu et épée courte (voir Character.NPC_OUTFITS).
 	var npc_type := str(entry.get("npcType", "")) if entry.get("npcType") != null else ""
-	var node := _ensure_entity_node(key, entity_name, color, npc_type)
+	var node := _ensure_entity_node(key, entity_name, color)
 	if kind == "npc":
 		var npc_body := _character_body(node)
 		if npc_body != null:
@@ -2122,17 +2134,16 @@ func _ensure_player_node() -> void:
 ## `key` porte déjà le "kind" serveur en préfixe ("character:"/"monster:"/"npc:", voir
 ## _apply_appeared_entity et les gestionnaires Character/MovementStarted) : un personnage a
 ## toujours le mannequin (voir Character.gd), un monstre son modèle animé s'il en a un (voir
-## MonsterCatalog/Monster.gd) ; un PNJ dont le rôle (`npc_type`, EntityView.npcType) a une
-## tenue (Character.NPC_OUTFITS, ex. GUARD) a lui aussi le mannequin, habillé par
-## _apply_appeared_entity ; les autres monstres et PNJ restent des capsules.
-func _ensure_entity_node(key: String, entity_name: String, color: Color, npc_type := "") -> Node3D:
+## MonsterCatalog/Monster.gd) ; un PNJ a lui aussi le mannequin, habillé par
+## _apply_appeared_entity selon son rôle (EntityView.npcType, voir Character.NPC_OUTFITS —
+## tenue de villageois par défaut) ; les monstres sans modèle restent des capsules.
+func _ensure_entity_node(key: String, entity_name: String, color: Color) -> Node3D:
 	if _entities_by_key.has(key):
 		return _entities_by_key[key]
 	var monster_model: MonsterModel = null
 	if key.begins_with("monster:"):
 		monster_model = MonsterCatalog.model_for(entity_name)
-	var humanoid := key.begins_with("character:") \
-			or (key.begins_with("npc:") and Character.has_outfit(npc_type))
+	var humanoid := key.begins_with("character:") or key.begins_with("npc:")
 	var node := _make_entity_node(entity_name, color, true, humanoid, monster_model)
 	_entities_root.add_child(node)
 	_entities_by_key[key] = node
@@ -3703,10 +3714,33 @@ func _apply_day_night_preset(t: float) -> void:
 	env.ambient_light_energy = lerp(NIGHT_AMBIENT_ENERGY, DAY_AMBIENT_ENERGY, t)
 	_sun.light_energy = lerp(NIGHT_SUN_ENERGY, DAY_SUN_ENERGY, t)
 	_sun.light_color = NIGHT_SUN_COLOR.lerp(DAY_SUN_COLOR, t)
-	_sun.shadow_enabled = _sun.light_energy > MIN_SHADOW_LIGHT_ENERGY
 	_moon.light_energy = (1.0 - t) * MOON_MAX_ENERGY
-	_moon.shadow_enabled = _moon.light_energy > MIN_SHADOW_LIGHT_ENERGY
+	_update_celestial_shadows()
 	_update_night_lights_energy(t)
+
+
+## Ombres du soleil et de la lune : coupées quand l'astre est trop faible (voir
+## MIN_SHADOW_LIGHT_ENERGY) ou quand le joueur a désactivé les ombres (menu système).
+func _update_celestial_shadows() -> void:
+	var shadows := Settings.shadows_enabled()
+	_sun.shadow_enabled = shadows and _sun.light_energy > MIN_SHADOW_LIGHT_ENERGY
+	_moon.shadow_enabled = shadows and _moon.light_energy > MIN_SHADOW_LIGHT_ENERGY
+
+
+## Effets de l'environnement réglables dans le menu système (Settings.GRAPHICS_DEFAULTS) :
+## occlusion ambiante (SSAO) et lueur (glow) des sources très lumineuses (sorts, portails).
+func _apply_environment_settings() -> void:
+	var env := _world_environment.environment
+	env.ssao_enabled = bool(Settings.get_graphics("ssao"))
+	env.glow_enabled = bool(Settings.get_graphics("glow"))
+
+
+func _on_graphics_changed(key: String) -> void:
+	match key:
+		"shadow_quality":
+			_update_celestial_shadows()
+		"ssao", "glow":
+			_apply_environment_settings()
 
 
 ## Anime une transition Sunrise (target_t=1.0)/Sunset (target_t=0.0) depuis l'ambiance

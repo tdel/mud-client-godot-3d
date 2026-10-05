@@ -43,7 +43,8 @@ const HAIR_VISIBLE_HELMETS := ["helmet_circlet", "helmet_guard"]
 
 ## Tenue d'un PNJ par EntityView.npcType (backend NpcType) : slot -> mesh, posée telle quelle
 ## par set_outfit. Le sexe (EntityView.gender) choisit le gabarit ; le chapel de fer laisse
-## voir visage et cheveux (queue de cheval des gardes femmes).
+## voir visage et cheveux (queue de cheval des gardes femmes). Un PNJ sans type (ou d'un type
+## que ce client ne connaît pas encore) prend la tenue de villageois DEFAULT_NPC_OUTFIT.
 const NPC_OUTFITS := {
 	"GUARD": {
 		"CHEST": "torso_guard", "LEGS": "legs_plate", "HEAD": "helmet_guard", "HANDS": "gloves_plate",
@@ -54,7 +55,17 @@ const NPC_OUTFITS := {
 		"CHEST": "torso_robe", "LEGS": "legs_cloth", "HEAD": "helmet_circlet", "HANDS": "gloves_leather",
 		"FEET": "boots_leather", "WEAPON": "weapon_staff",
 	},
+	# Marchand (Innkeeper) : tunique de tissu et pantalon de cuir, mains nues.
+	"MERCHANT": {
+		"CHEST": "torso_cloth", "LEGS": "legs_leather", "FEET": "boots_leather",
+	},
+	# Forgeron : cuir des pieds aux gants, marteau de forge.
+	"BLACKSMITH": {
+		"CHEST": "torso_leather", "LEGS": "legs_leather", "HANDS": "gloves_leather",
+		"FEET": "boots_leather", "WEAPON": "weapon_hammer",
+	},
 }
+const DEFAULT_NPC_OUTFIT := {"CHEST": "torso_cloth", "LEGS": "legs_cloth", "FEET": "boots_leather"}
 
 ## WeaponType serveur (champ `weaponType` d'Inventory/EquipmentView, voir
 ## app.domain.item.WeaponType côté backend) -> mesh d'arme.
@@ -247,19 +258,12 @@ func set_equipment(equipped: Dictionary, animate := true) -> void:
 			_play_mesh_effect(mesh_name, false)
 
 
-## Tenue fixe d'un PNJ (voir NPC_OUTFITS), sans effet d'apparition. Faux si `npc_type` n'a
-## pas de tenue connue (le PNJ garde alors une capsule, voir Game3D._ensure_entity_node).
-func set_outfit(npc_type: String) -> bool:
-	if not NPC_OUTFITS.has(npc_type):
-		return false
+## Tenue fixe d'un PNJ (voir NPC_OUTFITS, DEFAULT_NPC_OUTFIT si `npc_type` est vide ou
+## inconnu), sans effet d'apparition.
+func set_outfit(npc_type: String) -> void:
 	_equipment_initialized = true
-	_visuals = NPC_OUTFITS[npc_type].duplicate()
+	_visuals = NPC_OUTFITS.get(npc_type, DEFAULT_NPC_OUTFIT).duplicate()
 	_apply_visuals()
-	return true
-
-
-static func has_outfit(npc_type: String) -> bool:
-	return NPC_OUTFITS.has(npc_type)
 
 
 ## `items` : entrées Inventory ou EquipmentView ({slot, name, type, armorCategory, weaponType,
