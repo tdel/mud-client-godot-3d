@@ -36,15 +36,17 @@ const ATTRIBUTE_EFFECTS := {
 ## chaque ligne de %CombatGrid = libellé, valeur, libellé, valeur.
 const COMBAT_ROWS := [
 	["pAtk", "mAtk"], ["pDef", "mDef"], ["accuracy", "evasion"],
-	["criticalRate", "speed"], ["atkSpd", "castSpd"],
+	["criticalRate", "runSpeed"], ["atkSpd", "castSpd"],
 ]
 const COMBAT_STAT_LABELS := {
 	"pAtk": "P. Atk.", "mAtk": "M. Atk.", "pDef": "P. Déf.", "mDef": "M. Déf.",
 	"accuracy": "Précision", "evasion": "Esquive", "criticalRate": "Critique", "atkSpd": "Vit. Atk.",
-	"speed": "Vitesse", "castSpd": "Vit. Incant.",
+	"runSpeed": "Vitesse", "castSpd": "Vit. Incant.",
 }
-## Suffixe "%" uniquement pour le taux critique — les autres stats sont des scores bruts.
-const COMBAT_STAT_SUFFIX := {"criticalRate": "%"}
+## Valeurs L2 brutes, comme la fenêtre Status de L2 : critique en millièmes (88 = 8,8 % de
+## chance, cf. backend CombatFormulas.criticalRate), vitesse de course L2 (runSpeed, pas `speed`
+## qui est la même en cases/s pour le déplacement).
+const COMBAT_STAT_SUFFIX := {}
 
 ## Karma/PvP/PK (champs karma/pvpCount/pkCount de GamePlayerStats.Payload).
 const SOCIAL_KEYS := ["karma", "pvpCount", "pkCount"]
@@ -195,7 +197,7 @@ func _add_stat(grid: GridContainer, label_text: String, value_text: String, tool
 	grid.add_child(value)
 
 
-## `speed` est un double côté backend (unités/seconde) : arrondi comme les autres scores.
+## Un double éventuel est arrondi comme les autres scores.
 func _format_stat(stats: Dictionary, stat_key: String) -> String:
 	var value = stats.get(stat_key, 0)
 	if typeof(value) == TYPE_FLOAT:

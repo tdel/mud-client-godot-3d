@@ -3,19 +3,15 @@ Lineage 2 High Five (datapack L2JMobius H5, stats/npcs/*.xml) pour les zones de 
 Gludio et les anciennes petites zones de départ, plus la table nom -> templateId utilisée par
 les générateurs de cartes (tools/map_gen/L2Monsters.gd).
 
-Repris tels quels de L2 : nom, niveau, race, agressivité, PV, XP, éléments faibles/forts,
-attributs (40/30/43/21/20/20, ceux des boss de raid 60/73/57/76/70/80). P.Atk/P.Def/M.Def sont
-recalibrés : les armes et armures du jeu (data/items) sont environ dix fois plus faibles que
-celles de L2 au-delà des premiers niveaux, recopier les défenses L2 rendrait les monstres de
-niveau 20 intuables. On vise donc, contre un personnage du même niveau équipé comme le permet
-la boutique (voir WEAPON / ARMOR ci-dessous) :
-  - environ 4 coups (niveau 1) à 7 coups (niveau 35) pour tuer le monstre, sans soulshot ;
-  - environ 12 coups du monstre pour tuer un Human Fighter ;
-ce qui retombe sur les monstres de départ existants (Brown Keltir...). Les écarts propres à un
-monstre (chef plus coriace, archer fragile, zombie lent) passent par les modificateurs ROLE.
-Vitesse de course L2 x 1.3 (un humain court à 126 dans L2, 220 ici, soit x 1.75 : les monstres
-restent un peu plus lents que le joueur, qui peut fuir). Rayon d'aggro : 6 cases pour un
-monstre agressif, 0 sinon (MonsterAiEngine.scanAggro).
+Repris tels quels de L2 (table L2_NPC) : nom, niveau, race, agressivité, valeurs de base PV,
+P.Atk, M.Atk, P.Def, M.Def, précision, esquive, critique, vitesses d'attaque et de course,
+attributs STR/DEX/CON/INT/WIT/MEN, modificateurs propres au PNJ inclus. Ce sont les valeurs
+d'avant les fonctions de stats : le serveur les passe par les mêmes formules que L2J (PV x CON,
+P.Atk x STR x (niveau+89)/100... cf. CombatFormulas.stats), un monstre y affiche donc ses stats
+L2. Les boss de raid gardent leurs PV L2 (contenu de groupe). Propres au jeu : XP (celle de L2,
+à 5 % pour un boss de raid), or, butin, éléments faibles/forts. Rayon d'aggro : 6 cases pour un
+monstre agressif, 0 sinon (MonsterAiEngine.scanAggro). Les fiches historiques (Gremlin...) sont
+réécrites en place avec leurs stats L2 (HISTORIC).
 
 Les identifiants sont des UUID v5 dérivés du nom : relancer le script redonne les mêmes.
 
@@ -23,7 +19,6 @@ Usage : python -I tools/monster_gen/build_monsters.py <backend>/src/main/resourc
 (réécrit les fiches générées en fin de fichier, conserve les fiches historiques, régénère
 tools/map_gen/L2Monsters.gd).
 """
-import math
 import re
 import sys
 import uuid
@@ -33,86 +28,154 @@ NAMESPACE = uuid.UUID("6f1e3c52-2b8a-4c7e-9d41-0a5b7e3f9c18")
 BEGIN = "    <!-- ===== Fiches générées par tools/monster_gen/build_monsters.py : ne pas éditer à la main ===== -->"
 END = "    <!-- ===== Fin des fiches générées ===== -->"
 
-# Stats L2 H5 d'un monstre "standard" par niveau (identiques pour tous les monstres ordinaires
-# d'un même niveau dans le datapack) : PV, P.Atk, M.Atk, P.Def, M.Def.
-L2_STANDARD = {
-    1: (39.7, 8.5, 5.8, 44.4, 29.6), 3: (57.5, 10.2, 7.0, 47.9, 31.9), 4: (68.2, 11.2, 7.7, 49.7, 33.1),
-    5: (80.2, 12.3, 8.4, 51.6, 34.4), 6: (93.5, 13.5, 9.2, 53.5, 35.6), 7: (108.4, 14.8, 10.1, 55.5, 37.0),
-    8: (124.9, 16.2, 11.1, 57.6, 38.3), 9: (143.2, 17.7, 12.1, 59.7, 39.7), 10: (163.3, 19.3, 13.2, 61.8, 41.2),
-    15: (247, 29.6, 20.2, 73.6, 49.0), 16: (264, 32.2, 22.0, 76.1, 50.7), 17: (283, 34.9, 23.8, 78.7, 52.4),
-    18: (302, 37.8, 25.8, 81.3, 54.2), 19: (322, 41.0, 28.0, 84.1, 56.0), 20: (343, 44.3, 30.3, 86.9, 57.8),
-    21: (364, 47.9, 32.7, 89.7, 59.7), 22: (387, 51.8, 35.3, 92.7, 61.7), 23: (411, 55.8, 38.1, 95.6, 63.7),
-    24: (435, 60.2, 41.1, 98.7, 65.7), 25: (461, 64.8, 44.3, 101.8, 67.8), 26: (488, 69.8, 47.6, 105.0, 69.9),
-    27: (515, 75.0, 51.2, 108.3, 72.1), 28: (544, 80.5, 55.0, 111.6, 74.3), 29: (573, 86.4, 59.0, 115.0, 76.6),
-    30: (604, 92.6, 63.3, 118.5, 78.9), 31: (636, 99.2, 67.8, 122.0, 81.2), 32: (668, 106.2, 72.5, 125.6, 83.6),
-    33: (702, 113.5, 77.5, 129.2, 86.0), 34: (737, 121.2, 82.8, 132.9, 88.5), 35: (773, 129.3, 88.3, 136.7, 91.0),
+# Stats de base L2 H5 de chaque PNJ (datapack L2JMobius H5, stats/npcs/*.xml) : PV, P.Atk,
+# M.Atk, P.Def, M.Def, précision, esquive, critique, vitesse d'attaque et de course, attributs
+# STR/DEX/CON/INT/WIT/MEN. Les modificateurs propres au PNJ (compétences passives 4408-4413 :
+# "HP x0.5", "Strong P. Atk."...) y sont déjà repliés. Le serveur leur applique les fonctions de
+# stats L2 (PV x CON, P.Atk x STR x niveau... cf. CombatFormulas.stats, MonsterCatalog).
+L2_NPC = {
+    20544: dict(name='Elder Keltir', level=3, hp=57.55, pAtk=11.27, mAtk=8.47, pDef=43.6, mDef=29.03, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=110.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20120: dict(name='Wolf', level=4, hp=68.21, pAtk=11.25, mAtk=7.68, pDef=49.73, mDef=33.11, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=110.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20442: dict(name='Elder Wolf', level=5, hp=80.17, pAtk=12.34, mAtk=8.43, pDef=51.61, mDef=34.36, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=110.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20121: dict(name='Giant Toad', level=5, hp=80.17, pAtk=12.34, mAtk=8.43, pDef=51.61, mDef=34.36, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=100.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20003: dict(name='Goblin', level=5, hp=80.17, pAtk=12.34, mAtk=8.43, pDef=51.61, mDef=34.36, acc=9.0, eva=0.0, crit=1, atkSpd=253, run=110.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20130: dict(name='Orc', level=6, hp=93.54, pAtk=13.52, mAtk=9.24, pDef=53.53, mDef=35.64, acc=9.0, eva=0.0, crit=1, atkSpd=253, run=110.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20131: dict(name='Orc Grunt', level=7, hp=108.42, pAtk=14.81, mAtk=10.11, pDef=55.52, mDef=36.97, acc=9.0, eva=0.0, crit=1, atkSpd=253, run=110.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20006: dict(name='Orc Archer', level=8, hp=124.93, pAtk=16.2, mAtk=11.06, pDef=57.56, mDef=38.33, acc=0.0, eva=0.0, crit=8, atkSpd=253, run=110.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20326: dict(name='Goblin Scout', level=8, hp=124.93, pAtk=16.2, mAtk=11.06, pDef=57.56, mDef=38.33, acc=9.0, eva=0.0, crit=1, atkSpd=253, run=110.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20132: dict(name='Werewolf', level=9, hp=143.18, pAtk=17.71, mAtk=12.09, pDef=59.66, mDef=39.72, acc=9.0, eva=0.0, crit=1, atkSpd=253, run=120.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20093: dict(name='Orc Fighter', level=10, hp=163.29, pAtk=19.34, mAtk=13.21, pDef=61.83, mDef=41.16, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=110.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20343: dict(name='Werewolf Hunter', level=10, hp=163.29, pAtk=21.27, mAtk=15.98, pDef=56.26, mDef=37.46, acc=9.0, eva=0.0, crit=1, atkSpd=253, run=120.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20009: dict(name='Vuku Orc', level=14, hp=230.39, pAtk=27.25, mAtk=18.61, pDef=71.08, mDef=47.33, acc=9.0, eva=0.0, crit=1, atkSpd=253, run=110.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20011: dict(name='Vuku Orc Archer', level=15, hp=246.95, pAtk=29.62, mAtk=20.22, pDef=73.55, mDef=48.97, acc=0.0, eva=0.0, crit=8, atkSpd=253, run=110.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20023: dict(name='Shadow Beast', level=15, hp=246.95, pAtk=32.58, mAtk=24.47, pDef=66.93, mDef=44.56, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=120.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20026: dict(name='Ruin Zombie', level=15, hp=246.95, pAtk=32.58, mAtk=24.47, pDef=66.93, mDef=95.01, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=15.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20029: dict(name='Ruin Zombie Leader', level=16, hp=264.34, pAtk=29.27, mAtk=18.23, pDef=83.69, mDef=108.41, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=15.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20035: dict(name='Skeleton Tracker', level=17, hp=282.57, pAtk=38.39, mAtk=28.84, pDef=71.6, mDef=47.67, acc=0.0, eva=0.0, crit=8, atkSpd=253, run=140.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20042: dict(name='Skeleton Tracker Leader', level=18, hp=301.67, pAtk=41.61, mAtk=31.26, pDef=74.03, mDef=49.29, acc=0.0, eva=0.0, crit=8, atkSpd=253, run=140.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20045: dict(name='Skeleton Scout', level=19, hp=321.64, pAtk=37.28, mAtk=23.22, pDef=92.48, mDef=61.58, acc=0.0, eva=0.0, crit=8, atkSpd=253, run=140.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20051: dict(name='Skeleton Bowman', level=20, hp=342.51, pAtk=40.34, mAtk=25.12, pDef=95.56, mDef=63.62, acc=0.0, eva=0.0, crit=8, atkSpd=253, run=140.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20054: dict(name='Ruin Spartoi', level=21, hp=364.3, pAtk=43.61, mAtk=27.16, pDef=98.7, mDef=65.72, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=140.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20060: dict(name='Raging Spartoi', level=22, hp=387.03, pAtk=47.1, mAtk=29.33, pDef=101.92, mDef=67.86, acc=0.0, eva=0.0, crit=8, atkSpd=253, run=140.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20064: dict(name='Tumran Bugbear Warrior', level=24, hp=435.34, pAtk=66.22, mAtk=49.74, pDef=89.83, mDef=59.81, acc=9.0, eva=0.0, crit=1, atkSpd=253, run=130.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    25369: dict(name='Soul Scavenger', level=25, hp=43316.31, pAtk=74.22, mAtk=4.68, pDef=305.51, mDef=149.04, acc=4.75, eva=-18.0, crit=4, atkSpd=253, run=190.0,
+            attrs=(60, 73, 57, 76, 70, 80)),
+    20514: dict(name='Shield Skeleton', level=15, hp=246.95, pAtk=32.58, mAtk=24.47, pDef=66.93, mDef=44.56, acc=9.0, eva=0.0, crit=1, atkSpd=253, run=140.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20515: dict(name='Skeleton Infantryman', level=16, hp=264.34, pAtk=35.38, mAtk=26.58, pDef=69.24, mDef=46.1, acc=9.0, eva=0.0, crit=1, atkSpd=253, run=140.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20506: dict(name='Ruin Imp', level=17, hp=282.57, pAtk=38.39, mAtk=28.84, pDef=71.6, mDef=47.67, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=80.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20411: dict(name='Scavenger Bat', level=18, hp=301.67, pAtk=41.61, mAtk=31.26, pDef=74.03, mDef=49.29, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=80.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20457: dict(name='Zombie Soldier', level=19, hp=321.64, pAtk=45.07, mAtk=33.85, pDef=76.51, mDef=108.6, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=15.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20505: dict(name='Ruin Bat', level=20, hp=342.51, pAtk=48.76, mAtk=36.63, pDef=79.05, mDef=52.63, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=80.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20507: dict(name='Ruin Imp Elder', level=21, hp=364.3, pAtk=52.71, mAtk=39.59, pDef=81.65, mDef=54.37, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=80.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20458: dict(name='Zombie Warrior', level=22, hp=387.03, pAtk=56.93, mAtk=42.76, pDef=84.32, mDef=119.68, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=15.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20401: dict(name='Veelan Bugbear', level=23, hp=410.7, pAtk=50.82, mAtk=31.65, pDef=105.21, mDef=70.05, acc=9.0, eva=0.0, crit=1, atkSpd=253, run=130.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20402: dict(name='Veelan Bugbear Warrior', level=24, hp=435.34, pAtk=66.22, mAtk=49.74, pDef=89.83, mDef=59.81, acc=9.0, eva=0.0, crit=1, atkSpd=253, run=130.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    25149: dict(name='Zombie Lord Crowl', level=25, hp=43316.31, pAtk=74.22, mAtk=4.68, pDef=305.51, mDef=149.04, acc=4.75, eva=-18.0, crit=4, atkSpd=253, run=190.0,
+            attrs=(60, 73, 57, 76, 70, 80)),
+    20225: dict(name='Giant Mist Leech', level=25, hp=460.96, pAtk=64.83, mAtk=44.27, pDef=101.84, mDef=67.8, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=110.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20226: dict(name='Gray Ant', level=26, hp=487.57, pAtk=63.48, mAtk=39.54, pDef=115.53, mDef=76.92, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=130.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20227: dict(name='Horror Mist Ripper', level=27, hp=515.18, pAtk=82.49, mAtk=61.96, pDef=98.54, mDef=65.61, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=100.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20228: dict(name='Giant Crimson Ant', level=28, hp=543.8, pAtk=88.59, mAtk=66.55, pDef=101.57, mDef=67.63, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=130.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20157: dict(name='Marsh Stakato', level=29, hp=573.43, pAtk=95.06, mAtk=71.41, pDef=104.66, mDef=69.68, acc=0.0, eva=0.0, crit=8, atkSpd=253, run=120.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20229: dict(name='Stinger Wasp', level=30, hp=604.08, pAtk=84.3, mAtk=52.51, pDef=130.31, mDef=86.76, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=90.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20230: dict(name='Marsh Stakato Worker', level=31, hp=635.76, pAtk=99.22, mAtk=67.75, pDef=121.99, mDef=81.22, acc=9.0, eva=0.0, crit=1, atkSpd=253, run=140.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20231: dict(name='Toad Lord', level=32, hp=668.47, pAtk=96.61, mAtk=60.17, pDef=138.13, mDef=91.97, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=100.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20232: dict(name='Marsh Stakato Soldier', level=33, hp=702.2, pAtk=103.28, mAtk=64.32, pDef=142.15, mDef=94.65, acc=0.0, eva=0.0, crit=8, atkSpd=253, run=155.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20233: dict(name='Marsh Spider', level=34, hp=736.96, pAtk=121.21, mAtk=82.77, pDef=132.95, mDef=88.52, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=140.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20234: dict(name='Marsh Stakato Drone', level=35, hp=772.74, pAtk=142.26, mAtk=106.86, pDef=124.42, mDef=82.84, acc=0.0, eva=0.0, crit=8, atkSpd=253, run=174.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    25023: dict(name='Stakato Queen Zyrnna', level=34, hp=87402.97, pAtk=284.02, mAtk=41.78, pDef=398.85, mDef=194.58, acc=4.75, eva=-18.0, crit=4, atkSpd=253, run=170.0,
+            attrs=(60, 73, 57, 76, 70, 80)),
+    20919: dict(name='Maille Lizardman', level=20, hp=171.26, pAtk=44.33, mAtk=30.27, pDef=86.87, mDef=57.84, acc=9.0, eva=0.0, crit=1, atkSpd=253, run=130.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20920: dict(name='Maille Lizardman Scout', level=22, hp=193.51, pAtk=51.75, mAtk=35.34, pDef=92.66, mDef=61.69, acc=0.0, eva=0.0, crit=8, atkSpd=253, run=130.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20921: dict(name='Maille Lizardman Guard', level=24, hp=217.67, pAtk=60.2, mAtk=41.11, pDef=98.71, mDef=65.72, acc=9.0, eva=0.0, crit=1, atkSpd=253, run=130.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20925: dict(name='Giant Araneid', level=24, hp=217.67, pAtk=60.2, mAtk=41.11, pDef=98.71, mDef=65.72, acc=9.0, eva=0.0, crit=1, atkSpd=253, run=130.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20926: dict(name='Poison Araneid', level=25, hp=230.48, pAtk=64.83, mAtk=44.27, pDef=101.84, mDef=67.8, acc=9.0, eva=0.0, crit=1, atkSpd=253, run=140.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20922: dict(name='Maille Lizardman Warrior', level=26, hp=243.79, pAtk=69.76, mAtk=47.64, pDef=105.03, mDef=69.93, acc=9.0, eva=0.0, crit=1, atkSpd=253, run=130.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20927: dict(name='King of the Araneid', level=27, hp=257.59, pAtk=74.99, mAtk=51.21, pDef=108.29, mDef=72.1, acc=9.0, eva=0.0, crit=1, atkSpd=253, run=130.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20923: dict(name='Maille Lizardman Shaman', level=28, hp=271.9, pAtk=80.54, mAtk=55.0, pDef=111.61, mDef=74.31, acc=9.0, eva=0.0, crit=1, atkSpd=253, run=120.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20924: dict(name='Maille Lizardman Matriarch', level=30, hp=302.04, pAtk=92.64, mAtk=63.26, pDef=118.46, mDef=78.87, acc=9.0, eva=0.0, crit=1, atkSpd=253, run=130.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20360: dict(name='Ratman Spy', level=16, hp=264.34, pAtk=35.38, mAtk=26.58, pDef=69.24, mDef=46.1, acc=0.0, eva=0.0, crit=8, atkSpd=253, run=120.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20032: dict(name='Pinrul', level=17, hp=282.57, pAtk=38.39, mAtk=28.84, pDef=71.6, mDef=47.67, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=130.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20775: dict(name='Bugbear Raider', level=17, hp=282.57, pAtk=38.39, mAtk=28.84, pDef=71.6, mDef=47.67, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=130.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20358: dict(name='Ratman Hunter', level=18, hp=301.67, pAtk=34.42, mAtk=21.44, pDef=89.48, mDef=59.58, acc=0.0, eva=0.0, crit=8, atkSpd=253, run=120.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    21093: dict(name='Ratman Sub Chieftain', level=19, hp=321.64, pAtk=45.07, mAtk=33.85, pDef=76.51, mDef=50.94, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=150.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    21094: dict(name='Ratman Chieftain', level=20, hp=342.51, pAtk=40.34, mAtk=25.12, pDef=95.56, mDef=63.62, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=155.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    25357: dict(name='Sukar Wererat Chief', level=21, hp=37886.49, pAtk=53.13, mAtk=3.17, pDef=269.19, mDef=131.32, acc=0.0, eva=-18.0, crit=8, atkSpd=253, run=190.0,
+            attrs=(60, 73, 57, 76, 70, 80)),
+    18342: dict(name='Gremlin', level=1, hp=39.75, pAtk=8.47, mAtk=5.79, pDef=44.44, mDef=29.59, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=50.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20545: dict(name='Young Keltir', level=1, hp=39.75, pAtk=8.47, mAtk=5.79, pDef=44.44, mDef=29.59, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=110.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20432: dict(name='Elpy', level=1, hp=39.75, pAtk=8.47, mAtk=5.79, pDef=44.44, mDef=29.59, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=80.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20116: dict(name='Fox', level=2, hp=48.09, pAtk=9.32, mAtk=6.37, pDef=46.15, mDef=30.73, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=110.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20532: dict(name='Brown Keltir', level=2, hp=48.09, pAtk=9.32, mAtk=6.37, pDef=46.15, mDef=30.73, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=110.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
 }
-# Niveaux 11-14 absents des zones relevées : interpolation géométrique entre 10 et 15.
-for _lv in range(11, 15):
-    _t = (_lv - 10) / 5
-    L2_STANDARD[_lv] = tuple(a * (b / a) ** _t for a, b in zip(L2_STANDARD[10], L2_STANDARD[15]))
-L2_STANDARD[2] = tuple((a * b) ** 0.5 for a, b in zip(L2_STANDARD[1], L2_STANDARD[3]))
 
-MONSTER_ATTRS = {"STR": 40, "DEX": 30, "CON": 43, "INT": 21, "WIT": 20, "MEN": 20}
-RAID_ATTRS = {"STR": 60, "DEX": 73, "CON": 57, "INT": 76, "WIT": 70, "MEN": 80}
-
-
-def bonus(attr, score):
-    """Attribute.bonus côté serveur (statBonus.xml L2J H5)."""
-    base = {"STR": (1.036, 34.845), "INT": (1.020, 31.375), "CON": (1.030, 27.632), "MEN": (1.010, -0.060),
-            "DEX": (1.009, 19.360), "WIT": (1.050, 20.000)}[attr]
-    return round(base[0] ** (score - base[1]), 2)
-
-
-def level_factor(level):
-    return 1.0 + (level - 1) * 0.02
-
-
-# Équipement attendu d'un personnage du niveau (boutiques de Gludio / Dion) : p.atk d'arme, p.def
-# d'armure cumulée.
-def weapon(level):
-    for top, patk in ((3, 9), (8, 11), (14, 14), (22, 17), (30, 19)):
-        if level <= top:
-            return patk
-    return 22
-
-
-def armor(level):
-    for top, pdef in ((5, 2), (10, 8), (15, 12), (22, 17), (30, 24)):
-        if level <= top:
-            return pdef
-    return 30
-
-
-def fighter_hp(level):
-    return (68.3 + 11.635 * level + 0.065 * level * level) * bonus("CON", 43)
-
-
-def player_patk(level):
-    return weapon(level) * bonus("STR", 40) * level_factor(level)
-
-
-def player_pdef(level):
-    return armor(level) + bonus("CON", 43) * 6.0
-
-
-# Rôles : multiplicateurs (p.atk, p.def/m.def) et bonus (précision, esquive, critique), vitesse
-# d'attaque de "l'arme" (attackSpeed côté serveur).
-ROLE = {
-    "melee": (1.00, 1.00, 0, 0, 0, 270),
-    "blunt": (1.05, 1.00, 2, -1, 0, 250),
-    "dagger": (0.95, 0.95, 0, 2, 4, 300),
-    "bow": (1.00, 0.85, 1, 0, 4, 230),
-    "claw": (1.00, 1.00, 0, 1, 1, 280),
-    "zombie": (1.10, 1.15, -2, -4, 0, 210),
-    "flyer": (0.95, 0.90, 1, 4, 2, 290),
-    "caster": (0.90, 0.90, 0, 0, 0, 240),
-    "beast": (1.05, 1.05, 0, 0, 1, 260),
-    "insect": (1.00, 1.05, 0, 1, 1, 280),
-    "brute": (1.15, 1.10, 0, -2, 2, 240),
-}
-# Leaders / gardes : un peu plus forts que la piétaille du même niveau.
-ELITE = (1.12, 1.12)
+# Fiches historiques (hors bloc généré) : stats réécrites en place depuis L2_NPC.
+HISTORIC = {"Gremlin": 18342, "Young Keltir": 20545, "Elpy": 20432, "Fox": 20116, "Brown Keltir": 20532}
 
 UNDEAD_RES = {"HOLY": -50, "DARK": 30}
 BUG_RES = {"FIRE": -25}
@@ -147,7 +210,14 @@ ITEMS = {
     "Amber Ring": "001d1121-6760-4831-83a3-a72b126f79f3", "Amber Earring": "bedb6df2-7bab-443c-8a3c-e97b9150d977",
     "Amber Necklace": "57201423-ae58-4cb7-a6c4-9bf856a76d4a", "Amethyst Ring": "40c0606e-29cc-448e-8906-8e229f0d5079",
     "Amethyst Necklace": "5da404a5-8f6e-4b67-9d06-556efdbddbd3", "Shield +1": "019fe3f6-b1ef-786d-bc17-46dd46660eb0",
+    "Basic Wizard Staff": "ac9fe757-ab75-47ef-b413-8844d5c5ed73",
+    "Long Sword +1": "019fe3f6-b1ee-78f8-a681-d288c7f87511",
+    "Saber*Saber": "7d3f4a5b-8c9e-4a01-bc23-4d5e6f708192",
 }
+
+
+# Butin d'équipement : grade cohérent avec le niveau du monstre comme dans L2 (sans grade avant
+# le niveau 15, D jusqu'au 29, C au-delà ; un grade de plus pour un boss de raid).
 
 
 def tier_loot(level):
@@ -159,140 +229,122 @@ def tier_loot(level):
     return [(GREATER_HEALING, 0.10), (GREATER_MANA, 0.05), (ESCAPE, 0.02)]
 
 
-# (nom L2, id L2, niveau, race, agressif, PV L2, XP L2, rôle, élite, vitesse de course L2,
-#  résistances, butin propre [(objet, chance)])
+# (nom L2, id L2, race, agressif, XP L2, résistances, butin propre [(objet, chance)]) ; niveau
+# et stats viennent de L2_NPC.
 M = []
 
 
-def mob(name, l2id, level, race, aggro, hp, xp, role, run, res=None, loot=(), elite=False):
-    M.append(dict(name=name, l2id=l2id, level=level, race=race, aggro=aggro, hp=hp, xp=xp, role=role, run=run,
-                  res=res or {}, loot=list(loot), elite=elite, raid=False))
+def mob(name, l2id, race, aggro, xp, res=None, loot=()):
+    M.append(dict(name=name, l2id=l2id, level=L2_NPC[l2id]["level"], race=race, aggro=aggro, xp=xp,
+                  res=res or {}, loot=list(loot), raid=False))
 
 
-def raid(name, l2id, level, race, hp, pa, pd, md, xp, run, res=None, loot=()):
-    M.append(dict(name=name, l2id=l2id, level=level, race=race, aggro=False, hp=hp, xp=xp, role="melee", run=run,
-                  res=res or {}, loot=list(loot), elite=False, raid=True, pa=pa, pd=pd, md=md))
+def raid(name, l2id, race, xp, res=None, loot=()):
+    M.append(dict(name=name, l2id=l2id, level=L2_NPC[l2id]["level"], race=race, aggro=False, xp=xp,
+                  res=res or {}, loot=list(loot), raid=True))
 
 
 I = ITEMS
 # --- Sentier broussailleux (niveaux 3-5) : keltirs, loups et crapauds des bois ---------------
-mob("Elder Keltir", 20544, 3, "ANIMAL", False, 57.5, 105, "beast", 110, loot=[(I["Leather Pants"], 0.03), (I["Leather Tunic"], 0.03)])
-mob("Wolf", 20120, 4, "ANIMAL", False, 68.2, 141, "beast", 110, loot=[(I["Wooden Bow"], 0.02)])
-mob("Elder Wolf", 20442, 5, "ANIMAL", False, 80.2, 176, "beast", 110, loot=[(I["Leather Gloves"], 0.03)], elite=True)
-mob("Giant Toad", 20121, 5, "ANIMAL", False, 80.2, 178, "claw", 100, loot=[(I["Leather Boots"], 0.03)])
+mob("Elder Keltir", 20544, "ANIMAL", False, 105, loot=[(I["Leather Pants"], 0.03), (I["Leather Tunic"], 0.03)])
+mob("Wolf", 20120, "ANIMAL", False, 141, loot=[(I["Wooden Bow"], 0.02)])
+mob("Elder Wolf", 20442, "ANIMAL", False, 176, loot=[(I["Leather Gloves"], 0.03)])
+mob("Giant Toad", 20121, "ANIMAL", False, 178, loot=[(I["Leather Boots"], 0.03)])
 # --- Repaire sauvage (niveaux 5-10) : camp d'orques, gobelins et loups-garous -----------------
-mob("Goblin", 20003, 5, "HUMANOID", False, 80.2, 176, "blunt", 110, loot=[(I["Garnet Ring"], 0.03), (I["Garnet Earring"], 0.02)])
-mob("Orc", 20130, 6, "HUMANOID", False, 93.5, 213, "melee", 110, loot=[(I["Wooden Club"], 0.03)])
-mob("Orc Grunt", 20131, 7, "HUMANOID", False, 108.4, 249, "blunt", 110, loot=[(I["Wooden Shield"], 0.04)])
-mob("Orc Archer", 20006, 8, "HUMANOID", False, 124.9, 293, "bow", 110, loot=[(I["Wooden Bow"], 0.05)])
-mob("Goblin Scout", 20326, 8, "HUMANOID", False, 124.9, 284, "blunt", 110, loot=[(I["Leather Cap"], 0.04), (I["Leather Armor"], 0.01)])
-mob("Werewolf", 20132, 9, "HUMANOID", False, 143.2, 321, "claw", 120, loot=[(I["Padded Helmet"], 0.03)])
-mob("Orc Fighter", 20093, 10, "HUMANOID", True, 163.3, 363, "melee", 110, loot=[(I["Short Sword"], 0.04), (I["Saber"], 0.01)], elite=True)
+mob("Goblin", 20003, "HUMANOID", False, 176, loot=[(I["Garnet Ring"], 0.03), (I["Garnet Earring"], 0.02)])
+mob("Orc", 20130, "HUMANOID", False, 213, loot=[(I["Wooden Club"], 0.03)])
+mob("Orc Grunt", 20131, "HUMANOID", False, 249, loot=[(I["Wooden Shield"], 0.04)])
+mob("Orc Archer", 20006, "HUMANOID", False, 293, loot=[(I["Wooden Bow"], 0.05)])
+mob("Goblin Scout", 20326, "HUMANOID", False, 284, loot=[(I["Leather Cap"], 0.04), (I["Leather Tunic"], 0.01)])
+mob("Werewolf", 20132, "HUMANOID", False, 321, loot=[(I["Leather Cap"], 0.03)])
+mob("Orc Fighter", 20093, "HUMANOID", True, 363, loot=[(I["Short Sword"], 0.04), (I["Long Sword +1"], 0.01)])
 # --- Chemin du cimetière (niveaux 10-15) : loups-garous chasseurs, orques Vuku, bêtes d'ombre --
-mob("Werewolf Hunter", 20343, 10, "HUMANOID", True, 163.3, 363, "blunt", 120, loot=[(I["Amber Ring"], 0.02)], elite=True)
-mob("Vuku Orc", 20009, 14, "HUMANOID", False, 230, 650, "melee", 110, loot=[(I["Battle Axe"], 0.02)])
-mob("Vuku Orc Archer", 20011, 15, "HUMANOID", False, 247, 700, "bow", 110, loot=[(I["Wooden Bow"], 0.04)])
-mob("Shadow Beast", 20023, 15, "BEAST", False, 247, 720, "beast", 130, res={"DARK": 20, "HOLY": -20}, loot=[(I["Leather Armor"], 0.02)])
+mob("Werewolf Hunter", 20343, "HUMANOID", True, 363, loot=[(I["Garnet Ring"], 0.02)])
+mob("Vuku Orc", 20009, "HUMANOID", False, 650, loot=[(I["Spear"], 0.02)])
+mob("Vuku Orc Archer", 20011, "HUMANOID", False, 700, loot=[(I["Wooden Bow"], 0.04)])
+mob("Shadow Beast", 20023, "BEAST", False, 720, res={"DARK": 20, "HOLY": -20}, loot=[(I["Leather Armor"], 0.02)])
 # --- Ruins of Agony (niveaux 15-25) -----------------------------------------------------------
-mob("Ruin Zombie", 20026, 15, "UNDEAD", False, 247, 755, "zombie", 15, UNDEAD_RES, [(I["Padded Armor"], 0.03)])
-mob("Ruin Zombie Leader", 20029, 16, "UNDEAD", False, 264, 807, "zombie", 15, UNDEAD_RES, [(I["Leather Armor"], 0.03)], elite=True)
-mob("Skeleton Tracker", 20035, 17, "UNDEAD", False, 283, 605, "dagger", 140, UNDEAD_RES, [(I["Dagger"], 0.04), (I["Wooden Shield"], 0.03)])
-mob("Skeleton Tracker Leader", 20042, 18, "UNDEAD", True, 302, 652, "dagger", 140, UNDEAD_RES, [(I["Dagger"], 0.05), (I["Shield"], 0.02)], elite=True)
-mob("Skeleton Scout", 20045, 19, "UNDEAD", False, 322, 698, "bow", 140, UNDEAD_RES, [(I["Wooden Bow"], 0.05)])
-mob("Skeleton Bowman", 20051, 20, "UNDEAD", False, 343, 734, "bow", 140, UNDEAD_RES, [(I["Bow of Peril"], 0.004)])
-mob("Ruin Spartoi", 20054, 21, "UNDEAD", False, 364, 917, "melee", 140, UNDEAD_RES, [(I["Saber"], 0.04), (I["Tsurugi"], 0.004)])
-mob("Raging Spartoi", 20060, 22, "UNDEAD", True, 387, 1005, "dagger", 140, UNDEAD_RES, [(I["Iron Helmet"], 0.03), (I["Tsurugi"], 0.005)], elite=True)
-mob("Tumran Bugbear Warrior", 20064, 24, "GIANT", True, 435, 1145, "brute", 130, loot=[(I["Battle Axe"], 0.04), (I["Chain Mail"], 0.01)])
-raid("Soul Scavenger", 25369, 25, "UNDEAD", 43316, 74.2, 305.5, 149.0, 2541012, 190, UNDEAD_RES,
+mob("Ruin Zombie", 20026, "UNDEAD", False, 755, UNDEAD_RES, [(I["Padded Armor"], 0.03)])
+mob("Ruin Zombie Leader", 20029, "UNDEAD", False, 807, UNDEAD_RES, [(I["Leather Armor"], 0.03)])
+mob("Skeleton Tracker", 20035, "UNDEAD", False, 605, UNDEAD_RES, [(I["Dagger"], 0.04), (I["Wooden Shield"], 0.03)])
+mob("Skeleton Tracker Leader", 20042, "UNDEAD", True, 652, UNDEAD_RES, [(I["Dagger"], 0.05), (I["Shield"], 0.02)])
+mob("Skeleton Scout", 20045, "UNDEAD", False, 698, UNDEAD_RES, [(I["Wooden Bow"], 0.05)])
+mob("Skeleton Bowman", 20051, "UNDEAD", False, 734, UNDEAD_RES, [(I["Wooden Bow"], 0.004)])
+mob("Ruin Spartoi", 20054, "UNDEAD", False, 917, UNDEAD_RES, [(I["Saber"], 0.04), (I["Saber*Saber"], 0.004)])
+mob("Raging Spartoi", 20060, "UNDEAD", True, 1005, UNDEAD_RES, [(I["Iron Helmet"], 0.03), (I["Saber*Saber"], 0.005)])
+mob("Tumran Bugbear Warrior", 20064, "GIANT", True, 1145, loot=[(I["Pike"], 0.04), (I["Chain Mail"], 0.01)])
+raid("Soul Scavenger", 25369, "UNDEAD", 2541012, UNDEAD_RES,
      [(I["Tsurugi"], 0.35), (I["Sword of Valhalla"], 0.2), (I["Doom Gloves"], 0.3), (I["Amethyst Ring"], 0.25), (MAJOR_HEALING, 0.5)])
 # --- Ruins of Despair (niveaux 15-25) ---------------------------------------------------------
-mob("Shield Skeleton", 20514, 15, "UNDEAD", False, 247, 534, "blunt", 140, UNDEAD_RES, [(I["Shield"], 0.04), (I["Wooden Club"], 0.04)])
-mob("Skeleton Infantryman", 20515, 16, "UNDEAD", False, 264, 570, "blunt", 140, UNDEAD_RES, [(I["Wooden Shield"], 0.05)])
-mob("Ruin Imp", 20506, 17, "FAIRY", False, 283, 605, "flyer", 80, FAIRY_RES, [(I["Amber Earring"], 0.02)])
-mob("Scavenger Bat", 20411, 18, "ANIMAL", False, 302, 640, "flyer", 80, BAT_RES, [(I["Garnet Earring"], 0.03)])
-mob("Zombie Soldier", 20457, 19, "UNDEAD", False, 322, 958, "zombie", 15, UNDEAD_RES, [(I["Iron Helmet"], 0.03), (I["Chain Mail"], 0.008)])
-mob("Ruin Bat", 20505, 20, "ANIMAL", False, 343, 712, "flyer", 80, BAT_RES, [(I["Amber Ring"], 0.02)])
-mob("Ruin Imp Elder", 20507, 21, "FAIRY", True, 364, 935, "caster", 80, FAIRY_RES, [(I["Wand of Flames"], 0.02), (I["Amber Necklace"], 0.02)], elite=True)
-mob("Zombie Warrior", 20458, 22, "UNDEAD", True, 387, 1421, "zombie", 15, UNDEAD_RES, [(I["Chain Mail"], 0.01), (I["Helm of Terror"], 0.004)], elite=True)
-mob("Veelan Bugbear", 20401, 23, "GIANT", False, 411, 1054, "brute", 130, loot=[(I["Battle Axe"], 0.04)])
-mob("Veelan Bugbear Warrior", 20402, 24, "GIANT", True, 435, 1145, "brute", 130, loot=[(I["Spear"], 0.04), (I["Chain Mail"], 0.01)], elite=True)
-raid("Zombie Lord Crowl", 25149, 25, "UNDEAD", 43316, 74.2, 305.5, 149.0, 2541012, 190, UNDEAD_RES,
+mob("Shield Skeleton", 20514, "UNDEAD", False, 534, UNDEAD_RES, [(I["Shield"], 0.04), (I["Wooden Club"], 0.04)])
+mob("Skeleton Infantryman", 20515, "UNDEAD", False, 570, UNDEAD_RES, [(I["Wooden Shield"], 0.05)])
+mob("Ruin Imp", 20506, "FAIRY", False, 605, FAIRY_RES, [(I["Amber Earring"], 0.02)])
+mob("Scavenger Bat", 20411, "ANIMAL", False, 640, BAT_RES, [(I["Garnet Earring"], 0.03)])
+mob("Zombie Soldier", 20457, "UNDEAD", False, 958, UNDEAD_RES, [(I["Iron Helmet"], 0.03), (I["Chain Mail"], 0.008)])
+mob("Ruin Bat", 20505, "ANIMAL", False, 712, BAT_RES, [(I["Amber Ring"], 0.02)])
+mob("Ruin Imp Elder", 20507, "FAIRY", True, 935, FAIRY_RES, [(I["Basic Wizard Staff"], 0.02), (I["Amber Necklace"], 0.02)])
+mob("Zombie Warrior", 20458, "UNDEAD", True, 1421, UNDEAD_RES, [(I["Chain Mail"], 0.01), (I["Iron Helmet"], 0.004)])
+mob("Veelan Bugbear", 20401, "GIANT", False, 1054, loot=[(I["Pike"], 0.04)])
+mob("Veelan Bugbear Warrior", 20402, "GIANT", True, 1145, loot=[(I["Spear"], 0.04), (I["Chain Mail"], 0.01)])
+raid("Zombie Lord Crowl", 25149, "UNDEAD", 2541012, UNDEAD_RES,
      [(I["Sword of Valhalla"], 0.25), (I["Plate Armor"], 0.15), (I["Doom Helmet"], 0.3), (I["Amethyst Necklace"], 0.2), (MAJOR_HEALING, 0.5)])
 # --- Cruma Marshlands (niveaux 25-35) ---------------------------------------------------------
-mob("Giant Mist Leech", 20225, 25, "BUG", False, 461, 1190, "insect", 110, BUG_RES, [(I["Leather Armor"], 0.02)])
-mob("Gray Ant", 20226, 26, "BUG", False, 488, 1268, "insect", 130, BUG_RES, [(I["Iron Helmet"], 0.02)])
-mob("Horror Mist Ripper", 20227, 27, "UNDEAD", True, 515, 1349, "claw", 100, UNDEAD_RES, [(I["Amber Necklace"], 0.02)])
-mob("Giant Crimson Ant", 20228, 28, "BUG", False, 544, 1555, "insect", 130, BUG_RES, [(I["Zealot's Armor"], 0.01)])
-mob("Marsh Stakato", 20157, 29, "HUMANOID", True, 573, 1811, "dagger", 120, BUG_RES, [(I["Doom Gloves"], 0.008), (I["Dagger"], 0.03)])
-mob("Stinger Wasp", 20229, 30, "BUG", True, 604, 1744, "flyer", 90, BUG_RES, [(I["Amethyst Ring"], 0.004)])
-mob("Marsh Stakato Worker", 20230, 31, "HUMANOID", False, 636, 1995, "blunt", 140, BUG_RES, [(I["Doom Helmet"], 0.008), (I["Chain Mail"], 0.015)])
-mob("Toad Lord", 20231, 32, "ANIMAL", False, 668, 1946, "claw", 100, loot=[(I["Helm of Terror"], 0.01)])
-mob("Marsh Stakato Soldier", 20232, 33, "HUMANOID", False, 702, 1900, "dagger", 155, BUG_RES, [(I["Sword of Valhalla"], 0.004), (I["Shield +1"], 0.004)])
-mob("Marsh Spider", 20233, 34, "BUG", True, 737, 2241, "insect", 140, BUG_RES, [(I["Doom Breastplate"], 0.004)])
-mob("Marsh Stakato Drone", 20234, 35, "HUMANOID", True, 773, 2267, "dagger", 174, BUG_RES, [(I["Hammer of Ruin"], 0.003), (I["Amethyst Necklace"], 0.004)], elite=True)
-raid("Stakato Queen Zyrnna", 25023, 34, "HUMANOID", 87403, 284.0, 398.8, 194.6, 2316589, 170, BUG_RES,
+mob("Giant Mist Leech", 20225, "BUG", False, 1190, BUG_RES, [(I["Leather Armor"], 0.02)])
+mob("Gray Ant", 20226, "BUG", False, 1268, BUG_RES, [(I["Iron Helmet"], 0.02)])
+mob("Horror Mist Ripper", 20227, "UNDEAD", True, 1349, UNDEAD_RES, [(I["Amber Necklace"], 0.02)])
+mob("Giant Crimson Ant", 20228, "BUG", False, 1555, BUG_RES, [(I["Leather Armor"], 0.01)])
+mob("Marsh Stakato", 20157, "HUMANOID", True, 1811, BUG_RES, [(I["Amber Ring"], 0.008), (I["Dagger"], 0.03)])
+mob("Stinger Wasp", 20229, "BUG", True, 1744, BUG_RES, [(I["Amethyst Ring"], 0.004)])
+mob("Marsh Stakato Worker", 20230, "HUMANOID", False, 1995, BUG_RES, [(I["Helm of Terror"], 0.008), (I["Chain Mail"], 0.015)])
+mob("Toad Lord", 20231, "ANIMAL", False, 1946, loot=[(I["Helm of Terror"], 0.01)])
+mob("Marsh Stakato Soldier", 20232, "HUMANOID", False, 1900, BUG_RES, [(I["Tsurugi"], 0.004), (I["Shield +1"], 0.004)])
+mob("Marsh Spider", 20233, "BUG", True, 2241, BUG_RES, [(I["Zealot's Armor"], 0.004)])
+mob("Marsh Stakato Drone", 20234, "HUMANOID", True, 2267, BUG_RES, [(I["Battle Axe"], 0.003), (I["Amethyst Necklace"], 0.004)])
+raid("Stakato Queen Zyrnna", 25023, "HUMANOID", 2316589, BUG_RES,
      [(I["Sword of Miracle"], 0.15), (I["Hammer of Ruin"], 0.2), (I["Plate Armor"], 0.3), (I["Doom Breastplate"], 0.35), (MAJOR_HEALING, 0.6)])
 # --- Gludio Castle : bois de l'ouest (lézards Maille, araignées) et de l'est (hommes-rats) ---
-mob("Maille Lizardman", 20919, 20, "HUMANOID", False, 343, 320, "melee", 130, loot=[(I["Spear"], 0.03)])
-mob("Maille Lizardman Scout", 20920, 22, "HUMANOID", False, 387, 712, "bow", 130, loot=[(I["Wooden Bow"], 0.04)])
-mob("Maille Lizardman Guard", 20921, 24, "HUMANOID", True, 435, 515, "melee", 130, loot=[(I["Spear"], 0.04), (I["Pike"], 0.003)], elite=True)
-mob("Giant Araneid", 20925, 24, "BUG", False, 435, 525, "insect", 140, BUG_RES, [(I["Leather Armor"], 0.03)])
-mob("Poison Araneid", 20926, 25, "BUG", False, 461, 607, "insect", 140, BUG_RES, [(I["Zealot's Armor"], 0.01)])
-mob("Maille Lizardman Warrior", 20922, 26, "HUMANOID", False, 488, 570, "brute", 130, loot=[(I["Pike"], 0.004)])
-mob("King of the Araneid", 20927, 27, "BUG", True, 515, 872, "insect", 140, BUG_RES, [(I["Doom Gloves"], 0.01)], elite=True)
-mob("Maille Lizardman Shaman", 20923, 28, "HUMANOID", False, 544, 835, "caster", 130, loot=[(I["Wand of Flames"], 0.03)])
-mob("Maille Lizardman Matriarch", 20924, 30, "HUMANOID", True, 604, 1025, "melee", 130, loot=[(I["Shield +1"], 0.006), (I["Helm of Terror"], 0.01)], elite=True)
-mob("Ratman Spy", 20360, 16, "HUMANOID", False, 264, 570, "dagger", 120, loot=[(I["Dagger"], 0.04)])
-mob("Pinrul", 20032, 17, "BUG", False, 283, 605, "insect", 130, BUG_RES, [(I["Padded Armor"], 0.03)])
-mob("Bugbear Raider", 20775, 17, "GIANT", True, 283, 599, "brute", 130, loot=[(I["Battle Axe"], 0.03)])
-mob("Ratman Hunter", 20358, 18, "HUMANOID", False, 302, 640, "dagger", 120, loot=[(I["Leather Armor"], 0.02)])
-mob("Ratman Sub Chieftain", 21093, 19, "HUMANOID", True, 322, 691, "dagger", 150, loot=[(I["Saber"], 0.03)], elite=True)
-mob("Ratman Chieftain", 21094, 20, "HUMANOID", False, 343, 712, "melee", 155, loot=[(I["Sword of Valhalla"], 0.003), (I["Iron Helmet"], 0.03)], elite=True)
-raid("Sukar Wererat Chief", 25357, 21, "HUMANOID", 37886, 53.1, 269.2, 131.3, 2646357, 190, None,
+mob("Maille Lizardman", 20919, "HUMANOID", False, 320, loot=[(I["Spear"], 0.03)])
+mob("Maille Lizardman Scout", 20920, "HUMANOID", False, 712, loot=[(I["Wooden Bow"], 0.04)])
+mob("Maille Lizardman Guard", 20921, "HUMANOID", True, 515, loot=[(I["Spear"], 0.04), (I["Pike"], 0.003)])
+mob("Giant Araneid", 20925, "BUG", False, 525, BUG_RES, [(I["Leather Armor"], 0.03)])
+mob("Poison Araneid", 20926, "BUG", False, 607, BUG_RES, [(I["Leather Armor"], 0.01)])
+mob("Maille Lizardman Warrior", 20922, "HUMANOID", False, 570, loot=[(I["Pike"], 0.004)])
+mob("King of the Araneid", 20927, "BUG", True, 872, BUG_RES, [(I["Amber Earring"], 0.01)])
+mob("Maille Lizardman Shaman", 20923, "HUMANOID", False, 835, loot=[(I["Basic Wizard Staff"], 0.03)])
+mob("Maille Lizardman Matriarch", 20924, "HUMANOID", True, 1025, loot=[(I["Shield +1"], 0.006), (I["Helm of Terror"], 0.01)])
+mob("Ratman Spy", 20360, "HUMANOID", False, 570, loot=[(I["Dagger"], 0.04)])
+mob("Pinrul", 20032, "BUG", False, 605, BUG_RES, [(I["Padded Armor"], 0.03)])
+mob("Bugbear Raider", 20775, "GIANT", True, 599, loot=[(I["Pike"], 0.03)])
+mob("Ratman Hunter", 20358, "HUMANOID", False, 640, loot=[(I["Leather Armor"], 0.02)])
+mob("Ratman Sub Chieftain", 21093, "HUMANOID", True, 691, loot=[(I["Saber"], 0.03)])
+mob("Ratman Chieftain", 21094, "HUMANOID", False, 712, loot=[(I["Saber"], 0.003), (I["Iron Helmet"], 0.03)])
+raid("Sukar Wererat Chief", 25357, "HUMANOID", 2646357, None,
      [(I["Tsurugi"], 0.3), (I["Chain Mail"], 0.4), (I["Amethyst Ring"], 0.2), (MAJOR_HEALING, 0.4)])
 
 
-def target_hits(level):
-    return 4.0 + 3.0 * (level - 1) / 34.0
+ATTRS = ("STR", "DEX", "CON", "INT", "WIT", "MEN")
+
+
+def num(value):
+    """Nombre du datapack sans zéros inutiles (39.75, 253)."""
+    return f"{value:g}"
 
 
 def build(m):
+    """Fiche serveur : valeurs de base L2 telles quelles, XP/or propres au jeu."""
+    npc = L2_NPC[m["l2id"]]
     level = m["level"]
-    attrs = RAID_ATTRS if m["raid"] else MONSTER_ATTRS
-    std = L2_STANDARD[level]
-    patk_mul, def_mul, acc, eva, crit, atk_spd = ROLE[m["role"]]
-    if m["elite"]:
-        patk_mul *= ELITE[0]
-        def_mul *= ELITE[1]
-    hp = m["hp"]
-    # Défense : le personnage du niveau tue un monstre ordinaire en target_hits coups.
-    pdef_final = 70.0 * player_patk(level) * target_hits(level) / std[0] * def_mul
-    mdef_final = pdef_final * std[4] / std[3]
-    # Attaque : un Human Fighter du niveau meurt en ~12 coups.
-    patk_final = fighter_hp(level) / 12.0 * player_pdef(level) / 70.0 * patk_mul
     gold = round(level * (4 + level * 0.2))
     xp = m["xp"]
-    respawn = None
     if m["raid"]:
-        # Boss de raid : défenses/attaque L2 relatives au monstre standard du niveau (frappe x 1.5 de\n        # plus : il se combat à plusieurs), PV
-        # ramenés à 30 % (contenu de groupe, pas de quatre heures de frappe), XP à 5 %.
-        pdef_final *= (m["pd"] / std[3]) ** 0.6
-        mdef_final *= (m["md"] / std[4]) ** 0.6
-        patk_final *= m["pa"] / std[1] * 1.5
-        hp = hp * 0.3
+        # Boss de raid : XP ramenée à 5 % (rythme de progression du jeu), or forfaitaire.
         xp = xp * 0.05
         gold = 40 * level * 5
-        acc, eva, crit, atk_spd = 4, 0, 4, 260
-    stats = dict(
-        maxHealth=max(1, round(hp)),
-        pAtk=max(1, round(patk_final / (bonus("STR", attrs["STR"]) * level_factor(level)))),
-        pDef=max(1, round(pdef_final - bonus("CON", attrs["CON"]) * 6.0)),
-        mAtk=max(1, round(patk_final * std[2] / std[1] / (bonus("INT", attrs["INT"]) * level_factor(level)))),
-        mDef=max(1, round(mdef_final - bonus("MEN", attrs["MEN"]) * 6.0)),
-        accuracyBonus=acc, evasionBonus=eva, critBonus=crit, xpReward=round(xp),
-    )
+    stats = dict(maxHealth=npc["hp"], pAtk=npc["pAtk"], pDef=npc["pDef"], mAtk=npc["mAtk"], mDef=npc["mDef"],
+                 accuracyBonus=npc["acc"], evasionBonus=npc["eva"], critBonus=npc["crit"], xpReward=round(xp))
+    attrs = dict(zip(ATTRS, npc["attrs"]))
     loot = tier_loot(level) + m["loot"]
-    return stats, attrs, gold, loot, atk_spd
+    return stats, attrs, gold, loot, npc
 
 
 def monster_id(name):
@@ -300,20 +352,20 @@ def monster_id(name):
 
 
 def xml_entry(m):
-    stats, attrs, gold, loot, atk_spd = build(m)
+    stats, attrs, gold, loot, npc = build(m)
     kind = "boss de raid" if m["raid"] else ("agressif" if m["aggro"] else "passif")
     lines = [f'    <!-- {m["name"]} (L2 npc {m["l2id"]}, niveau {m["level"]}, {kind}) -->',
              f'    <monster id="{monster_id(m["name"])}">',
              f'        <name>{m["name"]}</name>',
              f'        <race>{m["race"]}</race>',
-             f'        <maxHealth>{stats["maxHealth"]}</maxHealth>',
-             f'        <pAtk>{stats["pAtk"]}</pAtk>',
-             f'        <pDef>{stats["pDef"]}</pDef>',
-             f'        <mAtk>{stats["mAtk"]}</mAtk>',
-             f'        <mDef>{stats["mDef"]}</mDef>',
-             f'        <accuracyBonus>{stats["accuracyBonus"]}</accuracyBonus>',
-             f'        <evasionBonus>{stats["evasionBonus"]}</evasionBonus>',
-             f'        <critBonus>{stats["critBonus"]}</critBonus>',
+             f'        <maxHealth>{num(stats["maxHealth"])}</maxHealth>',
+             f'        <pAtk>{num(stats["pAtk"])}</pAtk>',
+             f'        <pDef>{num(stats["pDef"])}</pDef>',
+             f'        <mAtk>{num(stats["mAtk"])}</mAtk>',
+             f'        <mDef>{num(stats["mDef"])}</mDef>',
+             f'        <accuracyBonus>{num(stats["accuracyBonus"])}</accuracyBonus>',
+             f'        <evasionBonus>{num(stats["evasionBonus"])}</evasionBonus>',
+             f'        <critBonus>{num(stats["critBonus"])}</critBonus>',
              f'        <xpReward>{stats["xpReward"]}</xpReward>',
              '        <attributes>']
     lines += [f'            <{k}>{v}</{k}>' for k, v in attrs.items()]
@@ -325,8 +377,8 @@ def xml_entry(m):
         lines += [f'            <{k}>{v}</{k}>' for k, v in m["res"].items()]
         lines += ['        </elementalResistances>']
     lines += [f'        <aggroRadius>{6 if m["aggro"] else 0}</aggroRadius>',
-              f'        <speed>{round(m["run"] * 1.3)}</speed>',
-              f'        <atkSpd>{atk_spd}</atkSpd>',
+              f'        <speed>{num(npc["run"])}</speed>',
+              f'        <atkSpd>{npc["atkSpd"]}</atkSpd>',
               f'        <level>{m["level"]}</level>',
               '    </monster>']
     return "\n".join(lines)
@@ -359,6 +411,22 @@ def gd_table():
     return "\n".join(lines)
 
 
+def rewrite_historic(text):
+    """Stats L2 des fiches historiques (monstres de départ), réécrites en place."""
+    for name, l2id in HISTORIC.items():
+        npc = L2_NPC[l2id]
+        start = text.index(f"<name>{name}</name>")
+        end = text.index("</monster>", start)
+        body = text[start:end]
+        values = dict(maxHealth=npc["hp"], pAtk=npc["pAtk"], pDef=npc["pDef"], mAtk=npc["mAtk"], mDef=npc["mDef"],
+                      accuracyBonus=npc["acc"], evasionBonus=npc["eva"], critBonus=npc["crit"], speed=npc["run"],
+                      atkSpd=npc["atkSpd"], level=npc["level"], **dict(zip(ATTRS, npc["attrs"])))
+        for tag, value in values.items():
+            body = re.sub(rf"<{tag}>[^<]*</{tag}>", f"<{tag}>{num(value)}</{tag}>", body, count=1)
+        text = text[:start] + body + text[end:]
+    return text
+
+
 def main():
     target = Path(sys.argv[1])
     text = target.read_text(encoding="utf-8")
@@ -367,6 +435,7 @@ def main():
     # Monstres historiques : passifs comme dans L2 (aggroRadius, jusqu'ici inutilisé, active
     # désormais l'agression).
     text = re.sub(r"<aggroRadius>\d+</aggroRadius>", "<aggroRadius>0</aggroRadius>", text)
+    text = rewrite_historic(text)
     block = "\n".join([BEGIN] + [xml_entry(m) for m in M] + [END])
     text = text.replace("</monsters>", block + "\n</monsters>")
     target.write_text(text, encoding="utf-8", newline="\n")
@@ -375,8 +444,8 @@ def main():
     print(f"{len(M)} fiches écrites dans {target}, table {gd}")
     for m in M:
         s, _, gold, _, _ = build(m)
-        print(f'  {m["name"]:<28} lv{m["level"]:>2} hp {s["maxHealth"]:>6} patk {s["pAtk"]:>3} pdef {s["pDef"]:>3} '
-              f'mdef {s["mDef"]:>3} xp {s["xpReward"]:>6} gold {gold:>5} aggro {m["aggro"]}')
+        print(f'  {m["name"]:<28} lv{m["level"]:>2} hp {num(s["maxHealth"]):>8} patk {num(s["pAtk"]):>6} '
+              f'pdef {num(s["pDef"]):>6} mdef {num(s["mDef"]):>6} xp {s["xpReward"]:>6} gold {gold:>5} aggro {m["aggro"]}')
 
 
 if __name__ == "__main__":

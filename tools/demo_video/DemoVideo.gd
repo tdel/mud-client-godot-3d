@@ -216,8 +216,8 @@ func _feed_initial_state() -> void:
 		"id": PLAYER_ID, "name": PLAYER_NAME, "level": 5, "characterClass": "FIGHTER", "gender": "MAN",
 		"currentHealth": _hp[PLAYER_ID], "maxHealth": _max_hp[PLAYER_ID], "currentMana": _mana, "maxMana": 62,
 		"xp": 1360, "xpForCurrentLevel": 900, "xpForNextLevel": 1520,
-		"pAtk": 38, "mAtk": 16, "pDef": 64, "mDef": 41, "accuracy": 33, "evasion": 32,
-		"criticalRate": 8, "atkSpd": 300, "speed": RUN_SPEED, "castSpd": 213,
+		"pAtk": 8, "mAtk": 4, "pDef": 129, "mDef": 47, "accuracy": 38, "evasion": 38,
+		"criticalRate": 88, "atkSpd": 417, "speed": RUN_SPEED, "runSpeed": 126, "castSpd": 213,
 		"strength": {"score": 40}, "dexterity": {"score": 30}, "constitution": {"score": 43},
 		"intelligence": {"score": 21}, "wit": {"score": 11}, "men": {"score": 25},
 		"karma": 0, "pvpCount": 0, "pkCount": 0,
@@ -225,8 +225,9 @@ func _feed_initial_state() -> void:
 	# Équipement de base (noms du catalogue backend) + charges et consommables.
 	_emit("Inventory", {"gold": 2150, "items": [
 		{"id": "demo-e1", "name": "Short Sword", "grade": "NOGRADE", "type": "WEAPON", "slot": "WEAPON",
-			"weaponType": "SWORD", "pAtk": 9, "atkSpd": 300},
-		{"id": "demo-e2", "name": "Wooden Shield", "grade": "NOGRADE", "type": "SHIELD", "slot": "OFF_HAND", "pDef": 12},
+			"weaponType": "SWORD", "pAtk": 8, "mAtk": 6, "critBonus": 8, "atkSpd": 379},
+		{"id": "demo-e2", "name": "Wooden Shield", "grade": "NOGRADE", "type": "SHIELD", "slot": "OFF_HAND", "pDef": 56,
+			"evasionBonus": -8},
 		{"id": "demo-e3", "name": "Leather Tunic", "grade": "NOGRADE", "type": "ARMOR", "slot": "CHEST",
 			"armorCategory": "LIGHT", "pDef": 18},
 		{"id": "demo-e4", "name": "Leather Pants", "grade": "NOGRADE", "type": "PANTS", "slot": "LEGS",

@@ -18,7 +18,7 @@ const ARMOR_CATEGORY_LABELS := {"HEAVY": "armure lourde", "LIGHT": "armure lég�
 const STAT_LINES := [
 	["pAtk", "P. Atk."], ["mAtk", "M. Atk."], ["pDef", "P. Déf."], ["mDef", "M. Déf."],
 	["accuracyBonus", "Précision"], ["evasionBonus", "Esquive"], ["critBonus", "Critique"],
-	["atkSpd", "Vit. Atk."],
+	["atkSpd", "Vit. Atk."], ["maxMp", "PM max"],
 ]
 
 
@@ -49,11 +49,17 @@ static func build(item: Dictionary, footer_lines: Array = []) -> String:
 	if type_key in ["SOULSHOT", "SPIRITSHOT", "POTION", "SCROLL"]:
 		lines.append(UITheme.tooltip_stat("Quantité :", UITheme.format_number(int(item.get("quantity", 1)))))
 
+	# Arme : critique de base L2 (8 épée, 12 dague/arc, 4 masse), affiché tel quel ; bouclier :
+	# pDef = défense ajoutée en cas de blocage (sDef L2).
+	var weapon := type_key == "WEAPON"
 	for entry in STAT_LINES:
 		var value := int(item.get(entry[0], 0))
 		if value != 0:
-			var shown := str(value) if entry[0] in ["pAtk", "mAtk", "pDef", "mDef", "atkSpd"] else _signed(value)
-			lines.append(UITheme.tooltip_stat("%s :" % entry[1], shown))
+			var plain: bool = entry[0] in ["pAtk", "mAtk", "pDef", "mDef", "atkSpd"] or (weapon and entry[0] == "critBonus")
+			var label: String = "Déf. bouclier" if type_key == "SHIELD" and entry[0] == "pDef" else entry[1]
+			lines.append(UITheme.tooltip_stat("%s :" % label, str(value) if plain else _signed(value)))
+	if bool(item.get("fullArmor", false)):
+		lines.append("[color=#%s]%s[/color]" % [UITheme.TEXT_DIM.to_html(false), "Armure complète (couvre les jambes)"])
 
 	var description := str(item.get("description", ""))
 	if not description.is_empty():
