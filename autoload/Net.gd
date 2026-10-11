@@ -112,6 +112,10 @@ func _handle_line(line: String) -> void:
 	if typeof(data) != TYPE_DICTIONARY:
 		return
 	var type: String = data.get("type", "")
+	# Heartbeat serveur : sans réponse, il ferme la connexion (client considéré mort).
+	if type == "Ping":
+		send_command("pong")
+		return
 	var payload = data.get("payload", {})
 	if typeof(payload) != TYPE_DICTIONARY:
 		payload = {}

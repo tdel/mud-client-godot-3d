@@ -89,6 +89,17 @@ func show_window() -> void:
 	_fit_to_content.call_deferred()
 
 
+## Fenêtre libérée encore ouverte (retour à l'écran de connexion avec le HUD) : sinon elle
+## resterait dans les statiques _open_stack/_focused, qui survivent à la scène de jeu.
+## _notification plutôt que _exit_tree : appelé à chaque niveau d'héritage, même quand une
+## sous-classe (WorldMapWindow) redéfinit _exit_tree.
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_PREDELETE:
+		WindowFrame._open_stack.erase(self)
+		if WindowFrame._focused == self:
+			WindowFrame._focused = null
+
+
 func close_window() -> void:
 	if visible:
 		_save_position()

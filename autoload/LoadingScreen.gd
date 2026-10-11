@@ -47,6 +47,10 @@ var _fade_tween: Tween
 ## qui lui est allouée — le reste revient au chargement de carte piloté par Game3D.
 var _scene_path := ""
 var _scene_share := 0.0
+## Requêtes ResourceLoader.load_threaded_request abandonnées (voir release_threaded_load) :
+## chacune doit encore être récupérée par load_threaded_get, sinon le ResourceLoader garde
+## indéfiniment la ressource chargée (une scène de carte entière).
+var _released_loads: PackedStringArray = []
 
 
 func _ready() -> void:
@@ -112,6 +116,7 @@ func finish() -> void:
 
 ## Masque immédiatement (déconnexion en plein chargement, retour à l'écran de connexion).
 func cancel() -> void:
+	release_threaded_load(_scene_path)
 	_scene_path = ""
 	if not _active:
 		return
@@ -122,6 +127,26 @@ func cancel() -> void:
 
 func is_active() -> bool:
 	return _active
+
+
+## Abandonne une requête load_threaded_request encore en cours (chargement interrompu par
+## une déconnexion, un nouveau changement de carte...) : elle est consommée dès qu'elle se
+## termine, puis son résultat jeté.
+func release_threaded_load(path: String) -> void:
+	if path.is_empty():
+		return
+	_released_loads.append(path)
+	set_process(true)
+
+
+func _drain_released_loads() -> void:
+	for i in range(_released_loads.size() - 1, -1, -1):
+		var status := ResourceLoader.load_threaded_get_status(_released_loads[i])
+		if status == ResourceLoader.THREAD_LOAD_IN_PROGRESS:
+			continue
+		if status != ResourceLoader.THREAD_LOAD_INVALID_RESOURCE:
+			ResourceLoader.load_threaded_get(_released_loads[i])
+		_released_loads.remove_at(i)
 
 
 ## Remplace get_tree().change_scene_to_file pour l'entrée en jeu : affiche l'écran tout de
@@ -139,6 +164,10 @@ func change_scene_to_file(path: String, share: float = 0.12) -> void:
 
 
 func _process(delta: float) -> void:
+	_drain_released_loads()
+	if not _active:
+		set_process(not _released_loads.is_empty())
+		return
 	_poll_scene_load()
 	_shown = move_toward(_shown, _target, delta / MIN_FILL_SEC)
 	_refresh_bar()
@@ -165,6 +194,8 @@ func _poll_scene_load() -> void:
 			get_tree().change_scene_to_packed(packed)
 		_:
 			push_warning("LoadingScreen: échec du chargement de %s" % _scene_path)
+			if status == ResourceLoader.THREAD_LOAD_FAILED:
+				ResourceLoader.load_threaded_get(_scene_path)  # libère la requête
 			var path := _scene_path
 			_scene_path = ""
 			get_tree().change_scene_to_file(path)
@@ -189,7 +220,7 @@ func _hide() -> void:
 	_finishing = false
 	_fading = false
 	_root.visible = false
-	set_process(false)
+	set_process(not _released_loads.is_empty())
 	finished.emit()
 
 

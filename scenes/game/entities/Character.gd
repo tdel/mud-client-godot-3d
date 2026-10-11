@@ -546,6 +546,10 @@ func _spawn_sparkles(mesh_name: String, appearing: bool) -> void:
 		var particles := _make_sparkles(appearing, spec[1])
 		attachment.add_child(particles)
 		particles.finished.connect(attachment.queue_free)
+		# Filet de sécurité : si la rafale ne va jamais au bout (`finished` jamais émis),
+		# l'attache ne doit pas rester sous le squelette pour toute la vie du modèle.
+		if attachment.is_inside_tree():
+			VfxLib.free_after(attachment, particles.lifetime + 2.0)
 		_emit_next_frame.call_deferred(particles)
 
 

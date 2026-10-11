@@ -218,6 +218,10 @@ const SYSTEM_WINDOW_MESSAGE_HOLD_SEC := 10.0
 ## leur fondu, au lieu de disparaître d'un coup — demande explicite du 2026-09-27.
 const CHAT_WINDOW_UNFOCUS_HOLD_SEC := 10.0
 const CHAT_WINDOW_FADE_SEC := 1.5
+## Lignes conservées par journal (système, chat, #Groupe) : au-delà, les plus anciennes sont
+## retirées (_append_log_line) — sinon chaque coup porté en farm s'accumule indéfiniment en
+## mémoire et chaque redimensionnement de la fenêtre remet en forme tout l'historique.
+const LOG_MAX_LINES := 400
 
 const PLAYER_KEY := "player"
 
@@ -599,6 +603,8 @@ func _exit_tree() -> void:
 	# s'efface pendant que MenuMusic repart.
 	ZoneMusic.stop()
 	LoadingScreen.cancel()
+	if _map_load_step == MapLoadStep.LOADING:
+		LoadingScreen.release_threaded_load(_map_load_scene_path)
 
 
 func _process(delta: float) -> void:
@@ -780,8 +786,9 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 				if payload.has("x"):
 					_correct_position(key, Vector3(payload.get("x", 0.0), 0.0, payload.get("y", 0.0)))
 				var target2 := Vector3(payload.get("targetX", 0.0), 0.0, payload.get("targetY", 0.0))
-				# Un monstre en poursuite reçoit une cible fraîche à chaque pas serveur : il
-				# continue de courir en attendant la suivante plutôt que de repasser en idle.
+				# Un monstre en poursuite ne reçoit une nouvelle destination que quand sa cible
+				# s'éloigne du point annoncé (MonsterAiEngine) : arrivé au bout, il continue de
+				# courir en attendant la suivante ou son CharacterMovementStopped.
 				_start_path(key, _payload_path(payload, target2), not key.begins_with("monster:"))
 				if not payload.has("waypoints"):
 					_face_heading(node, float(payload.get("heading", 0.0)))
@@ -793,7 +800,11 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 			var character_id2 := str(payload.get("characterId", ""))
 			if not entity_name2.is_empty():
 				var key2 := _resolve_movement_key(character_id2, entity_name2)
-				_ensure_entity_node(key2, entity_name2, OTHER_PLAYER_COLOR)
+				# Fin de déplacement d'une entité inconnue (message arrivé après son
+				# EntityDisappeared/MonsterDefeated) : rien à arrêter. La créer laisserait un
+				# nœud « character:<nom> » qu'aucun EntityDisappeared ne retrouverait plus.
+				if not _entities_by_key.has(key2):
+					return
 				var end_pos := Vector3(payload.get("x", 0.0), 0.0, payload.get("y", 0.0))
 				if type == "CharacterMovementFinished":
 					_finish_path(key2, end_pos)
@@ -1243,6 +1254,11 @@ func _rebuild_map(payload: Dictionary) -> void:
 	# qu'une fois entièrement prête. Tout ce qui précède reste immédiat pour que les messages
 	# qui suivent MapView (MapEnter, EntityAppeared, PortalAppeared) s'appliquent pendant le
 	# chargement sur un état déjà remis à zéro.
+	# Nouveau MapView alors que la carte précédente se charge encore (portail puis respawn
+	# immédiat...) : sa requête est confiée à LoadingScreen, qui la consommera — une requête
+	# jamais récupérée garde sa scène de carte en mémoire jusqu'à la fin du programme.
+	if _map_load_step == MapLoadStep.LOADING:
+		LoadingScreen.release_threaded_load(_map_load_scene_path)
 	_map_load_base = LoadingScreen.begin(_current_map_name)
 	_map_load_payload = payload
 	_map_load_packed = null
@@ -1275,6 +1291,8 @@ func _advance_map_load() -> void:
 				_map_load_packed = ResourceLoader.load_threaded_get(_map_load_scene_path)
 			else:
 				push_warning("Game3D: échec du chargement de %s" % _map_load_scene_path)
+				if status == ResourceLoader.THREAD_LOAD_FAILED:
+					ResourceLoader.load_threaded_get(_map_load_scene_path)  # libère la requête
 			_set_map_load_progress(0.7)
 			_map_load_step = MapLoadStep.INSTANTIATE
 		MapLoadStep.INSTANTIATE:
@@ -2407,6 +2425,7 @@ func _remove_entity(key: String) -> void:
 	_entity_speed_by_key.erase(key)
 	_entity_vitals_by_key.erase(key)
 	_casting_by_key.erase(key)
+	_spiritshot_at_by_key.erase(key)
 	_free_bars(key)
 	for id in _key_by_entity_id.keys().duplicate():
 		if _key_by_entity_id[id] == key:
@@ -3348,6 +3367,7 @@ func _despawn_monster(monster_id: String, monster_name: String) -> void:
 	_entity_vitals_by_key.erase(key)
 	_finish_cast_vfx(key, false)
 	_casting_by_key.erase(key)
+	_spiritshot_at_by_key.erase(key)
 	_free_bars(key)
 	if not monster_id.is_empty():
 		_key_by_entity_id.erase(monster_id)
@@ -3694,7 +3714,7 @@ func _log_player_defeated(payload: Dictionary) -> void:
 
 ## Journal système (voir _system_log_label) : tout sauf le chat entre joueurs (_log_chat).
 func _log(text: String) -> void:
-	_system_log_label.append_text(text + "\n")
+	_append_log_line(_system_log_label, text)
 	_flash_chat_window(_system_log_background, SYSTEM_WINDOW_MESSAGE_HOLD_SEC)
 
 
@@ -3704,10 +3724,18 @@ func _log(text: String) -> void:
 ## (onglet "#Groupe", voir Game.tscn) — seuls "party"/"whisper" y apparaissent, un "say" normal
 ## reste réservé à l'onglet "Tous" (%ChatLogLabel, qui reçoit lui TOUJOURS tous les canaux).
 func _log_chat(text: String, channel: String = "say") -> void:
-	_chat_log_label.append_text(text + "\n")
+	_append_log_line(_chat_log_label, text)
 	if channel != "say":
-		_chat_party_log_label.append_text(text + "\n")
+		_append_log_line(_chat_party_log_label, text)
 	_flash_chat_window(_chat_log_background)
+
+
+## Ajoute une ligne à un journal en retirant les plus anciennes au-delà de LOG_MAX_LINES (+1 :
+## le "\n" final laisse toujours un paragraphe vide en fin de journal).
+func _append_log_line(label: RichTextLabel, text: String) -> void:
+	label.append_text(text + "\n")
+	while label.get_paragraph_count() > LOG_MAX_LINES + 1:
+		label.remove_paragraph(0)
 
 
 ## Fait clignoter légèrement une fenêtre de discussion à l'arrivée d'un nouveau message (voir
