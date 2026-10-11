@@ -11,10 +11,24 @@ extends Control
 @onready var _killer_label: Label = %KillerLabel
 @onready var _respawn_button: Button = %RespawnButton
 
+## Proposition de résurrection d'un prêtre (ResurrectionOffered, voir offer_resurrection) :
+## ligne ajoutée sous le bouton de réapparition, cachée sans proposition.
+var _resurrect_label := Label.new()
+var _resurrect_button := Button.new()
+
 
 func _ready() -> void:
 	visible = false
 	_respawn_button.pressed.connect(_on_respawn_pressed)
+	_resurrect_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_resurrect_label.custom_minimum_size = Vector2(260, 0)
+	_resurrect_label.add_theme_color_override("font_color", UITheme.SUCCESS)
+	_resurrect_button.text = "Accepter la résurrection"
+	_resurrect_button.focus_mode = Control.FOCUS_NONE
+	_resurrect_button.pressed.connect(_on_resurrect_pressed)
+	_respawn_button.get_parent().add_child(_resurrect_label)
+	_respawn_button.get_parent().add_child(_resurrect_button)
+	_hide_resurrection()
 
 
 func open(killer_name: String) -> void:
@@ -27,6 +41,26 @@ func open(killer_name: String) -> void:
 
 func close() -> void:
 	visible = false
+	_hide_resurrection()
+
+
+## `caster_name` propose de nous ramener à la vie sur place (Resurrection) : accepter envoie
+## resurrect-accept ; la popup se ferme sur PlayerResurrected (voir Game3D).
+func offer_resurrection(caster_name: String, skill_name: String) -> void:
+	_resurrect_label.text = "%s vous propose %s." % [caster_name, skill_name]
+	_resurrect_label.visible = true
+	_resurrect_button.visible = true
+	_resurrect_button.disabled = false
+
+
+func _hide_resurrection() -> void:
+	_resurrect_label.visible = false
+	_resurrect_button.visible = false
+
+
+func _on_resurrect_pressed() -> void:
+	_resurrect_button.disabled = true
+	Net.send_command("resurrect-accept")
 
 
 func _on_respawn_pressed() -> void:

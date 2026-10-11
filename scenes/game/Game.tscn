@@ -1,4 +1,4 @@
-[gd_scene load_steps=18 format=3]
+[gd_scene load_steps=20 format=3]
 
 [ext_resource type="Script" path="res://scenes/game/Game3D.gd" id="1"]
 [ext_resource type="PackedScene" path="res://scenes/game/hud/TargetStatusBar.tscn" id="2"]
@@ -19,6 +19,8 @@
 [ext_resource type="PackedScene" path="res://scenes/game/hud/PartyWindow.tscn" id="17"]
 [ext_resource type="PackedScene" path="res://scenes/game/hud/PartyInviteDialog.tscn" id="18"]
 [ext_resource type="PackedScene" path="res://scenes/game/hud/SkillLearnWindow.tscn" id="19"]
+[ext_resource type="PackedScene" path="res://scenes/game/hud/ClassChangeWindow.tscn" id="20"]
+[ext_resource type="PackedScene" path="res://scenes/game/hud/SummonFrame.tscn" id="21"]
 
 [sub_resource type="Environment" id="Environment_1"]
 background_mode = 1
@@ -224,6 +226,10 @@ unique_name_in_owner = true
 [node name="DialogueWindow" parent="HUD" instance=ExtResource("14")]
 
 [node name="SkillLearnWindow" parent="HUD" instance=ExtResource("19")]
+
+[node name="ClassChangeWindow" parent="HUD" instance=ExtResource("20")]
+
+[node name="SummonFrame" parent="HUD" instance=ExtResource("21")]
 
 [node name="PartyInviteDialog" parent="HUD" instance=ExtResource("18")]
 

@@ -19,6 +19,8 @@ signal member_selected(member_id: String)
 const MEMBER_FRAME_SCENE := preload("res://scenes/game/hud/PartyMemberFrame.tscn")
 ## Distance (px) au-delà de laquelle un appui devient un glisser plutôt qu'un clic.
 const DRAG_THRESHOLD := 5.0
+## Écart entre le bas de PlayerFrame (buffs compris) et la fenêtre.
+const FOLLOW_GAP := 6.0
 
 enum MenuId { TARGET, KICK, LEAVE, DISBAND, LOOT_RANDOM, LOOT_ROUND_ROBIN }
 
@@ -33,6 +35,9 @@ var _press_member_id := ""
 var _press_position := Vector2.ZERO
 var _drag_offset := Vector2.ZERO
 var _dragging := false
+## Vrai dès que la fenêtre a une position choisie par le joueur (glissée ou restaurée de
+## windows.cfg) : elle ne suit alors plus le bas de PlayerFrame (voir follow_below).
+var _user_placed := false
 
 
 func _ready() -> void:
@@ -41,6 +46,13 @@ func _ready() -> void:
 	_members.minimum_size_changed.connect(_fit_to_content)
 	_restore_position()
 	_rebuild()
+
+
+## Position par défaut : juste sous notre cadre et nos buffs/debuffs (PlayerFrame.bottom_y),
+## qui s'allongent ou se vident — appelé à chaque image par Game3D.
+func follow_below(bottom_y: float) -> void:
+	if not _user_placed:
+		global_position.y = bottom_y + FOLLOW_GAP
 
 
 ## Cible courante (Game3D._selected_target_id) : son cadre est surligné s'il est du groupe.
@@ -202,9 +214,11 @@ func _restore_position() -> void:
 	var saved = config.get_value(WindowFrame.POSITIONS_SECTION, name)
 	if saved is Vector2:
 		global_position = _clamped(saved)
+		_user_placed = true
 
 
 func _save_position() -> void:
+	_user_placed = true
 	if not WindowFrame.persist_positions:
 		return
 	var config := WindowFrame._positions_config()

@@ -36,8 +36,9 @@ const EQUIPMENT_PREFIXES := ["torso_", "legs_", "helmet_", "gloves_", "boots_", 
 ## Armes tenues à deux mains : attaque attack_2h (le générateur place la main gauche sur la
 ## poignée) et bouclier masqué.
 const TWO_HANDED_WEAPONS := ["weapon_greatsword", "weapon_hammer", "weapon_staff", "weapon_spear"]
-## L'arc occupe la main gauche : pas de bouclier non plus.
-const OFF_HAND_BLOCKING_WEAPONS := ["weapon_greatsword", "weapon_hammer", "weapon_staff", "weapon_spear", "weapon_bow"]
+## L'arc et les doubles épées occupent la main gauche : pas de bouclier non plus (les doubles
+## épées gardent l'attaque attack_1h, une lame dans chaque main).
+const OFF_HAND_BLOCKING_WEAPONS := ["weapon_greatsword", "weapon_hammer", "weapon_staff", "weapon_spear", "weapon_bow", "weapon_dual"]
 ## Couvre-chefs qui laissent voir les cheveux.
 const HAIR_VISIBLE_HELMETS := ["helmet_circlet", "helmet_guard"]
 
@@ -72,7 +73,7 @@ const DEFAULT_NPC_OUTFIT := {"CHEST": "torso_cloth", "LEGS": "legs_cloth", "FEET
 const WEAPON_VISUALS := {
 	"SWORD": "weapon_sword", "BIG_SWORD": "weapon_greatsword", "DAGGER": "weapon_dagger",
 	"BLUNT": "weapon_mace", "BIG_BLUNT": "weapon_hammer", "AXE": "weapon_axe", "POLE": "weapon_spear",
-	"STAFF": "weapon_staff", "WAND": "weapon_wand", "BOW": "weapon_bow",
+	"STAFF": "weapon_staff", "WAND": "weapon_wand", "BOW": "weapon_bow", "DUAL": "weapon_dual",
 }
 
 ## Effet d'équipement (voir _play_mesh_effect) : la pièce qui apparaît se matérialise (fondu
@@ -88,6 +89,7 @@ const UNEQUIP_FADE_TIME := 0.5
 ## Préfixe de mesh -> [bones où émettre les étincelles, rayon d'émission].
 const EFFECT_BONES := {
 	"weapon_bow": [["LeftHand"], 0.2],
+	"weapon_dual": [["LeftHand", "RightHand"], 0.2],
 	"weapon_": [["RightHand"], 0.2],
 	"shield_": [["LeftHand"], 0.18],
 	"helmet_": [["Head"], 0.14],
@@ -289,9 +291,12 @@ static func visual_for_item(slot: String, item: Dictionary) -> String:
 	match slot:
 		"WEAPON":
 			# Sans `weaponType` (backend antérieur à ce champ) : même devinette que les icônes.
+			var weapon_type := str(item.get("weaponType", "")).to_upper()
+			# Doubles épées L2 : "Saber*Saber", "Sword of Revolution*Sword of Revolution"...
+			if weapon_type == "DUAL" or item_name.contains("*"):
+				return WEAPON_VISUALS["DUAL"]
 			if item_name.contains("short sword"):
 				return "weapon_shortsword"
-			var weapon_type := str(item.get("weaponType", "")).to_upper()
 			if not WEAPON_VISUALS.has(weapon_type):
 				weapon_type = IconFactory.guess_weapon_type(item_name)
 			return WEAPON_VISUALS.get(weapon_type, "weapon_sword")

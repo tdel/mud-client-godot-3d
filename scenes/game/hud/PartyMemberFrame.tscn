@@ -111,21 +111,3 @@ layout_mode = 1
 anchor_right = 1.0
 anchor_bottom = 1.0
 mouse_filter = 2
-
-[node name="Effects" type="VBoxContainer" parent="."]
-layout_mode = 2
-size_flags_vertical = 0
-mouse_filter = 2
-theme_override_constants/separation = 1
-
-[node name="BuffRow" type="HBoxContainer" parent="Effects"]
-unique_name_in_owner = true
-layout_mode = 2
-mouse_filter = 2
-theme_override_constants/separation = 1
-
-[node name="DebuffRow" type="HBoxContainer" parent="Effects"]
-unique_name_in_owner = true
-layout_mode = 2
-mouse_filter = 2
-theme_override_constants/separation = 1

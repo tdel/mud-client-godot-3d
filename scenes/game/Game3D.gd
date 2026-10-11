@@ -75,6 +75,8 @@ const PLAYER_COLOR := Color(0.35, 0.65, 0.95)
 const OTHER_PLAYER_COLOR := Color(0.30, 0.80, 0.55)
 const MONSTER_COLOR := Color(0.85, 0.30, 0.28)
 const NPC_COLOR := Color(0.85, 0.75, 0.30)
+## Serviteur invoqué (Kat the Cat...) : bleu clair, entre allié et monstre.
+const SUMMON_COLOR := Color(0.45, 0.75, 0.95)
 ## Mannequin partagé par tous les personnages (voir _make_entity_node, modèles générés par
 ## tools/character_gen/build_characters.py), donc PLAYER_COLOR/OTHER_PLAYER_COLOR ne teintent
 ## ces entités qu'en mode "craie" (animations et skins désactivés dans le menu système, voir
@@ -191,6 +193,12 @@ const LOG_COLOR_WHISPER := "#ff77ff"
 
 ## Party.MAX_SIZE côté backend (nous compris).
 const PARTY_MAX_SIZE := 8
+
+## Pénalités de grade du backend (app.domain.item.GradePenalty, noms L2) -> libellé du journal.
+const GRADE_PENALTY_LABELS := {
+	"Weapon Grade Penalty": "Pénalité de grade d'arme",
+	"Armor Grade Penalty": "Pénalité de grade d'armure",
+}
 
 ## Transparence des fenêtres de discussion (%ChatLogPanel/%SystemLogPanel) — demande explicite
 ## du 2026-09-06 : quasi invisibles tant que %ChatInput n'a pas le focus (pour ne pas gêner la
@@ -393,6 +401,8 @@ var _map_load_frames := 0
 ## {"path": Array[Vector3] (waypoints serveur restants, voir MotionPath),
 ##  "idle_on_arrival": bool (repasse en idle au bout du chemin sans attendre le serveur)}.
 var _entities_by_key: Dictionary = {}
+## Modèle du serviteur en cours de création (voir _apply_appeared_entity/_ensure_entity_node).
+var _pending_summon_model := ""
 var _key_by_entity_id: Dictionary = {}
 var _entity_speed_by_key: Dictionary = {}
 var _moving: Dictionary = {}
@@ -522,7 +532,11 @@ func _ready() -> void:
 	_npc_menu.add_item("Parler", 0)
 	_npc_menu.add_item("Boutique", 1)
 	_npc_menu.add_item("Apprendre des compétences", 2)
+	_npc_menu.add_item("Changer de profession", 3)
 	_npc_menu.id_pressed.connect(_on_npc_menu_id_pressed)
+	# Altérations d'état et cubiques visibles sur les entités (voir StatusVfx).
+	GameState.effects_changed.connect(_refresh_status_vfx)
+	%SummonFrame.summon_clicked.connect(func(summon_id: String): Net.send_command("select", summon_id))
 	_player_frame.self_clicked.connect(_on_player_frame_self_clicked)
 	_target_status_bar.teleport_requested.connect(_on_teleport_button_pressed)
 	_target_status_bar.close_requested.connect(_deselect_all)
@@ -897,6 +911,22 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 		"SkillModifierAnnounced":
 			if bool(payload.get("hit", false)):
 				_play_skill_animation(str(payload.get("targetId", "")), str(payload.get("skillName", "")))
+		"SkillModifierExpired":
+			# Fin d'un de nos effets (durée écoulée, dissipation, mort), comme le message système
+			# de L2 ; l'icône disparaît d'elle-même (GameState.entity_effects).
+			if str(payload.get("characterId", "")) == str(GameState.player_stats.get("id", "")):
+				var ended := str(payload.get("skillName", ""))
+				if GRADE_PENALTY_LABELS.has(ended):
+					_log("%s levée." % GRADE_PENALTY_LABELS[ended])
+				else:
+					_log("[i]L'effet %s prend fin.[/i]" % _bbcode_escape(ended))
+		"EffectApplied":
+			# Pénalité de grade posée ou changée de niveau sur nous (équipement au-delà de notre
+			# expertise), comme le message système de L2 ; l'icône suit GameState.entity_effects.
+			var applied := str(payload.get("effect", {}).get("skillName", ""))
+			if str(payload.get("characterId", "")) == str(GameState.player_stats.get("id", "")) \
+					and GRADE_PENALTY_LABELS.has(applied):
+				_log("%s : vous portez un équipement d'un grade supérieur à votre expertise." % GRADE_PENALTY_LABELS[applied])
 		"ShotUsed":
 			# Envoyé uniquement à nous-même (voir GameState.gd) : la lueur d'arme des AUTRES
 			# personnages arrive séparément via SoulshotUsed/SpiritshotUsed ci-dessous.
@@ -951,13 +981,8 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 					LOG_COLOR_GAIN, str(payload.get("newLevel", "?")),
 				])
 				Sfx.play_event("level_up")
-				# XpGained (déjà reçu juste avant ce message, voir CharacterInstance.gainXp côté
-				# backend) reporte xpForCurrentLevel/xpForNextLevel du niveau D'AVANT cette montée
-				# — la barre d'XP resterait donc bloquée à un seuil obsolète tant qu'un nouveau
-				# GamePlayerStats n'est pas reçu. On le redemande explicitement plutôt que
-				# d'attendre le prochain gain d'XP (même pattern que Net.send_command("stats") au
-				# _ready de cette scène).
-				Net.send_command("stats")
+				# Seuils d'XP et stats du nouveau niveau : le serveur pousse un GamePlayerStats à
+				# jour juste après (PlayerStatsEngine), inutile de le redemander.
 		"EquipmentLooted":
 			_log("[color=%s]Vous trouvez : %s[/color]" % [
 				LOG_COLOR_GAIN, _bbcode_escape(str(payload.get("itemName", "?"))),
@@ -1080,15 +1105,15 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 			_log("Vous quittez la zone paisible : %s." % _bbcode_escape(str(payload.get("zoneName", "?"))))
 		"SkillLearned":
 			# Maître des compétences (learn-skill) ou compétence acquise d'office en montant de
-			# niveau : on redemande la liste (livre, barre) et les stats (passifs).
+			# niveau : on redemande la liste (livre, barre) ; les stats (passifs) sont poussées
+			# par le serveur (PlayerStatsEngine).
 			Sfx.play_ui("skill_learn")
 			_log("[color=%s]Vous apprenez %s (niv. %s).[/color]" % [
 				LOG_COLOR_GAIN, _bbcode_escape(str(payload.get("skillName", "?"))), str(payload.get("level", "?")),
 			])
 			Net.send_command("skills")
-			Net.send_command("stats")
 		"NewSkillsAvailable":
-			_log("[color=%s]De nouvelles compétences vous attendent auprès du Maître des compétences de la Place du village.[/color]" % LOG_COLOR_GAIN)
+			_log("[color=%s]De nouvelles compétences vous attendent auprès du Maître des compétences de Gludio.[/color]" % LOG_COLOR_GAIN)
 		"SkillNotLearnable":
 			Sfx.play_ui("action_denied")
 		"SkillWeaponRequired":
@@ -1103,6 +1128,53 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 			_on_skill_drained(payload)
 		"Error":
 			_log(_bbcode_escape(str(payload.get("message", "Erreur."))))
+		"SubclassChoiceOffered":
+			_log("[color=%s]Vous pouvez changer de profession auprès du Grand Master de la Place du village.[/color]" % LOG_COLOR_GAIN)
+			Sfx.play_event("level_up")
+		"SubclassChosen":
+			_log("[color=%s]Vous devenez %s ![/color]" % [LOG_COLOR_GAIN, _bbcode_escape(str(payload.get("label", "?")))])
+			Sfx.play_ui("skill_learn")
+			Net.send_command("stats")
+			Net.send_command("skills")
+		"CannotActNow":
+			Sfx.play_ui("action_denied")
+			_log("[i]%s[/i]" % _bbcode_escape(str(payload.get("reason", ""))))
+		"SkillConditionFailed":
+			Sfx.play_ui("action_denied")
+			_log("[i]%s : %s.[/i]" % [
+				_bbcode_escape(str(payload.get("skillName", "?"))), _bbcode_escape(str(payload.get("reason", ""))),
+			])
+		"ToggleDeactivated":
+			if bool(payload.get("outOfMana", false)):
+				_log("[i]%s se désactive : plus assez de PM.[/i]" % _bbcode_escape(str(payload.get("skillName", "?"))))
+			else:
+				_log("[i]Vous désactivez %s.[/i]" % _bbcode_escape(str(payload.get("skillName", "?"))))
+		"SummonDismissed":
+			_log("[i]%s[/i]" % _bbcode_escape(str(payload.get("reason", ""))))
+		"CharacterBlinked":
+			_on_character_blinked(payload)
+		"ResurrectionOffered":
+			_death_popup.offer_resurrection(str(payload.get("casterName", "?")), str(payload.get("skillName", "Resurrection")))
+			_log("[color=%s]%s vous propose de vous ressusciter.[/color]" % [
+				LOG_COLOR_GAIN, _bbcode_escape(str(payload.get("casterName", "?"))),
+			])
+		"PlayerResurrected":
+			_log("Vous revenez à la vie grâce à %s." % _bbcode_escape(str(payload.get("casterName", "?"))))
+			_death_popup.close()
+			_play_body_revive(_player_node)
+			var resurrected_level := int(_entity_vitals_by_key.get(PLAYER_KEY, {}).get("level", 1))
+			_entity_vitals_by_key[PLAYER_KEY] = {
+				"current": int(payload.get("currentHealth", 0)), "max": int(payload.get("maxHealth", 0)),
+				"level": resurrected_level,
+			}
+		"CharacterResurrected":
+			var revived_key := _key_for_entity_id(str(payload.get("characterId", "")))
+			_play_body_revive(_entity_node_by_id(str(payload.get("characterId", ""))))
+			if not revived_key.is_empty():
+				var revived_vitals: Dictionary = _entity_vitals_by_key.get(revived_key, {})
+				revived_vitals["current"] = int(payload.get("currentHealth", 0))
+				revived_vitals["max"] = int(payload.get("maxHealth", revived_vitals.get("max", 1)))
+				_entity_vitals_by_key[revived_key] = revived_vitals
 		"GameTimeSync":
 			# Resynchronisation ponctuelle (au login) : bascule immédiate, pas d'animation —
 			# voir _day_night_t_for_time/_apply_day_night_preset. Resynchronise aussi l'horloge
@@ -1693,6 +1765,7 @@ func _apply_camera_orbit() -> void:
 func _open_npc_menu(has_shop: bool, teaches_skills := false) -> void:
 	_npc_menu.set_item_disabled(1, not has_shop)
 	_npc_menu.set_item_disabled(2, not teaches_skills)
+	_npc_menu.set_item_disabled(3, not teaches_skills)
 	_npc_menu.popup(Rect2i(get_viewport().get_mouse_position(), Vector2i.ZERO))
 
 
@@ -1709,6 +1782,9 @@ func _on_npc_menu_id_pressed(id: int) -> void:
 			Net.send_command("shop", _selected_target_id)
 		2:
 			Net.send_command("skill-list", _selected_target_id)
+		3:
+			# Grand Master : %ClassChangeWindow s'ouvre sur ClassChangeOptions.
+			Net.send_command("class-list", _selected_target_id)
 
 
 func _select_portal(portal_id: String) -> void:
@@ -1775,6 +1851,15 @@ func _on_player_frame_self_clicked() -> void:
 		return
 	Net.send_command("select", my_id)
 	_clear_portal_selection()
+
+
+## Hotbar : un soin/buff à cible unique lancé sans rien de sélectionné nous cible d'abord
+## (façon L2), sinon le serveur répondrait NoTargetSelected. Select.java applique la cible
+## immédiatement et les commandes d'une connexion sont traitées dans l'ordre, donc le "cast"
+## envoyé juste après la voit ; la sélection est conservée après le sort.
+func select_self_if_no_target() -> void:
+	if _selected_target_id.is_empty():
+		_on_player_frame_self_clicked()
 
 
 ## Clic sur un membre de %PartyWindow : le cible comme un clic dans le monde (utile pour le
@@ -2038,6 +2123,11 @@ func _apply_appeared_entity(entry: Dictionary) -> void:
 		color = MONSTER_COLOR
 	elif kind == "npc":
 		color = NPC_COLOR
+	elif kind == "summon":
+		color = SUMMON_COLOR
+		# Modèle du serviteur (EntityView.model : cat_kat, panther, undead...), lu par
+		# _ensure_entity_node à la création du nœud.
+		_pending_summon_model = str(entry.get("model", "")) if entry.get("model") != null else ""
 	# Préfère la clé déjà connue pour cet UUID si elle existe (ex. GamePlayerJoinedMap, diffusé
 	# à toute la carte, peut avoir déjà enregistré ce même joueur sous "character:<nom>" juste
 	# avant l'EntityAppeared scopé issu de KnownList.populate() pour le même join) : évite de
@@ -2144,6 +2234,9 @@ func _ensure_entity_node(key: String, entity_name: String, color: Color) -> Node
 	if key.begins_with("monster:"):
 		monster_model = MonsterCatalog.model_for(entity_name)
 	var humanoid := key.begins_with("character:") or key.begins_with("npc:")
+	if key.begins_with("summon:"):
+		monster_model = MonsterCatalog.summon_model(_pending_summon_model)
+		humanoid = monster_model == null
 	var node := _make_entity_node(entity_name, color, true, humanoid, monster_model)
 	_entities_root.add_child(node)
 	_entities_by_key[key] = node
@@ -2464,6 +2557,51 @@ func _play_body_revive(node: Node3D) -> void:
 	var body := _animated_body(node)
 	if body != null:
 		body.revive()
+
+
+## Shadow Step (CharacterBlinked) : l'entité réapparaît instantanément dans le dos de sa
+## cible, sans trajet interpolé.
+func _on_character_blinked(payload: Dictionary) -> void:
+	var key := _key_for_entity_id(str(payload.get("characterId", "")))
+	if key.is_empty():
+		return
+	var pos := Vector3(float(payload.get("x", 0.0)), 0.0, float(payload.get("y", 0.0)))
+	_stop_at(key, pos)
+	_place_entity(key, pos)
+	var node: Node3D = _entities_by_key.get(key)
+	if node != null:
+		_face_heading(node, float(payload.get("heading", 0.0)), true)
+		_flash_entity(node, Color(0.55, 0.3, 0.85), 0.05, 0.35)
+
+
+## Altérations d'état (STUN, SLEEP, ROOT...) et cubiques de `entity_id` (GameState
+## .entity_effects) : signes visuels via un StatusVfx enfant de son nœud ; la mort feinte
+## (FAKE_DEATH) couche le personnage jusqu'à ce qu'elle cesse.
+func _refresh_status_vfx(entity_id: String) -> void:
+	var node := _entity_node_by_id(entity_id)
+	if node == null:
+		return
+	var effects: Dictionary = GameState.entity_effects.get(entity_id, {})
+	var vfx: StatusVfx = node.get_node_or_null("StatusVfx")
+	if vfx == null:
+		if effects.is_empty():
+			return
+		vfx = StatusVfx.new()
+		vfx.name = "StatusVfx"
+		vfx.head_height = float(node.get_meta("head_height", 1.8))
+		node.add_child(vfx)
+	vfx.refresh(effects)
+	var faking := false
+	for entry in effects.values():
+		faking = faking or str(entry.get("status", "")) == "FAKE_DEATH"
+	if faking != bool(node.get_meta("fake_death", false)):
+		node.set_meta("fake_death", faking)
+		if faking:
+			_play_body_death(node)
+		else:
+			_play_body_revive(node)
+	if vfx.is_empty():
+		vfx.queue_free()
 
 
 ## "man"/"woman" (GamePlayerStats.gender) ou "MAN"/"WOMAN" (EntityView.gender, autres joueurs).
@@ -3465,6 +3603,11 @@ func _update_player_frame() -> void:
 	_player_frame.set_health(int(vitals.get("current", 0)), int(vitals.get("max", 0)))
 	_player_frame.set_mana(GameState.current_mana, GameState.max_mana)
 	_player_frame.set_xp(GameState.xp, GameState.xp_for_current_level, GameState.xp_for_next_level)
+	# Buffs/debuffs (voir GameState.entity_effects) : les nôtres sous PlayerFrame, ceux de la
+	# cible (monstre, PNJ, joueur — nous-même compris) dans TargetStatusBar.
+	_player_frame.set_effects(GameState.entity_effects.get(str(GameState.player_stats.get("id", "")), {}))
+	_target_status_bar.set_effects(GameState.entity_effects.get(_selected_target_id, {}))
+	_party_window.follow_below(_player_frame.bottom_y())
 	_party_window.set_selected(_selected_target_id)
 	_target_status_bar.set_invite_visible(_can_invite_selected())
 

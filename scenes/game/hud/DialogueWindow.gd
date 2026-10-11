@@ -69,5 +69,9 @@ func _on_option_pressed(option: Dictionary) -> void:
 			# Maître des compétences : %SkillLearnWindow s'ouvre sur LearnableSkills.
 			Net.send_command("skill-list", _npc_id)
 			close_window()
+		"CLASS_CHANGE":
+			# Grand Master : %ClassChangeWindow s'ouvre sur ClassChangeOptions.
+			Net.send_command("class-list", _npc_id)
+			close_window()
 		_:
 			close_window()

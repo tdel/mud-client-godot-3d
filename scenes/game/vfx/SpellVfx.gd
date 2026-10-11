@@ -32,6 +32,43 @@ const ELEMENT_BY_SKILL := {
 	"Rage": Element.BUFF, "Guidance": Element.BUFF, "Bulwark": Element.BUFF,
 	"Curse: Doom": Element.DEBUFF, "Curse: Weakness": Element.DEBUFF,
 	"Teleport": Element.ESCAPE,
+	# Professions L2 (niveaux 20 à 40, Warrior... Prophet).
+	"Power Smash": Element.PHYSICAL, "Stun Attack": Element.PHYSICAL, "Wild Sweep": Element.PHYSICAL,
+	"Whirlwind": Element.PHYSICAL, "Thunder Storm": Element.PHYSICAL, "Power Crush": Element.PHYSICAL,
+	"Hammer Crush": Element.PHYSICAL, "Triple Slash": Element.PHYSICAL, "Fatal Strike": Element.PHYSICAL,
+	"Shield Stun": Element.PHYSICAL, "Stun Shot": Element.PHYSICAL, "Double Shot": Element.PHYSICAL,
+	"Deadly Blow": Element.PHYSICAL, "Backstab": Element.PHYSICAL, "Bleed": Element.DEBUFF,
+	"War Cry": Element.BUFF, "Battle Roar": Element.BUFF, "Lionheart": Element.BUFF, "Majesty": Element.BUFF,
+	"Ultimate Defense": Element.BUFF, "Deflect Arrow": Element.BUFF, "Dash": Element.BUFF,
+	"Ultimate Evasion": Element.BUFF, "Rapid Shot": Element.BUFF, "Hawk Eye": Element.BUFF,
+	"Soul of Sagittarius": Element.BUFF, "Detect Insect Weakness": Element.BUFF,
+	"Detect Animal Weakness": Element.BUFF, "Vicious Stance": Element.BUFF, "Accuracy": Element.BUFF,
+	"Focus Attack": Element.BUFF, "Divine Armor": Element.HOLY, "Silent Move": Element.DARK,
+	"Fake Death": Element.DARK, "Shadow Step": Element.DARK, "Aggression": Element.DEBUFF,
+	"Aura of Hate": Element.DEBUFF, "Reflect Damage": Element.DARK, "Drain Health": Element.DARK,
+	"Divine Heal": Element.HEAL, "Divine Blessing": Element.HEAL, "Remedy": Element.HEAL,
+	"Life Scavenge": Element.DARK, "Summon Dark Panther": Element.DARK,
+	"Blaze": Element.FIRE, "Aura Burn": Element.ARCANE, "Energy Bolt": Element.ARCANE,
+	"Aura Flare": Element.ARCANE, "Aura Bolt": Element.ARCANE, "Blazing Circle": Element.FIRE,
+	"Surrender To Fire": Element.FIRE, "Surrender To Wind": Element.WIND, "Blazing Skin": Element.FIRE,
+	"Vampiric Claw": Element.DARK, "Corpse Life Drain": Element.DARK, "Body To Mind": Element.ARCANE,
+	"Sleep": Element.DEBUFF, "Slow": Element.DEBUFF, "Curse Chaos": Element.DEBUFF, "Curse Fear": Element.DARK,
+	"Curse Discord": Element.DARK, "Silence": Element.DEBUFF, "Anchor": Element.DEBUFF,
+	"Poisonous Cloud": Element.DEBUFF, "Transfer Pain": Element.DARK, "Concentration": Element.BUFF,
+	"Servitor Heal": Element.HEAL, "Servitor Recharge": Element.ARCANE, "Servitor Wind Walk": Element.BUFF,
+	"Servitor Physical Shield": Element.BUFF, "Servitor Cure": Element.HEAL,
+	"Summon Kat the Cat": Element.ARCANE, "Summon Mew the Cat": Element.ARCANE,
+	"Summon Kai the Cat": Element.ARCANE, "Summon Corrupted Man": Element.DARK,
+	"Summon Storm Cubic": Element.WIND, "Summon Binding Cubic": Element.DARK,
+	"Mass Summon Storm Cubic": Element.WIND, "Storm Cubic": Element.WIND, "Binding Cubic": Element.DARK,
+	"Master Recharge": Element.HEAL, "Mega Storm Strike": Element.WIND,
+	"Disrupt Undead": Element.HOLY, "Might of Heaven": Element.HOLY, "Requiem": Element.HOLY,
+	"Greater Heal": Element.HEAL, "Greater Battle Heal": Element.HEAL, "Greater Group Heal": Element.HEAL,
+	"Resurrection": Element.HOLY, "Mass Resurrection": Element.HOLY, "Peace": Element.HOLY,
+	"Wind Walk": Element.BUFF, "Acumen": Element.BUFF, "Holy Weapon": Element.HOLY,
+	"Mental Shield": Element.BUFF, "Resist Fire": Element.BUFF, "Regeneration": Element.HEAL,
+	"Berserker Spirit": Element.BUFF, "Dryad Root": Element.DEBUFF,
+	"Death Whisper": Element.BUFF, "Invigor": Element.BUFF, "Bless Shield": Element.BUFF, "Return": Element.ESCAPE,
 }
 ## Jaune = soin/buff, bleu = eau, blanc = vent et téléportation, rouge = feu, violet = debuff.
 const COLORS := {
@@ -64,10 +101,17 @@ const SMOKE_RAMP := [
 
 ## Projectile propre à une compétence plutôt qu'à son élément : éclat de glace (Ice Bolt),
 ## flèche (Power Shot, physique).
-const PROJECTILE_STYLE_BY_SKILL := {"Ice Bolt": "ice", "Power Shot": "arrow"}
+const PROJECTILE_STYLE_BY_SKILL := {
+	"Ice Bolt": "ice", "Power Shot": "arrow", "Stun Shot": "arrow", "Double Shot": "arrow",
+}
 ## Couleur de l'énergie qui charge l'arme pendant une compétence martiale.
 const WEAPON_CHARGE_COLORS := {
 	"Power Strike": Color(1.0, 0.62, 0.2), "Mortal Blow": Color(1.0, 0.15, 0.12), "Power Shot": Color(1.0, 0.88, 0.45),
+	"Power Smash": Color(1.0, 0.55, 0.15), "Stun Attack": Color(1.0, 0.95, 0.4), "Wild Sweep": Color(0.9, 0.85, 0.7),
+	"Whirlwind": Color(0.8, 0.95, 1.0), "Thunder Storm": Color(0.6, 0.75, 1.0), "Power Crush": Color(1.0, 0.45, 0.1),
+	"Hammer Crush": Color(1.0, 0.9, 0.35), "Triple Slash": Color(1.0, 0.3, 0.25), "Fatal Strike": Color(1.0, 0.2, 0.1),
+	"Shield Stun": Color(1.0, 0.95, 0.5), "Stun Shot": Color(1.0, 0.95, 0.4), "Double Shot": Color(1.0, 0.85, 0.5),
+	"Deadly Blow": Color(0.9, 0.1, 0.15), "Backstab": Color(0.6, 0.1, 0.5),
 }
 const POISON_COLOR := Color(0.45, 0.95, 0.2)
 const POISON_DARK := Color(0.32, 0.06, 0.42)

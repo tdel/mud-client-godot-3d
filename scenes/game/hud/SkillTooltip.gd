@@ -7,13 +7,18 @@ extends RefCounted
 
 const TYPE_LABELS := {
 	"DAMAGE": "Attaque", "HEALING": "Soin", "BUFF": "Bonus", "DEBUFF": "Malus",
-	"CURE": "Purification", "PASSIVE": "Passive",
+	"CURE": "Purification", "PASSIVE": "Passive", "TOGGLE": "Activable", "SUMMON": "Invocation",
+	"CUBIC": "Cubique", "RESURRECT": "Résurrection", "RECHARGE": "Recharge de PM", "AGGRO": "Provocation",
+	"PEACE": "Apaisement", "BLINK": "Déplacement", "TELEPORT": "Téléportation",
 }
-const TARGET_LABELS := {"SELF": "Soi-même", "PARTY": "Groupe", "AOE": "Zone"}
+const TARGET_LABELS := {
+	"SELF": "Soi-même", "PARTY": "Groupe", "AOE": "Zone", "AURA": "Autour de soi", "FRONT": "Devant soi",
+	"SERVITOR": "Serviteur", "CORPSE": "Cadavre", "DEAD_PLAYER": "Joueur mort", "DEAD_PARTY": "Groupe (morts)",
+}
 const WEAPON_LABELS := {
 	"SWORD": "épée", "BIG_SWORD": "épée à deux mains", "DAGGER": "dague", "BLUNT": "masse",
 	"BIG_BLUNT": "masse à deux mains", "AXE": "hache", "POLE": "arme d'hast", "STAFF": "bâton",
-	"WAND": "baguette", "BOW": "arc",
+	"WAND": "baguette", "BOW": "arc", "DUAL": "épées doubles",
 }
 const ELEMENT_LABELS := {"FIRE": "Feu", "WATER": "Eau", "WIND": "Vent", "EARTH": "Terre", "HOLY": "Sacré", "DARK": "Ténèbres"}
 

@@ -12,8 +12,15 @@ extends Control
 ## joueur n'étant pas cliquable en 3D (`pickable=false`, voir _make_entity_node). Le `Panel`
 ## (voir .tscn) passe en `mouse_filter=STOP` pour capter le clic ; les autres nœuds du cadre
 ## restent en `IGNORE` pour le laisser remonter jusqu'au Panel.
+##
+## Juste sous le cadre, nos buffs puis nos debuffs (EffectBar, alimentée par set_effects
+## depuis GameState.entity_effects) ; bottom_y() en tient compte pour que PartyWindow se
+## range en dessous.
 
 signal self_clicked
+
+const EFFECT_ICON_SIZE := 24
+const EFFECT_BAR_GAP := 4.0
 
 @onready var _panel: Control = $Panel
 @onready var _level_label: Label = %LevelLabel
@@ -25,8 +32,12 @@ signal self_clicked
 @onready var _xp_bar: ProgressBar = %XpBar
 @onready var _xp_label: Label = %XpLabel
 
+var _effect_bar := EffectBar.new(EFFECT_ICON_SIZE)
+
 
 func _ready() -> void:
+	_effect_bar.position = Vector2(0.0, size.y + EFFECT_BAR_GAP)
+	add_child(_effect_bar)
 	_panel.gui_input.connect(_on_panel_gui_input)
 	_panel.tooltip_text = "Cliquer pour se cibler soi-même"
 	UITheme.style_progress_bar(_health_bar, "hp")
@@ -58,6 +69,18 @@ func set_mana(current: int, max_value: int) -> void:
 	_mana_bar.max_value = max(max_value, 1)
 	_mana_bar.value = current
 	_mana_label.text = "%s / %s" % [current, max_value]
+
+
+## `effects` : nos effets actifs, {skill_name: effet} (GameState.entity_effects[notre id]).
+func set_effects(effects: Dictionary) -> void:
+	_effect_bar.set_effects(effects)
+
+
+## Bas du cadre à l'écran, barre d'effets comprise quand elle est visible.
+func bottom_y() -> float:
+	if _effect_bar.visible:
+		return _effect_bar.global_position.y + _effect_bar.get_combined_minimum_size().y
+	return global_position.y + size.y
 
 
 ## `xp_for_next_level <= xp_for_current_level` : niveau maximum atteint — barre pleine

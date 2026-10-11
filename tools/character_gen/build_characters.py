@@ -755,6 +755,28 @@ def _blade(mb, c, d, lat, start, length, width, thick, bone, mat="blade"):
 	mb.add(verts, faces, bone, mat, smooth=False)
 
 
+def _saber_blade(mb, c, d, lat, start, length, width, thick, curve, bone, mat="blade", n=4):
+	"""Comme _blade, mais cambrée : l'axe s'écarte de curve * t² vers +lat (dos de la lame,
+	tranchant convexe côté -lat, celui qui frappe — voir le fer de la hache) et s'affine."""
+	up = Vector((0, 0, 1))
+	body_len = length * 0.85
+	axis = lambda t: c + d * (start + body_len * t) + lat * (curve * t * t)
+	verts = []
+	for k in range(n + 1):
+		t = k / n
+		w = width * (1.0 - 0.3 * t)
+		p = axis(t)
+		verts += [p - lat * w, p - up * thick, p + lat * w, p + up * thick]
+	verts.append(axis(length / body_len))
+	faces = [(3, 2, 1, 0)]
+	for k in range(n):
+		a, e = 4 * k, 4 * (k + 1)
+		faces += [(a, a + 1, e + 1, e), (a + 1, a + 2, e + 2, e + 1), (a + 2, a + 3, e + 3, e + 2), (a + 3, a, e, e + 3)]
+	tip, e = 4 * (n + 1), 4 * n
+	faces += [(e, e + 1, tip), (e + 1, e + 2, tip), (e + 2, e + 3, tip), (e + 3, e, tip)]
+	mb.add(verts, faces, bone, mat, smooth=False)
+
+
 def build_weapons(g, j, rig):
 	"""Armes en main droite (arc : main gauche, bouclier : avant-bras gauche). Les armes ne
 	suivent pas le gabarit : même taille pour l'homme et la femme."""
@@ -847,7 +869,7 @@ def build_weapons(g, j, rig):
 
 	# Arc : main GAUCHE, branches le long du poing (verticales une fois le bras baissé), ventre
 	# de l'arc côté pouce (vers l'avant).
-	cl, bl, _latl = _weapon_grip(j, "Left", g["scale"])
+	cl, bl, latl = _weapon_grip(j, "Left", g["scale"])
 	mb = MeshBuilder("weapon_bow", [])
 	along = Vector((1, 0, 0))
 	pts = []
@@ -857,6 +879,17 @@ def build_weapons(g, j, rig):
 	for a, e in zip(pts, pts[1:]):
 		tube(mb, a, e, 0.016, 0.016, "LeftHand", "wood", hint=up, n=5)
 	tube(mb, pts[0], pts[-1], 0.003, 0.003, "LeftHand", "string", hint=up, n=4)
+	out.append(mb.build(rig))
+
+	# Doubles épées (Gladiator, "Saber*Saber") : un sabre légèrement cambré dans chaque main, le
+	# gauche en miroir du droit (repère de la main gauche : lat = +X). Un seul mesh skinné sur
+	# les deux mains : Character.gd le montre/cache d'un bloc.
+	mb = MeshBuilder("weapon_dual", [])
+	for gc, gb, gl, gh in ((c, b, lat, hand), (cl, bl, latl, "LeftHand")):
+		tube(mb, gc - gb * 0.08, gc + gb * 0.05, 0.015, 0.015, gh, "leather_dark", hint=gl, n=6)
+		ellipsoid(mb, gc - gb * 0.09, (0.021,) * 3, gh, "gold", seg=6, rings=4, smooth=False)
+		box(mb, gc + gb * 0.057, (0.14, 0.026, 0.03), gh, "gold")
+		_saber_blade(mb, gc, gb, gl, 0.066, 0.64, 0.026, 0.007, 0.05, gh)
 	out.append(mb.build(rig))
 
 	# Bouclier : sur l'avant-bras gauche, face vers l'extérieur (+Z en T-pose = dos de la main).

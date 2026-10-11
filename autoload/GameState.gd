@@ -73,8 +73,27 @@ var appeared_portals: Dictionary = {}
 ## float (GameClock.now())}} dans l'ordre d'application — PartyJoined/PartyMemberJoined
 ## (champ `effects`), puis PartyMemberEffectApplied/PartyMemberEffectExpired. Un effet dont
 ## l'expiration serveur n'arrive jamais (message perdu) disparaît de lui-même un peu après
-## expires_at (voir PartyWindow.EXPIRY_GRACE_SEC).
+## expires_at (voir EffectBar.EXPIRY_GRACE_SEC).
 var party: Dictionary = {}
+
+## Buffs/debuffs actifs de chaque personnage connu — nous compris, sous notre propre UUID —,
+## {entity_id: {skill_name: effet}} dans l'ordre d'application (voir _effect_entry pour la
+## forme d'un effet). Effets déjà actifs : GamePlayerStats (les nôtres) et EntityAppeared
+## (champ `effects` d'EntityView, à l'entrée en perception) ; ensuite EffectApplied (posé ou
+## renouvelé, garde sa place) et SkillModifierExpired (fin, dissipation, mort — le serveur
+## retire tout à la mort, comme L2). Une entité qui sort de perception ou meurt (monstre)
+## est oubliée : son prochain EntityAppeared redonne son état. Un effet dont l'expiration
+## n'arrive jamais (porteur sorti de portée entre-temps) disparaît de lui-même un peu après
+## expires_at (voir EffectBar.EXPIRY_GRACE_SEC). Affiché par EffectBar sous PlayerFrame et
+## TargetStatusBar.
+var entity_effects: Dictionary = {}
+
+## Dernier SummonStatus de notre serviteur invoqué ({summonId, name, model, level,
+## currentHealth, maxHealth, secondsRemaining}), {} sans serviteur (SummonDismissed).
+var summon: Dictionary = {}
+
+## Émis quand les effets de `entity_id` changent (voir entity_effects).
+signal effects_changed(entity_id: String)
 
 ## Émis après chaque changement de `party` dû à un message serveur : `event` est le type du
 ## message (PartyJoined, PartyMemberLeft, PartyMemberVitalsUpdated...), `payload` le sien.
@@ -179,13 +198,19 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 			active_soulshot_grade = str(soulshot_grade) if soulshot_grade != null else ""
 			var spiritshot_grade = payload.get("activeSpiritshotGrade")
 			active_spiritshot_grade = str(spiritshot_grade) if spiritshot_grade != null else ""
+			if payload.has("effects"):
+				_set_entity_effects(str(payload.get("id", "")), payload.get("effects", []))
 		"GamePlayerDefeated":
 			if str(payload.get("characterName", "")) == str(player_stats.get("name", "")):
 				is_dead = true
-		"PlayerRespawned":
+		"PlayerRespawned", "PlayerResurrected":
 			is_dead = false
 			current_mana = int(payload.get("currentMana", current_mana))
 			max_mana = int(payload.get("maxMana", max_mana))
+		"SummonStatus":
+			summon = payload
+		"SummonDismissed":
+			summon = {}
 		"MapView":
 			map_view = payload
 		"MapEnter":
@@ -195,9 +220,27 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 				var entity_id := str(entry.get("id", ""))
 				if not entity_id.is_empty():
 					appeared_entities[entity_id] = entry
+					_set_entity_effects(entity_id, entry.get("effects", []))
 		"EntityDisappeared":
 			for entity_id in payload.get("entityIds", []):
 				appeared_entities.erase(str(entity_id))
+				_forget_entity_effects(str(entity_id))
+		"MonsterDefeated":
+			_forget_entity_effects(str(payload.get("monsterId", "")))
+		"EffectApplied":
+			var bearer_id := str(payload.get("characterId", ""))
+			var effect: Dictionary = payload.get("effect", {})
+			if not bearer_id.is_empty() and not effect.is_empty():
+				if not entity_effects.has(bearer_id):
+					entity_effects[bearer_id] = {}
+				# Renouveler un sort déjà actif garde sa place dans la rangée (même clé).
+				entity_effects[bearer_id][str(effect.get("skillName", ""))] = _effect_entry(effect)
+				effects_changed.emit(bearer_id)
+		"SkillModifierExpired":
+			var ended_on := str(payload.get("characterId", ""))
+			if entity_effects.has(ended_on):
+				entity_effects[ended_on].erase(str(payload.get("skillName", "")))
+				effects_changed.emit(ended_on)
 		"PortalAppeared":
 			for entry in payload.get("portals", []):
 				var portal_id := str(entry.get("id", ""))
@@ -314,9 +357,14 @@ func _on_message_received(type: String, payload: Dictionary) -> void:
 				profiled.subclass = _enum_name(payload.get("subclass"))
 		"PartyMemberEffectApplied":
 			# Renouveler un sort déjà actif garde sa place dans la rangée (même clé).
+			# `effect` : ActiveEffectView complet (modificateurs pour l'infobulle) ; à défaut
+			# (serveur antérieur), les champs plats beneficial/secondsRemaining du message.
 			var buffed := _party_member(str(payload.get("characterId", "")))
 			if not buffed.is_empty():
-				buffed.effects[str(payload.get("skillName", ""))] = _effect_entry(payload)
+				var applied = payload.get("effect")
+				buffed.effects[str(payload.get("skillName", ""))] = _effect_entry(
+					applied if applied is Dictionary else payload
+				)
 		"PartyMemberEffectExpired":
 			var expired_on := _party_member(str(payload.get("characterId", "")))
 			if not expired_on.is_empty():
@@ -446,12 +494,50 @@ func _member_vitals(member: Dictionary) -> Dictionary:
 	}
 
 
-## `effect` : {beneficial, secondsRemaining} (PartyEffectView ou PartyMemberEffectApplied).
+## `effect` : ActiveEffectView serveur {skillName, beneficial, secondsRemaining, modifiers:
+## [{stat, value, operator}], periodicDamage, periodicIntervalSeconds, breaksOnAction,
+## permanent} (ou les seuls beneficial/secondsRemaining d'un ancien PartyMemberEffectApplied).
+## Effet côté client : {beneficial, permanent, expires_at (GameClock.now(), INF si permanent),
+## modifiers, periodic_damage, periodic_interval, breaks_on_action} — lu par EffectBar/EffectIcon.
+## permanent : sans échéance — pénalité de grade d'équipement (Weapon/Armor Grade Penalty) ou
+## toggle actif (`toggle`).
 func _effect_entry(effect: Dictionary) -> Dictionary:
+	var permanent := bool(effect.get("permanent", false))
 	return {
 		"beneficial": bool(effect.get("beneficial", true)),
-		"expires_at": GameClock.now() + float(effect.get("secondsRemaining", 0)),
+		"permanent": permanent,
+		"expires_at": INF if permanent else GameClock.now() + float(effect.get("secondsRemaining", 0)),
+		"modifiers": effect.get("modifiers", []) if effect.get("modifiers") is Array else [],
+		"periodic_damage": int(effect.get("periodicDamage", 0)),
+		"periodic_interval": int(effect.get("periodicIntervalSeconds", 0)),
+		"breaks_on_action": bool(effect.get("breaksOnAction", false)),
+		# Professions L2 : altération d'état (STUN, SLEEP, ROOT...), toggle actif (Vicious
+		# Stance), cubique porté (STORM/BINDING) — voir ActiveEffectView côté backend.
+		"status": "" if effect.get("status") == null else str(effect.get("status")),
+		"toggle": bool(effect.get("toggle", false)),
+		"cubic": "" if effect.get("cubic") == null else str(effect.get("cubic")),
 	}
+
+
+## Remplace tous les effets connus de `entity_id` par la liste ActiveEffectView `effects`.
+func _set_entity_effects(entity_id: String, effects) -> void:
+	if entity_id.is_empty():
+		return
+	var by_name := {}
+	if effects is Array:
+		for effect in effects:
+			by_name[str(effect.get("skillName", ""))] = _effect_entry(effect)
+	entity_effects[entity_id] = by_name
+	effects_changed.emit(entity_id)
+
+
+## Entité sortie de perception ou monstre mort : son état reviendra avec son EntityAppeared.
+## Jamais nous-même (nos effets ne viennent que de GamePlayerStats/EffectApplied).
+func _forget_entity_effects(entity_id: String) -> void:
+	if entity_id.is_empty() or entity_id == str(player_stats.get("id", "")):
+		return
+	if entity_effects.erase(entity_id):
+		effects_changed.emit(entity_id)
 
 
 ## Nom d'enum Java ("MYSTIC", "WIZARD"...) ou "" pour null/absent.
@@ -482,5 +568,7 @@ func clear_session() -> void:
 	xp_for_next_level = 0
 	is_dead = false
 	party = {}
+	entity_effects = {}
+	summon = {}
 	active_soulshot_grade = ""
 	active_spiritshot_grade = ""

@@ -49,6 +49,21 @@ func _ready() -> void:
 		_slot_nodes.append(slot_node)
 
 	_try_load_config()
+	GameState.effects_changed.connect(_on_effects_changed)
+
+
+## Toggle actif (Vicious Stance, Silent Move...) : son slot reste surligné tant que l'effet
+## dure, comme dans L2.
+func _on_effects_changed(entity_id: String) -> void:
+	if entity_id != str(GameState.player_stats.get("id", "")):
+		return
+	var effects: Dictionary = GameState.entity_effects.get(entity_id, {})
+	for i in SLOT_COUNT:
+		var slot: Dictionary = _slots[i]
+		if slot.get("kind", "") != "skill":
+			continue
+		var entry: Dictionary = effects.get(str(slot.get("ref_name", "")), {})
+		_slot_nodes[i].set_active(bool(entry.get("toggle", false)), "TOGGLE")
 
 
 func _process(_delta: float) -> void:
@@ -120,6 +135,8 @@ func _trigger_slot(index: int) -> void:
 			if skill_id.is_empty():
 				_slot_nodes[index].flash_error()
 				return
+			if game_root != null and _is_self_targetable(skill_id):
+				game_root.select_self_if_no_target()
 			Net.send_command("cast", skill_id)
 		"item":
 			var item_type := str(slot.get("item_type", ""))
@@ -168,6 +185,16 @@ func _resolve_skill_id(slot: Dictionary) -> String:
 		if str(entry.get("name", "")) == ref_name:
 			return str(entry.get("id", ""))
 	return ""
+
+
+## Soin ou buff à cible unique (target ONE) : sans sélection, il se lance sur nous (voir
+## Game3D.select_self_if_no_target). SELF/PARTY sont déjà centrés sur le lanceur côté serveur.
+func _is_self_targetable(skill_id: String) -> bool:
+	for entry in GameState.known_skills.get("skills", []):
+		if str(entry.get("id", "")) == skill_id:
+			return str(entry.get("target", "")) == "ONE" \
+					and str(entry.get("skillType", "")) in ["HEALING", "BUFF"]
+	return false
 
 
 ## UUID de l'objet à envoyer à "use", résolu dynamiquement par nom dans l'inventaire

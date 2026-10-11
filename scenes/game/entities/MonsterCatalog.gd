@@ -15,6 +15,21 @@ const MODELS := {
 }
 
 
+## Serviteurs invoqués (EntityView.model côté backend, data/summons/summons.xml) : chats
+## tirés du renard recoloré, panthère du loup noirci ; "undead" (Corrupted Man) reste un
+## mannequin humanoïde (aucune fiche).
+const SUMMON_MODELS := {
+	"cat_kat": preload("res://assets/monsters/summons/cat_kat.tres"),
+	"cat_mew": preload("res://assets/monsters/summons/cat_mew.tres"),
+	"cat_kai": preload("res://assets/monsters/summons/cat_kai.tres"),
+	"panther": preload("res://assets/monsters/summons/panther.tres"),
+}
+
+
+static func summon_model(model: String) -> MonsterModel:
+	return SUMMON_MODELS.get(model)
+
+
 ## Fiche du monstre `monster_name`, null si aucun modèle dédié.
 static func model_for(monster_name: String) -> MonsterModel:
 	return MODELS.get(monster_name.strip_edges().to_lower())

@@ -20,9 +20,15 @@ extends Control
 ## les fenêtres) : `close_requested`, Game3D.gd désélectionne comme avec Échap. Un espaceur de
 ## même largeur à gauche (NameRow/LeftSpacer) garde le nom centré.
 
+##
+## Sous la barre de vie, les buffs/debuffs de la cible (EffectBar centrée, set_effects appelé à
+## chaque image par Game3D depuis GameState.entity_effects) — monstre, PNJ ou joueur.
+
 signal teleport_requested
 signal close_requested
 signal invite_requested
+
+const EFFECT_ICON_SIZE := 22
 
 @onready var _panel: Control = %Panel
 @onready var _name_label: Label = %NameLabel
@@ -37,10 +43,14 @@ signal invite_requested
 
 var _entity_name := ""
 var _level := 1
+var _effect_bar := EffectBar.new(EFFECT_ICON_SIZE, true)
 
 
 func _ready() -> void:
 	visible = false
+	# Juste sous la barre de vie, avant le bouton d'invitation.
+	_health_bar_box.get_parent().add_child(_effect_bar)
+	_health_bar_box.get_parent().move_child(_effect_bar, _health_bar_box.get_index() + 1)
 	UITheme.style_progress_bar(_health_bar, "hp")
 	UITheme.style_bar_label(_health_label, 11)
 	# Nom, niveau et PV en gras avec contour noir (2026-09-26) : le panneau HUD est
@@ -116,6 +126,11 @@ func show_portal(portal_name: String, target_map_name: String) -> void:
 ## serveur reste la seule vérité.
 func set_teleport_enabled(enabled: bool) -> void:
 	_teleport_button.disabled = not enabled
+
+
+## `effects` : {skill_name: effet} de la cible ({} pour un portail).
+func set_effects(effects: Dictionary) -> void:
+	_effect_bar.set_effects(effects)
 
 
 func set_invite_visible(invite_visible: bool) -> void:

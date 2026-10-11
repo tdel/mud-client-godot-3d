@@ -105,12 +105,9 @@ func _on_message_received(type: String, _payload: Dictionary) -> void:
 	match type:
 		"GamePlayerStats", "XpGained":
 			# XpGained ne renvoie pas de GamePlayerStats : sans ça la jauge d'EXP resterait
-			# figée tant que la fenêtre reste ouverte.
+			# figée tant que la fenêtre reste ouverte. Tout changement de stats (équipement,
+			# buffs, pénalité de grade, niveau) arrive en GamePlayerStats poussé par le serveur.
 			_refresh()
-		"ItemEquipped", "ItemUnequipped":
-			# equip/unequip ne renvoient pas de GamePlayerStats à jour : on le redemande pour
-			# rafraîchir P./M. Atk. et Déf. après un changement d'arme/armure.
-			Net.send_command("stats")
 
 
 func _refresh() -> void:
@@ -128,7 +125,7 @@ func _refresh() -> void:
 	var race := str(stats.get("race", "HUMAN"))
 	_class_level_label.text = "%s · %s · %s" % [
 		RACE_LABELS.get(race, race.capitalize()),
-		CLASS_LABELS.get(char_class, char_class.capitalize()), GENDER_LABELS.get(gender, gender.capitalize()),
+		_class_text(stats, char_class), GENDER_LABELS.get(gender, gender.capitalize()),
 	]
 
 	var current_health := int(stats.get("currentHealth", 0))
@@ -204,3 +201,11 @@ func _format_stat(stats: Dictionary, stat_key: String) -> String:
 	if typeof(value) == TYPE_FLOAT:
 		value = roundi(value)
 	return "%s%s" % [value, COMBAT_STAT_SUFFIX.get(stat_key, "")]
+
+
+## Profession L2 actuelle (GamePlayerStats.className, ex. "Sorcerer") une fois la 1re choisie,
+## sinon libellé de la classe de base.
+func _class_text(stats: Dictionary, char_class: String) -> String:
+	if stats.get("subclass") != null and not str(stats.get("className", "")).is_empty():
+		return str(stats.get("className"))
+	return CLASS_LABELS.get(char_class, char_class.capitalize())
