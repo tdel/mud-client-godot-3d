@@ -91,8 +91,10 @@ func _instance_model() -> void:
 	_model.name = "Model"
 	_model.scale = Vector3.ONE * model.model_scale
 	_model.rotation.y = deg_to_rad(model.yaw_degrees)
+	_model.position.y = 0.0 if _dead else model.hover_height
 	add_child(_model)
-	if not model.material_colors.is_empty():
+	_attach_accessories()
+	if not model.material_colors.is_empty() or model.tint != Color.WHITE:
 		_recolor()
 	_animation_player = _model.find_child("AnimationPlayer", true, false) as AnimationPlayer
 	if _animation_player == null:
@@ -134,12 +136,17 @@ func play_death() -> void:
 		_chalk.set_lying(true, true)
 	if _animation_player != null and _animation_player.has_animation(model.death_anim):
 		_animation_player.play(model.death_anim, BLEND_TIME)
+	if _model != null and model.hover_height > 0.0:
+		create_tween().tween_property(_model, "position:y", 0.0, maxf(0.3, death_duration() * 0.6)) \
+				.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 
 
 func revive() -> void:
 	if not _dead:
 		return
 	_dead = false
+	if _model != null:
+		_model.position.y = model.hover_height
 	if _chalk != null:
 		_chalk.set_lying(false, true)
 	_play_base()
@@ -204,14 +211,39 @@ func _recolor() -> void:
 			continue
 		for surface in mesh_instance.mesh.get_surface_count():
 			var material := mesh_instance.get_active_material(surface) as BaseMaterial3D
-			if material == null or not model.material_colors.has(material.resource_name):
+			if material == null:
+				continue
+			var recolored := model.material_colors.has(material.resource_name)
+			if not recolored and model.tint == Color.WHITE:
 				continue
 			if not tinted.has(material):
 				var copy := material.duplicate() as BaseMaterial3D
-				copy.albedo_color = model.material_colors[material.resource_name]
+				if recolored:
+					copy.albedo_color = model.material_colors[material.resource_name]
+				copy.albedo_color *= model.tint
 				copy.metallic = 0.0
 				tinted[material] = copy
 			mesh_instance.set_surface_override_material(surface, tinted[material])
+
+
+## MonsterModel.attachments : chaque scène sous un BoneAttachment3D de l'os nommé (absent du
+## squelette : ignoré avec un avertissement).
+func _attach_accessories() -> void:
+	if model.attachments.is_empty():
+		return
+	var skeletons := _model.find_children("*", "Skeleton3D", true, false)
+	var skeleton: Skeleton3D = skeletons[0] if not skeletons.is_empty() else null
+	if skeleton == null:
+		push_warning("Monster: accessoires sans Skeleton3D (%s)" % model.scene.resource_path)
+		return
+	for bone in model.attachments:
+		if skeleton.find_bone(bone) < 0:
+			push_warning("Monster: os %s absent (%s)" % [bone, model.scene.resource_path])
+			continue
+		var holder := BoneAttachment3D.new()
+		holder.bone_name = bone
+		skeleton.add_child(holder)
+		holder.add_child(model.attachments[bone].instantiate())
 
 
 func _freeze_on_death() -> void:

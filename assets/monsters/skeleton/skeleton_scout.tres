@@ -1,0 +1,24 @@
+[gd_resource type="Resource" script_class="MonsterModel" load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scenes/game/entities/MonsterModel.gd" id="1"]
+[ext_resource type="PackedScene" path="res://assets/monsters/skeleton/Skeleton_Rogue.glb" id="2"]
+[ext_resource type="PackedScene" path="res://assets/monsters/skeleton/weapons/Skeleton_Crossbow.gltf" id="3"]
+
+[resource]
+script = ExtResource("1")
+scene = ExtResource("2")
+model_scale = 0.72
+yaw_degrees = 180.0
+attachments = Dictionary[String, PackedScene]({
+"handslot.r": ExtResource("3")
+})
+tint = Color(0.92, 0.88, 0.80, 1)
+idle_anim = &"Idle"
+run_anim = &"Running_A"
+attack_anim = &"1H_Ranged_Shoot"
+death_anim = &"Death_A"
+run_speed_scale = 1
+attack_speed_scale = 1.0
+head_height = 1.66
+pick_radius = 0.58
+pick_height = 1.66

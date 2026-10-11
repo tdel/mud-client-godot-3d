@@ -1,0 +1,19 @@
+[gd_resource type="Resource" script_class="MonsterModel" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scenes/game/entities/MonsterModel.gd" id="1"]
+[ext_resource type="PackedScene" path="res://assets/monsters/wasp/wasp.glb" id="2"]
+
+[resource]
+script = ExtResource("1")
+scene = ExtResource("2")
+model_scale = 0.4
+yaw_degrees = 180.0
+idle_anim = &"WaspArmature|Wasp_Flying"
+run_anim = &"WaspArmature|Wasp_Flying"
+attack_anim = &"WaspArmature|Wasp_Attack"
+death_anim = &"WaspArmature|Wasp_Death"
+run_speed_scale = 1.5
+attack_speed_scale = 1.0
+head_height = 1.60
+pick_radius = 0.56
+pick_height = 1.60

@@ -21,6 +21,15 @@ extends Resource
 ## tirer plusieurs monstres d'un même modèle (ex. le loup Quaternius teint en brun pour le
 ## Brown Keltir). Les matériaux absents gardent leur couleur d'origine.
 @export var material_colors: Dictionary[String, Color] = {}
+## Accessoires accrochés à un os du squelette (BoneAttachment3D) : nom d'os -> scène (arme,
+## bouclier...), pour les packs qui livrent les armes à part (squelettes KayKit).
+@export var attachments: Dictionary[String, PackedScene] = {}
+## Teinte multipliée à toutes les couleurs du modèle (blanc = aucune) : variantes d'un même
+## modèle texturé (ex. squelette noirci d'un chef), là où material_colors remplace la couleur.
+@export var tint := Color.WHITE
+## Hauteur de vol (m) : le modèle flotte au-dessus du sol et y retombe à la mort (chauves-
+## souris dont le clip de vol est animé au niveau des pattes).
+@export var hover_height := 0.0
 
 @export_group("Animations")
 @export var idle_anim: StringName = &"Idle"

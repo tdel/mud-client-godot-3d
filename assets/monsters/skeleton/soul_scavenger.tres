@@ -1,0 +1,24 @@
+[gd_resource type="Resource" script_class="MonsterModel" load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scenes/game/entities/MonsterModel.gd" id="1"]
+[ext_resource type="PackedScene" path="res://assets/monsters/skeleton/Skeleton_Mage.glb" id="2"]
+[ext_resource type="PackedScene" path="res://assets/monsters/skeleton/weapons/Skeleton_Blade.gltf" id="3"]
+
+[resource]
+script = ExtResource("1")
+scene = ExtResource("2")
+model_scale = 1
+yaw_degrees = 180.0
+attachments = Dictionary[String, PackedScene]({
+"handslot.r": ExtResource("3")
+})
+tint = Color(0.72, 0.70, 0.90, 1)
+idle_anim = &"Idle"
+run_anim = &"Running_A"
+attack_anim = &"1H_Melee_Attack_Slice_Diagonal"
+death_anim = &"Death_B"
+run_speed_scale = 1
+attack_speed_scale = 1.0
+head_height = 2.60
+pick_radius = 0.90
+pick_height = 2.60

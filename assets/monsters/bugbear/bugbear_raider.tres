@@ -1,0 +1,23 @@
+[gd_resource type="Resource" script_class="MonsterModel" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scenes/game/entities/MonsterModel.gd" id="1"]
+[ext_resource type="PackedScene" path="res://assets/monsters/bugbear/yeti.glb" id="2"]
+
+[resource]
+script = ExtResource("1")
+scene = ExtResource("2")
+model_scale = 0.74
+yaw_degrees = 180.0
+material_colors = Dictionary[String, Color]({
+"Yeti_Main": Color(0.50, 0.36, 0.22, 1),
+"Yeti_Secondary": Color(0.26, 0.18, 0.10, 1)
+})
+idle_anim = &"CharacterArmature|Idle"
+run_anim = &"CharacterArmature|Run"
+attack_anim = &"CharacterArmature|Punch"
+death_anim = &"CharacterArmature|Death"
+run_speed_scale = 1
+attack_speed_scale = 1.0
+head_height = 2.07
+pick_radius = 0.73
+pick_height = 2.07

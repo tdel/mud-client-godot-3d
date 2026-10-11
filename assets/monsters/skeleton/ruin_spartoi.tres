@@ -1,0 +1,25 @@
+[gd_resource type="Resource" script_class="MonsterModel" load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://scenes/game/entities/MonsterModel.gd" id="1"]
+[ext_resource type="PackedScene" path="res://assets/monsters/skeleton/Skeleton_Warrior.glb" id="2"]
+[ext_resource type="PackedScene" path="res://assets/monsters/skeleton/weapons/Skeleton_Blade.gltf" id="3"]
+[ext_resource type="PackedScene" path="res://assets/monsters/skeleton/weapons/Skeleton_Shield_Large_A.gltf" id="4"]
+
+[resource]
+script = ExtResource("1")
+scene = ExtResource("2")
+model_scale = 0.72
+yaw_degrees = 180.0
+attachments = Dictionary[String, PackedScene]({
+"handslot.r": ExtResource("3"),
+"handslot.l": ExtResource("4")
+})
+idle_anim = &"Idle"
+run_anim = &"Running_A"
+attack_anim = &"1H_Melee_Attack_Chop"
+death_anim = &"Death_A"
+run_speed_scale = 1
+attack_speed_scale = 1.0
+head_height = 1.84
+pick_radius = 0.64
+pick_height = 1.84

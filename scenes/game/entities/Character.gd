@@ -65,8 +65,51 @@ const NPC_OUTFITS := {
 		"CHEST": "torso_leather", "LEGS": "legs_leather", "HANDS": "gloves_leather",
 		"FEET": "boots_leather", "WEAPON": "weapon_hammer",
 	},
+	# Prêtre d'Einhasad (temple) : longue robe et capuche blanches, masse d'office.
+	"PRIEST": {
+		"CHEST": "torso_robe", "LEGS": "legs_cloth", "HEAD": "helmet_hood", "FEET": "boots_leather",
+		"WEAPON": "weapon_mace",
+	},
+	# Gardienne des portails (Gatekeeper de L2) : robe pourpre de cérémonie, diadème.
+	"GATEKEEPER": {
+		"CHEST": "torso_robe", "LEGS": "legs_cloth", "HEAD": "helmet_circlet", "FEET": "boots_leather",
+	},
+	# Magasinier (Warehouse Keeper) : cuir, bonnet, gants de manutention.
+	"WAREHOUSE_KEEPER": {
+		"CHEST": "torso_leather", "LEGS": "legs_cloth", "HEAD": "helmet_leather", "HANDS": "gloves_leather",
+		"FEET": "boots_leather",
+	},
+	# Magister (boutique de magie) : robe violette, baguette.
+	"MAGISTER": {
+		"CHEST": "torso_robe", "LEGS": "legs_cloth", "HANDS": "gloves_leather", "FEET": "boots_leather",
+		"WEAPON": "weapon_wand",
+	},
+	# Marchand d'armes : cuir, épée longue en montre.
+	"WEAPON_MERCHANT": {
+		"CHEST": "torso_leather", "LEGS": "legs_leather", "HANDS": "gloves_leather", "FEET": "boots_leather",
+		"WEAPON": "weapon_sword",
+	},
+	# Marchand d'armures : cuirasse de plaques sur pantalon de cuir, tête nue.
+	"ARMOR_MERCHANT": {
+		"CHEST": "torso_plate", "LEGS": "legs_leather", "HANDS": "gloves_plate", "FEET": "boots_plate",
+	},
+	# Intendant du château (Chamberlain) : robe verte brodée d'or, diadème.
+	"CHAMBERLAIN": {
+		"CHEST": "torso_robe", "LEGS": "legs_cloth", "HEAD": "helmet_circlet", "FEET": "boots_leather",
+	},
 }
 const DEFAULT_NPC_OUTFIT := {"CHEST": "torso_cloth", "LEGS": "legs_cloth", "FEET": "boots_leather"}
+## Teintes propres à un rôle de PNJ : nom de matériau du .glb (voir MATERIAL_DEFS du
+## générateur : "robe", "robe_trim", "cloth", "leather", "hair"...) -> albedo, appliquées aux
+## seules pièces visibles (et aux cheveux) de ce PNJ — le .glb partagé n'est pas modifié.
+const NPC_OUTFIT_COLORS := {
+	"PRIEST": {"robe": Color(0.86, 0.84, 0.78), "robe_trim": Color(0.80, 0.64, 0.26), "cloth_dark": Color(0.62, 0.60, 0.55)},
+	"GATEKEEPER": {"robe": Color(0.42, 0.10, 0.26), "robe_trim": Color(0.85, 0.70, 0.35), "cloth_dark": Color(0.25, 0.08, 0.16)},
+	"MAGISTER": {"robe": Color(0.28, 0.14, 0.42), "robe_trim": Color(0.62, 0.66, 0.78), "cloth_dark": Color(0.18, 0.10, 0.26)},
+	"CHAMBERLAIN": {"robe": Color(0.13, 0.30, 0.18), "robe_trim": Color(0.85, 0.66, 0.25), "hair": Color(0.62, 0.60, 0.57)},
+	"WAREHOUSE_KEEPER": {"leather": Color(0.27, 0.19, 0.12), "cloth_dark": Color(0.36, 0.33, 0.27), "hair": Color(0.45, 0.22, 0.08)},
+	"SKILL_LEARNER": {"hair": Color(0.70, 0.69, 0.66)},
+}
 
 ## WeaponType serveur (champ `weaponType` d'Inventory/EquipmentView, voir
 ## app.domain.item.WeaponType côté backend) -> mesh d'arme.
@@ -119,6 +162,11 @@ var _skeleton: Skeleton3D
 var _animation_player: AnimationPlayer
 ## slot EquipmentSlot -> nom du mesh visible (voir set_equipment).
 var _visuals: Dictionary = {}
+## Teintes du rôle de PNJ (voir NPC_OUTFIT_COLORS) : nom de matériau -> couleur ; vide pour
+## un joueur.
+var _tints: Dictionary = {}
+## Matériau du .glb -> copie teinte (une par matériau, partagée par les pièces de ce PNJ).
+var _tinted_materials: Dictionary = {}
 ## Faux jusqu'au premier set_equipment : la tenue initiale (arrivée en jeu, entité qui
 ## apparaît) s'affiche sans effet, seuls les changements ultérieurs sont animés.
 var _equipment_initialized := false
@@ -244,6 +292,7 @@ func set_equipment(equipped: Dictionary, animate := true) -> void:
 	_equipment_initialized = true
 	var before := _shown_meshes()
 	_visuals.clear()
+	_set_tints({})
 	for slot in equipped.keys():
 		var visual := visual_for_item(str(slot), equipped[slot])
 		if not visual.is_empty():
@@ -265,7 +314,15 @@ func set_equipment(equipped: Dictionary, animate := true) -> void:
 func set_outfit(npc_type: String) -> void:
 	_equipment_initialized = true
 	_visuals = NPC_OUTFITS.get(npc_type, DEFAULT_NPC_OUTFIT).duplicate()
+	_set_tints(NPC_OUTFIT_COLORS.get(npc_type, {}))
 	_apply_visuals()
+
+
+func _set_tints(tints: Dictionary) -> void:
+	if tints == _tints:
+		return
+	_tints = tints
+	_tinted_materials.clear()
 
 
 ## `items` : entrées Inventory ou EquipmentView ({slot, name, type, armorCategory, weaponType,
@@ -384,8 +441,29 @@ func _apply_visuals() -> void:
 		var child_name := str(child.name)
 		if child_name == "Hair":
 			child.visible = helmet.is_empty() or helmet in HAIR_VISIBLE_HELMETS
+			_tint_mesh(child)
 		elif _is_equipment_mesh(child_name):
 			child.visible = shown.has(child_name) or _vanishing.has(child_name)
+			if child.visible:
+				_tint_mesh(child)
+
+
+## Pose (ou retire) les copies teintes de _tints sur les surfaces de `mesh` dont le matériau
+## importé porte un nom teint. Mats et sans métal, comme les recolorations de Monster.gd.
+func _tint_mesh(mesh: MeshInstance3D) -> void:
+	if mesh.mesh == null:
+		return
+	for surface in mesh.mesh.get_surface_count():
+		var material := mesh.mesh.surface_get_material(surface) as BaseMaterial3D
+		if material == null or not _tints.has(material.resource_name):
+			mesh.set_surface_override_material(surface, null)
+			continue
+		if not _tinted_materials.has(material):
+			var copy := material.duplicate() as BaseMaterial3D
+			copy.albedo_color = _tints[material.resource_name]
+			copy.metallic = minf(copy.metallic, 0.3)
+			_tinted_materials[material] = copy
+		mesh.set_surface_override_material(surface, _tinted_materials[material])
 
 
 ## Apparition (`appearing`) ou disparition animée d'une pièce : fondu via

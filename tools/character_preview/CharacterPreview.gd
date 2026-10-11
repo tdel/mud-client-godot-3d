@@ -12,7 +12,10 @@ extends Node3D
 ## clip/l'effet.
 ## Sans --out, la scène reste ouverte (animations en boucle, pratique dans l'éditeur).
 ## --lineup=guards : PNJ (gardes homme/femme, maître, marchande, forgeron, villageois sans
-## type) en tenue Character.NPC_OUTFITS, vus de plus près.
+## type) en tenue Character.NPC_OUTFITS, vus de plus près. --lineup=townsfolk : les autres rôles de
+## PNJ des villes et du château (prêtre, gardienne des portails, magasinier, magister, marchands
+## d'armes et d'armures, intendant), teintes NPC_OUTFIT_COLORS comprises. --lineup=dual :
+## doubles épées.
 
 const CHARACTER_SCENE := preload("res://scenes/game/entities/Character.tscn")
 
@@ -56,6 +59,17 @@ const GUARD_LINEUP := [
 	["man", "GUARD"], ["woman", "GUARD"], ["man", "SKILL_LEARNER"], ["woman", "MERCHANT"],
 	["man", "BLACKSMITH"], ["man", ""],
 ]
+const TOWNSFOLK_LINEUP := [
+	["man", "PRIEST"], ["woman", "GATEKEEPER"], ["man", "WAREHOUSE_KEEPER"], ["woman", "MAGISTER"],
+	["man", "WEAPON_MERCHANT"], ["woman", "ARMOR_MERCHANT"], ["man", "CHAMBERLAIN"],
+]
+## --lineup=dual : doubles épées (nom "*" et weaponType DUAL) ; le bouclier doit rester caché.
+const DUAL_LINEUP := [
+	["man", {"WEAPON": {"name": "Saber*Saber"}, "OFF_HAND": {"name": "Wooden Shield", "type": "SHIELD"},
+		"CHEST": {"name": "Leather Armor", "armorCategory": "LIGHT"}}],
+	["woman", {"WEAPON": {"name": "Sword of Revolution*Sword of Revolution", "weaponType": "DUAL"},
+		"CHEST": {"name": "Plate Armor", "armorCategory": "HEAVY"}}],
+]
 const SPACING := 1.1
 
 var _anim := "idle"
@@ -73,6 +87,10 @@ func _ready() -> void:
 			_time = float(arg.substr(7))
 		elif arg == "--lineup=guards":
 			_lineup = GUARD_LINEUP
+		elif arg == "--lineup=townsfolk":
+			_lineup = TOWNSFOLK_LINEUP
+		elif arg == "--lineup=dual":
+			_lineup = DUAL_LINEUP
 		elif arg.begins_with("--out="):
 			_out = arg.substr(6)
 	_build_stage()
