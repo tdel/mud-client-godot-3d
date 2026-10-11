@@ -82,6 +82,11 @@ func get_map_scene_path(map_name: String) -> String:
 	return _map_scene_path_by_name.get(map_name, "")
 
 
+## Chemins de toutes les scènes de carte indexées (voir la carte du monde, MapAtlas).
+func get_map_scene_paths() -> Array:
+	return _map_scene_path_by_name.values()
+
+
 ## Nom de la carte d'id `map_id` (cible d'un PortalMarker3D, voir la carte du monde), ou ""
 ## si aucune scène ne porte cet id.
 func get_map_name_by_id(map_id: String) -> String:

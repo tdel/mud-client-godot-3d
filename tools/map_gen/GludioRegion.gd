@@ -15,7 +15,8 @@ extends RefCounted
 ## raccordés au bout des ruines d'Agonie et de Dion.
 ##
 ## Positions en cases (1 case = 1 m) ; un portail mène SUR le portail de retour de la carte
-## cible.
+## cible. Place de chaque carte sur la carte du monde (touche M, clic droit) : voir
+## MapAtlas.WORLD_ORIGINS, à compléter pour une nouvelle région.
 
 const GLUDIO_ID := "5e4ada37-37e1-438c-9233-581f10c055c7"
 const CASTLE_ID := "82fc00f2-1618-4a94-9e5d-37153ee7e04e"

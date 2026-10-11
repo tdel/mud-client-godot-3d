@@ -7,9 +7,14 @@ extends Node
 ## Scénarios : login, charselect, create, game, game_select_self, game_select_party, game_party[_menu],
 ## game_party_invite, game_invite_button, game_windows, game_2h, game_shop, game_misc, game_death, game_options[_sound|_system], game_worldmap,
 ## game_skill_learn[_menu] (maître des compétences), game_skillbook, game_l2_skills (effets des compétences L2),
+## game_effects (buffs/debuffs sous PlayerFrame, de la cible et du groupe),
+## game_l2_classes (changement de profession, serviteur, statuts et cubiques),
+## game_bestiary (monstres L2 animés dans les Ruins of Agony), game_townsfolk (PNJ des villes),
 ## skill_icons (planche des icônes de compétences), loading.
-## game_worldmap accepte --map=<nom de carte> (autre carte que la Place du village) et
-## --map-size=LxH (taille du parchemin, pour vérifier le redimensionnement).
+## game_worldmap accepte --map=<nom de carte> (autre carte que la Town of Gludio) et
+## --map-size=LxH (taille du parchemin, pour vérifier le redimensionnement) ; --map-view=world
+## dézoome sur la carte du monde (--hover=<région> en survole une), --map-view=<région> affiche
+## une autre région que la carte courante, --map-zoom=0..1 fige le dézoom en cours de route.
 ## Suffixe _menu sur login/charselect/create : ouvre le Menu système hors jeu (SystemMenu).
 ##
 ## user://hotbar.cfg est sauvegardé puis restauré tel quel : la hotbar écrit sa config pour le
@@ -18,12 +23,18 @@ extends Node
 ## pour des captures reproductibles.
 
 const HOTBAR_CFG := "user://hotbar.cfg"
-const MAP_NAME := "Place du village"
+const MAP_NAME := "Town of Gludio"
+## Durée du dézoom de la carte du monde (WorldMapWindow.ZOOM_DURATION), pour --map-zoom.
+const ZOOM_PREVIEW_DURATION := 0.5
 
 var _shot := "game"
 var _out := "user://ui_preview.png"
 var _map_override := ""
+var _monster_list: PackedStringArray = []
 var _map_canvas_size := Vector2.ZERO
+var _map_view := ""
+var _map_hover := ""
+var _map_zoom := -1.0
 var _hotbar_backup: PackedByteArray
 var _hotbar_existed := false
 
@@ -36,6 +47,14 @@ func _ready() -> void:
 			_out = arg.substr(6)
 		elif arg.begins_with("--map="):
 			_map_override = arg.substr(6)
+		elif arg.begins_with("--monsters="):
+			_monster_list = arg.substr(11).split(",")
+		elif arg.begins_with("--map-view="):
+			_map_view = arg.substr(11)
+		elif arg.begins_with("--hover="):
+			_map_hover = arg.substr(8)
+		elif arg.begins_with("--map-zoom="):
+			_map_zoom = float(arg.substr(11))
 		elif arg.begins_with("--map-size="):
 			var dims := arg.substr(11).split("x")
 			_map_canvas_size = Vector2(float(dims[0]), float(dims[1]))
@@ -88,7 +107,7 @@ func _run() -> void:
 		# La carte ne s'affiche qu'une fois l'écran de chargement refermé (voir LoadingScreen).
 		while LoadingScreen.is_active():
 			await get_tree().process_frame
-		_setup_game_scene()
+		await _setup_game_scene()
 	elif _shot.ends_with("_menu"):
 		get_tree().current_scene.get_node("SystemMenu/OptionsWindow").open()
 	if _shot == "game_spells":
@@ -199,22 +218,80 @@ const L2_SKILLS := [
 	["Empower", "BUFF"],
 ]
 
+## Compétences des 1re/2e professions humaines + effets serveur affichés en icône.
+const L2_PROFESSION_SKILLS := [
+	# Warrior / Gladiator / Warlord
+	["Detect Insect Weakness", "BUFF"], ["War Cry", "BUFF"], ["Stun Attack", "DAMAGE"], ["Battle Roar", "BUFF"],
+	["Vital Force", "PASSIVE"], ["Boost HP", "PASSIVE"], ["Fast HP Recovery", "PASSIVE"], ["Polearm Mastery", "PASSIVE"],
+	["Light Armor Mastery", "PASSIVE"], ["Heavy Armor Mastery", "PASSIVE"], ["Wild Sweep", "DAMAGE"], ["Power Smash", "DAMAGE"],
+	["Accuracy", "TOGGLE"], ["Sword/Blunt Weapon Mastery", "PASSIVE"], ["Lionheart", "BUFF"], ["Vicious Stance", "TOGGLE"],
+	["Triple Slash", "DAMAGE"], ["Detect Animal Weakness", "BUFF"], ["Dual Weapon Mastery", "PASSIVE"], ["Fatal Strike", "DAMAGE"],
+	["Hammer Crush", "DAMAGE"], ["Whirlwind", "DAMAGE"], ["Thunder Storm", "DAMAGE"], ["Focus Attack", "TOGGLE"],
+	["Power Crush", "DAMAGE"],
+	# Human Knight / Paladin / Dark Avenger
+	["Aggression", "AGGRO"], ["Divine Heal", "HEALING"], ["Drain Health", "DAMAGE"], ["Majesty", "BUFF"],
+	["Shield Stun", "DEBUFF"], ["Ultimate Defense", "BUFF"], ["Deflect Arrow", "BUFF"], ["Magic Resistance", "PASSIVE"],
+	["Shield Mastery", "PASSIVE"], ["Focus Mind", "PASSIVE"], ["Aura of Hate", "AGGRO"], ["Remedy", "CURE"],
+	["Holy Armor", "TOGGLE"], ["Holy Blessing", "HEALING"], ["Life Scavenge", "HEALING"], ["Reflect Damage", "BUFF"],
+	["Summon Dark Panther", "SUMMON"],
+	# Rogue / Treasure Hunter / Hawkeye
+	["Dash", "BUFF"], ["Bleed", "DEBUFF"], ["Rapid Shot", "BUFF"], ["Stun Shot", "DAMAGE"], ["Ultimate Evasion", "BUFF"],
+	["Long Shot", "PASSIVE"], ["Critical Chance", "PASSIVE"], ["Boost Attack Speed", "PASSIVE"], ["Quick Step", "PASSIVE"],
+	["Esprit", "PASSIVE"], ["Critical Power", "PASSIVE"], ["Boost Evasion", "PASSIVE"], ["Bow Mastery", "PASSIVE"],
+	["Dagger Mastery", "PASSIVE"], ["Acrobatic Move", "PASSIVE"], ["Backstab", "DAMAGE"], ["Fake Death", "TOGGLE"],
+	["Silent Move", "TOGGLE"], ["Deadly Blow", "DAMAGE"], ["Shadow Step", "BLINK"], ["Double Shot", "DAMAGE"],
+	["Hawk Eye", "BUFF"], ["Soul of Sagittarius", "BUFF"],
+	# Human Wizard / Sorcerer / Necromancer / Warlock
+	["Quick Recycle", "PASSIVE"], ["Boost Mana", "PASSIVE"], ["Fast Spell Casting", "PASSIVE"], ["Fast Mana Recovery", "PASSIVE"],
+	["Robe Mastery", "PASSIVE"], ["Higher Mana Gain", "PASSIVE"], ["Sleep", "DEBUFF"], ["Concentration", "BUFF"],
+	["Surrender To Fire", "DEBUFF"], ["Summon Kat the Cat", "SUMMON"], ["Servitor Recharge", "RECHARGE"], ["Servitor Heal", "HEALING"],
+	["Servitor Wind Walk", "BUFF"], ["Corpse Life Drain", "HEALING"], ["Body To Mind", "RECHARGE"], ["Slow", "DEBUFF"],
+	["Poisonous Cloud", "DEBUFF"], ["Aura Burn", "DAMAGE"], ["Flame Strike", "DAMAGE"], ["Blaze", "DAMAGE"],
+	["Curse Chaos", "DEBUFF"], ["Summon Mew the Cat", "SUMMON"], ["Energy Bolt", "DAMAGE"], ["Surrender To Wind", "DEBUFF"],
+	["Curse Fear", "DEBUFF"], ["Blazing Circle", "DAMAGE"], ["Prominence", "DAMAGE"], ["Aura Flare", "DAMAGE"],
+	["Blazing Skin", "BUFF"], ["Aura Bolt", "DAMAGE"], ["Clear Mind", "PASSIVE"], ["Silence", "DEBUFF"],
+	["Summon Corrupted Man", "SUMMON"], ["Curse Discord", "DEBUFF"], ["Anchor", "DEBUFF"], ["Vampiric Claw", "DAMAGE"],
+	["Transfer Pain", "TOGGLE"], ["Summon Storm Cubic", "CUBIC"], ["Servitor Physical Shield", "BUFF"], ["Summon Kai the Cat", "SUMMON"],
+	["Summon Binding Cubic", "CUBIC"], ["Servitor Cure", "CURE"], ["Mass Summon Storm Cubic", "CUBIC"],
+	# Cleric / Bishop / Prophet
+	["Resurrection", "RESURRECT"], ["Disrupt Undead", "DAMAGE"], ["Mental Shield", "BUFF"], ["Holy Weapon", "BUFF"],
+	["Regeneration", "BUFF"], ["Berserker Spirit", "BUFF"], ["Peace", "PEACE"], ["Focus", "BUFF"], ["Acumen", "BUFF"],
+	["Resist Fire", "BUFF"], ["Dryad Root", "DEBUFF"], ["Wind Walk", "BUFF"], ["Might of Heaven", "DAMAGE"], ["Requiem", "DEBUFF"],
+	["Greater Heal", "HEALING"], ["Greater Battle Heal", "HEALING"], ["Greater Group Heal", "HEALING"], ["Mass Resurrection", "RESURRECT"],
+	["Invigor", "BUFF"], ["Return", "TELEPORT"], ["Guidance", "BUFF"], ["Death Whisper", "BUFF"], ["Bless Shield", "BUFF"],
+	# Effets serveur (barre d'effets)
+	["Storm Cubic", "BUFF"], ["Binding Cubic", "DEBUFF"], ["Master Recharge", "BUFF"], ["Mega Storm Strike", "DAMAGE"],
+]
 
+
+## Planche paginée : `--page=N` (défaut 0 = compétences des classes de base), `--compact` pour
+## des icônes 64/32 px (70 par page au lieu de 21 en 110/36 px).
 func _build_skill_icon_sheet() -> void:
+	var page := 0
+	var compact := false
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--page="):
+			page = int(arg.substr(7))
+		elif arg == "--compact":
+			compact = true
+	var all_skills: Array = L2_SKILLS + L2_PROFESSION_SKILLS
+	var per_page := 70 if compact else 21
+	var sizes := [64, 32] if compact else [110, 36]
+	print("UIPreview: skill_icons page %d / %d" % [page, ceili(all_skills.size() / float(per_page)) - 1])
 	var root := PanelContainer.new()
 	root.theme_type_variation = &"WindowPanel"
 	root.position = Vector2(20, 20)
 	get_tree().root.add_child.call_deferred(root)
 	var grid := GridContainer.new()
-	grid.columns = 7
+	grid.columns = 10 if compact else 7
 	grid.add_theme_constant_override("h_separation", 10)
-	grid.add_theme_constant_override("v_separation", 10)
+	grid.add_theme_constant_override("v_separation", 6 if compact else 10)
 	root.add_child(grid)
-	for e in L2_SKILLS:
+	for e in all_skills.slice(page * per_page, (page + 1) * per_page):
 		var cell := VBoxContainer.new()
 		var row := HBoxContainer.new()
 		cell.add_child(row)
-		for size in [110, 36]:
+		for size in sizes:
 			var slot := Panel.new()
 			slot.theme_type_variation = &"SlotPanel"
 			slot.custom_minimum_size = Vector2(size + 8, size + 8)
@@ -229,6 +306,10 @@ func _build_skill_icon_sheet() -> void:
 			row.add_child(slot)
 		var label := Label.new()
 		label.text = e[0]
+		if compact:
+			label.custom_minimum_size.x = 112
+			label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			label.add_theme_font_size_override("font_size", 11)
 		cell.add_child(label)
 		grid.add_child(cell)
 
@@ -281,9 +362,10 @@ func _feed_game_state() -> void:
 	for y in height:
 		rows.append("1".repeat(width))
 	_emit("MapView", {"mapName": MAP_NAME, "grid": {"width": width, "height": height, "walkableRows": rows}})
-	# Au sud de la fontaine de la Place du village (72, 46, voir generate_place_du_village.gd).
-	var cx := 72.5
-	var cy := 53.0
+	# Au sud du monument de la grand-place de Gludio (100.5, 92.5, voir
+	# generate_town_of_gludio.gd).
+	var cx := 100.5
+	var cy := 108.0
 	_emit("MapEnter", {"selfX": cx, "selfY": cy, "selfHeading": 0.0})
 	_emit("EntityAppeared", {"entities": [
 		{"id": "m1", "name": "Loup gris", "kind": "monster", "x": cx + 3, "y": cy + 1, "currentHealth": 64, "maxHealth": 120, "level": 14},
@@ -474,10 +556,183 @@ func _setup_game_scene() -> void:
 			if _map_canvas_size != Vector2.ZERO:
 				world_map._set_canvas_size(_map_canvas_size)
 			world_map.position = Vector2(40, 60)
+			if not _map_view.is_empty():
+				while not world_map._atlas.is_loaded():
+					await get_tree().process_frame
+				await _frames(2)
+				if _map_view == "world":
+					world_map._zoom_out()
+					if _map_zoom >= 0.0:
+						world_map._transition.pause()
+						world_map._transition.custom_step(ZOOM_PREVIEW_DURATION * _map_zoom)
+					else:
+						await get_tree().create_timer(0.8).timeout
+					if not _map_hover.is_empty():
+						world_map._set_hover(_map_hover, -1)
+						await get_tree().create_timer(0.4).timeout
+				else:
+					world_map._show_region(_map_view, false)
 		"game_dialog":
 			var inventory: Control = hud.get_node("InventoryWindow")
 			inventory.open()
 			inventory._on_drop_pressed("i5", "Bastard Sword")
+		"game_effects":
+			await _feed_effects(game, hud)
+		"game_bestiary", "game_townsfolk":
+			await _feed_population(_shot == "game_bestiary")
+		"game_l2_classes":
+			await _feed_l2_classes(game, hud)
+
+
+## --shot=game_bestiary : monstres L2 (modèles animés de MonsterCatalog) en cercle autour de
+## nous dans la vraie carte des Ruins of Agony ; --monsters=Nom1,Nom2 pour en choisir d'autres
+## (--map=<carte> pour un autre décor). --shot=game_townsfolk : PNJ de service de la Town of
+## Gludio (rôles et teintes de Character.NPC_OUTFITS) sur la grand-place.
+func _feed_population(monsters: bool) -> void:
+	var map_name := _map_override if not _map_override.is_empty() else ("Ruins of Agony" if monsters else MAP_NAME)
+	var size := _map_size(map_name)
+	var rows := []
+	for y in size.y:
+		rows.append("1".repeat(size.x))
+	var center := Vector2(189.5, 136.0) if monsters else Vector2(100.5, 106.0)
+	if map_name != MAP_NAME:
+		_emit("MapView", {"mapName": map_name, "grid": {"width": size.x, "height": size.y, "walkableRows": rows}})
+	_emit("MapEnter", {"selfX": center.x, "selfY": center.y, "selfHeading": 0.0})
+	# Chargement de la nouvelle carte (écran de chargement, voir Game3D._advance_map_load).
+	for i in 60:
+		if LoadingScreen.is_active():
+			break
+		await get_tree().process_frame
+	while LoadingScreen.is_active():
+		await get_tree().process_frame
+	var entities := []
+	if monsters:
+		var names := _monster_list if not _monster_list.is_empty() else PackedStringArray([
+			"Ruin Zombie", "Skeleton Tracker", "Skeleton Bowman", "Ruin Spartoi", "Tumran Bugbear Warrior",
+			"Ruin Imp", "Scavenger Bat", "Marsh Stakato", "Maille Lizardman", "Marsh Spider", "Ratman Hunter", "Toad Lord"])
+		for i in names.size():
+			var p := center + Vector2.from_angle(TAU * i / names.size() - PI / 2.0) * 5.5
+			entities.append({"id": "m%d" % i, "name": names[i], "kind": "monster", "x": p.x, "y": p.y,
+					"currentHealth": 100, "maxHealth": 100, "level": 20, "heading": rad_to_deg((center - p).angle()) + 90.0})
+	else:
+		var roles := [["Gatekeeper", "Gatekeeper", "GATEKEEPER", "WOMAN"], ["Priest", "Priest of Einhasad", "PRIEST", "MAN"],
+				["Weapon Merchant", "Weapon Merchant", "WEAPON_MERCHANT", "MAN"], ["Armor Merchant", "Armor Merchant", "ARMOR_MERCHANT", "WOMAN"],
+				["Magister", "Magic Trader", "MAGISTER", "WOMAN"], ["Warehouse Keeper", "Warehouse Keeper", "WAREHOUSE_KEEPER", "MAN"],
+				["Chamberlain", "Chamberlain of Gludio", "CHAMBERLAIN", "MAN"], ["Townswoman", "Citizen of Gludio", "", "WOMAN"]]
+		for i in roles.size():
+			var p := center + Vector2((i % 4 - 1.5) * 2.6 + 6.0, -6.0 + (i / 4) * 3.2)
+			entities.append({"id": "t%d" % i, "name": roles[i][0], "title": roles[i][1], "kind": "npc", "x": p.x, "y": p.y,
+					"heading": 180.0, "npcType": roles[i][2], "gender": roles[i][3]})
+	_emit("EntityAppeared", {"entities": entities})
+	await _frames(30)
+
+
+## --shot=game_l2_classes : professions L2 — fenêtre de changement de profession du Grand
+## Master (Human Wizard → Sorcerer/Necromancer/Warlock), serviteur invoqué (Kat the Cat) et sa
+## fenêtre, cubique de tempête et toggle Vicious Stance sur nous, monstres étourdi/endormi/
+## enraciné (StatusVfx), le tout par les vrais messages serveur.
+func _feed_l2_classes(game: Node, hud: Node) -> void:
+	_emit("EntityAppeared", {"entities": [
+		{"id": "n9", "name": "Skill Learner", "kind": "npc", "title": "Grand Master", "x": 75.5, "y": 55.4,
+			"heading": -1.57, "npcType": "SKILL_LEARNER", "gender": "MAN"},
+		{"id": "s1", "name": "Kat the Cat", "kind": "summon", "title": "Aelwyn", "x": 99.0, "y": 108.5,
+			"heading": 0.0, "currentHealth": 980, "maxHealth": 1051, "level": 42, "model": "cat_kat", "ownerId": "p1"},
+		{"id": "m5", "name": "Fox", "kind": "monster", "x": 103.0, "y": 106.5, "heading": 3.0,
+			"currentHealth": 30, "maxHealth": 44, "level": 3},
+		{"id": "m6", "name": "Brown Keltir", "kind": "monster", "x": 103.5, "y": 110.0, "heading": 3.0,
+			"currentHealth": 55, "maxHealth": 55, "level": 2},
+	]})
+	_emit("SummonStatus", {"summonId": "s1", "name": "Kat the Cat", "model": "cat_kat", "level": 42,
+		"currentHealth": 980, "maxHealth": 1051, "secondsRemaining": 1150})
+	_emit("EffectApplied", {"characterId": "p1", "characterName": "Aelwyn", "effect": {"skillName": "Storm Cubic",
+		"beneficial": true, "secondsRemaining": 880, "modifiers": [], "cubic": "STORM"}})
+	_emit("EffectApplied", {"characterId": "p1", "characterName": "Aelwyn", "effect": {"skillName": "Vicious Stance",
+		"beneficial": true, "secondsRemaining": 0, "permanent": true, "toggle": true,
+		"modifiers": [{"stat": "CRIT_DAMAGE_ADD", "value": 139, "operator": "ADDITIVE"}]}})
+	_emit("EffectApplied", {"characterId": "m5", "characterName": "Fox", "effect": {"skillName": "Stun Attack",
+		"beneficial": false, "secondsRemaining": 8, "modifiers": [], "status": "STUN"}})
+	_emit("EffectApplied", {"characterId": "m6", "characterName": "Brown Keltir", "effect": {"skillName": "Sleep",
+		"beneficial": false, "secondsRemaining": 25, "modifiers": [], "status": "SLEEP"}})
+	_emit("ClassChangeOptions", {"npcId": "n9", "npcName": "Skill Learner", "characterLevel": 40,
+		"currentClass": "Human Wizard", "classPath": ["Mystic", "Human Wizard"], "tier": 2, "requiredLevel": 40,
+		"options": [
+			{"name": "SORCERER", "label": "Sorcerer", "description": "Mage de feu : Prominence, Aura Flare, cercle de flammes et sommeil."},
+			{"name": "NECROMANCER", "label": "Necromancer", "description": "Nécromancien : griffes vampiriques, malédictions (peur, silence, discorde) et mort-vivant invoqué."},
+			{"name": "WARLOCK", "label": "Warlock", "description": "Invocateur : chats de combat, cubiques et soins de serviteur."},
+		]})
+	game._apply_selection("m5", "Fox")
+	await _frames(20)
+
+
+## --shot=game_effects : buffs/debuffs par les vrais messages serveur — les nôtres sous
+## PlayerFrame (dont deux sous 10 s, décompte dans l'icône), ceux du loup ciblé dans
+## TargetStatusBar, la fenêtre de groupe rangée sous nos effets, et l'infobulle d'un effet
+## reproduite à côté (le survol simulé n'ouvre pas l'infobulle native).
+func _feed_effects(game: Node, hud: Node) -> void:
+	var might := {"skillName": "Might", "beneficial": true, "secondsRemaining": 1100,
+		"modifiers": [{"stat": "PATK", "value": 8, "operator": "MULTIPLICATIVE"}]}
+	_emit("GamePlayerStats", GameState.player_stats.merged({"effects": [might,
+		{"skillName": "Shield", "beneficial": true, "secondsRemaining": 950,
+			"modifiers": [{"stat": "PDEF", "value": 8, "operator": "MULTIPLICATIVE"}]},
+		{"skillName": "Relax", "beneficial": true, "secondsRemaining": 420, "breaksOnAction": true,
+			"modifiers": [{"stat": "HP_REGEN", "value": 5, "operator": "ADDITIVE"}]},
+	]}, true))
+	_emit("EffectApplied", {"characterId": "p1", "characterName": "Aelwyn", "effect": {"skillName": "Empower",
+		"beneficial": true, "secondsRemaining": 7, "modifiers": [{"stat": "MATK", "value": 3, "operator": "ADDITIVE"}]}})
+	_emit("EffectApplied", {"characterId": "p1", "characterName": "Aelwyn", "effect": {"skillName": "Ice Bolt",
+		"beneficial": false, "secondsRemaining": 4, "modifiers": [{"stat": "SPEED", "value": -20, "operator": "MULTIPLICATIVE"}]}})
+	_emit("EffectApplied", {"characterId": "p1", "characterName": "Aelwyn", "effect": {"skillName": "Curse: Poison",
+		"beneficial": false, "secondsRemaining": 24, "modifiers": [], "periodicDamage": 11, "periodicIntervalSeconds": 3}})
+	# Relax tombe dès le premier geste : l'icône disparaît, le journal l'annonce.
+	_emit("SkillModifierExpired", {"characterId": "p1", "characterName": "Aelwyn", "skillName": "Relax"})
+	_emit("EffectApplied", {"characterId": "m1", "characterName": "Loup gris", "effect": {"skillName": "Curse: Weakness",
+		"beneficial": false, "secondsRemaining": 28, "modifiers": [{"stat": "PATK", "value": -17, "operator": "MULTIPLICATIVE"}]}})
+	_emit("EffectApplied", {"characterId": "m1", "characterName": "Loup gris", "effect": {"skillName": "Curse: Poison",
+		"beneficial": false, "secondsRemaining": 5, "modifiers": [], "periodicDamage": 11, "periodicIntervalSeconds": 3}})
+	_emit("EffectApplied", {"characterId": "m1", "characterName": "Loup gris", "effect": {"skillName": "Shield",
+		"beneficial": true, "secondsRemaining": 300, "modifiers": [{"stat": "PDEF", "value": 8, "operator": "MULTIPLICATIVE"}]}})
+	_feed_party()
+	game._apply_selection("m1", "Loup gris")
+	await _frames(6)
+	var tip := PanelContainer.new()
+	tip.add_theme_stylebox_override("panel", UITheme.theme.get_stylebox("panel", "TooltipPanel"))
+	tip.add_child(UITheme.make_rich_tooltip(EffectIcon.tooltip_bbcode("Might", GameState._effect_entry(might), 1100)))
+	tip.position = Vector2(440, 200)
+	hud.add_child(tip)
+	var poison := {"skillName": "Curse: Poison", "beneficial": false, "secondsRemaining": 24,
+		"periodicDamage": 11, "periodicIntervalSeconds": 3}
+	var poison_tip := PanelContainer.new()
+	poison_tip.add_theme_stylebox_override("panel", UITheme.theme.get_stylebox("panel", "TooltipPanel"))
+	poison_tip.add_child(UITheme.make_rich_tooltip(
+		EffectIcon.tooltip_bbcode("Curse: Poison", GameState._effect_entry(poison), 24)
+	))
+	poison_tip.position = Vector2(640, 200)
+	hud.add_child(poison_tip)
+	# Pénalités de grade (équipement au-delà de l'expertise) : permanentes, posées puis l'une
+	# levée, comme GradePenalty côté serveur — icône sans décompte, journal L2.
+	var weapon_penalty := {"skillName": "Weapon Grade Penalty", "beneficial": false, "secondsRemaining": 0,
+		"permanent": true, "modifiers": [{"stat": "ACCURACY", "value": -16, "operator": "ADDITIVE"},
+			{"stat": "PATK", "value": -10, "operator": "MULTIPLICATIVE"},
+			{"stat": "ATKSPD", "value": -10, "operator": "MULTIPLICATIVE"},
+			{"stat": "PCRIT", "value": -20, "operator": "MULTIPLICATIVE"}]}
+	_emit("EffectApplied", {"characterId": "p1", "characterName": "Aelwyn", "effect": weapon_penalty})
+	_emit("EffectApplied", {"characterId": "p1", "characterName": "Aelwyn", "effect": {
+		"skillName": "Armor Grade Penalty", "beneficial": false, "secondsRemaining": 0, "permanent": true,
+		"modifiers": [{"stat": "EVASION", "value": -3, "operator": "ADDITIVE"}]}})
+	_emit("SkillModifierExpired", {"characterId": "p1", "characterName": "Aelwyn", "skillName": "Armor Grade Penalty"})
+	await _frames(2)
+	var penalty_tip := PanelContainer.new()
+	penalty_tip.add_theme_stylebox_override("panel", UITheme.theme.get_stylebox("panel", "TooltipPanel"))
+	penalty_tip.add_child(UITheme.make_rich_tooltip(
+		EffectIcon.tooltip_bbcode("Weapon Grade Penalty", GameState._effect_entry(weapon_penalty), INF)
+	))
+	penalty_tip.position = Vector2(440, 330)
+	hud.add_child(penalty_tip)
+	var icons := HBoxContainer.new()
+	icons.position = Vector2(840, 200)
+	for penalty_name in ["Weapon Grade Penalty", "Armor Grade Penalty"]:
+		icons.add_child(EffectIcon.new(penalty_name, false, 64))
+	hud.add_child(icons)
 
 
 ## Groupe factice (game_party*) : Kaelis (chef) puis Morwen et Thorgal (mort), buffs/debuffs

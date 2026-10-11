@@ -16,6 +16,13 @@ uniform vec2 map_tiles = vec2(100.0, 60.0);
 uniform float px_per_tile = 6.0;
 // Pas (en cases) de la grille des petits arbres de forêt.
 uniform float tree_cell = 2.0;
+// Cadre (px) hors duquel le terrain n'est pas dessiné : la carte du monde zoomée déborde de
+// map_rect pendant les transitions (voir WorldMapWindow._zoom_to).
+uniform vec4 clip_rect = vec4(-100000.0, -100000.0, 200000.0, 200000.0);
+// Région survolée sur la carte du monde (px) : éclairée, cernée d'une lueur dorée, le reste
+// de la carte un peu assombri, dosé par focus_amount (0 = aucun effet).
+uniform vec4 focus_rect = vec4(0.0);
+uniform float focus_amount = 0.0;
 
 const vec3 INK = vec3(0.24, 0.15, 0.08);
 const vec3 PAPER_LIGHT = vec3(0.93, 0.86, 0.69);
@@ -92,7 +99,9 @@ void fragment() {
 
 	// --- Terrain -----------------------------------------------------------
 	vec2 t = (px - map_rect.xy) / map_rect.zw * map_tiles;
-	if (t.x >= 0.0 && t.y >= 0.0 && t.x <= map_tiles.x && t.y <= map_tiles.y) {
+	bool clipped = px.x < clip_rect.x || px.y < clip_rect.y
+			|| px.x > clip_rect.x + clip_rect.z || px.y > clip_rect.y + clip_rect.w;
+	if (!clipped && t.x >= 0.0 && t.y >= 0.0 && t.x <= map_tiles.x && t.y <= map_tiles.y) {
 		vec2 texel = 1.0 / map_tiles;
 		vec2 uv = t * texel;
 		vec4 a = soft_sample(mask_a, uv, texel);
@@ -161,6 +170,19 @@ void fragment() {
 		float hatch = step(0.5, fract((px.x + px.y) / 4.0));
 		col = mix(col, mix(vec3(0.52, 0.39, 0.25), vec3(0.36, 0.25, 0.15), hatch), fill(da.a));
 		col = mix(col, INK, stroke(da.a, 1.3));
+	}
+
+	// --- Région survolée (carte du monde) ----------------------------------
+	if (focus_amount > 0.0 && !clipped) {
+		vec2 half_size = focus_rect.zw * 0.5;
+		vec2 q = abs(px - focus_rect.xy - half_size) - half_size;
+		float d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
+		d += (fbm(px / 16.0) - 0.5) * 5.0;
+		float inside = 1.0 - smoothstep(-1.5, 1.5, d);
+		col = mix(col, col * vec3(0.84, 0.79, 0.72), focus_amount * (1.0 - inside) * 0.6);
+		col = mix(col, min(col * vec3(1.07, 1.03, 0.93) + vec3(0.05, 0.035, 0.0), vec3(1.0)), focus_amount * inside);
+		float glow = exp(-max(d, 0.0) / 7.0) * step(0.0, d);
+		col = mix(col, vec3(0.86, 0.60, 0.20), glow * 0.45 * focus_amount);
 	}
 
 	// Vignettage général.
