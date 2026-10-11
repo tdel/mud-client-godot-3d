@@ -49,6 +49,15 @@ const SDF_REACH := 5
 @export var river_depth := 2.0
 @export var water_level := -1.1
 @export var bank_width := 1.7
+## Textures (assets ambientCG) des canaux herbe / sol forestier / terre, propres à une carte
+## (marais de Cruma : herbe sombre et boue ; ruines : terre sèche).
+@export var grass_asset := "Grass004"
+@export var forest_asset := "Ground037"
+@export var dirt_asset := "Ground067"
+## Paramètres libres de terrain_ground.gdshader (teintes, échelles) et de
+## river_water.gdshader (couleurs d'eau : eau croupie du marais...) : nom -> valeur.
+@export var shader_overrides: Dictionary = {}
+@export var water_overrides: Dictionary = {}
 @export_tool_button("Rafraîchir le sol", "Reload") var refresh_action := rebuild
 
 ## Plan réellement affiché : enfant interne jamais enregistré dans la scène (la splat map
@@ -128,11 +137,13 @@ func rebuild() -> void:
 	mat.set_shader_parameter("paved_tile", paved_tile)
 	mat.set_shader_parameter("paved_desaturate", paved_desaturate)
 	mat.set_shader_parameter("paved_tint", paved_tint)
-	for prefix_asset in [["grass", "Grass004"], ["forest", "Ground037"], ["dirt", "Ground067"], ["paved", paved_asset]]:
+	for prefix_asset in [["grass", grass_asset], ["forest", forest_asset], ["dirt", dirt_asset], ["paved", paved_asset]]:
 		var asset: String = prefix_asset[1]
 		mat.set_shader_parameter(prefix_asset[0] + "_albedo", load(TEX + asset + "_color.jpg"))
 		mat.set_shader_parameter(prefix_asset[0] + "_normal", load(TEX + asset + "_normal.jpg"))
 		mat.set_shader_parameter(prefix_asset[0] + "_rough", load(TEX + asset + "_rough.jpg"))
+	for param in shader_overrides:
+		mat.set_shader_parameter(param, shader_overrides[param])
 	_ground.material_override = mat
 	grid_map.visible = false
 
@@ -273,6 +284,8 @@ func _build_channel_mesh(width: int, height: int) -> ArrayMesh:
 	_water.mesh = water_mesh
 	var water_mat := ShaderMaterial.new()
 	water_mat.shader = WATER_SHADER
+	for param in water_overrides:
+		water_mat.set_shader_parameter(param, water_overrides[param])
 	_water.material_override = water_mat
 	return mesh
 

@@ -30,7 +30,7 @@
 script = ExtResource("1_fbjp8")
 map_id = "9a884ac7-b954-4cd6-ab67-c677d472cb0f"
 map_name = "Orée de la forêt"
-description = "Une vieille route pavée traverse la forêt, de la Clairière jusqu'aux portes du village. Une fontaine en marque le milieu ; des sentiers de terre s'enfoncent sous les arbres, jusqu'à une scierie abandonnée. À l'est, le Ru d'Argent coule entre ses berges : on ne le passe que par ses ponts. Par endroits, la forêt se referme en fourrés impénétrables."
+description = "Une vieille route pavée traverse la forêt, de la Clairière jusqu'aux ruines d'Agonie. Une fontaine en marque le milieu ; des sentiers de terre s'enfoncent sous les arbres, jusqu'à une scierie abandonnée. À l'est, le Ru d'Argent coule entre ses berges : on ne le passe que par ses ponts. Par endroits, la forêt se referme en fourrés impénétrables."
 biome = 1
 render_obstacle_blocks = false
 
@@ -234,12 +234,12 @@ script = ExtResource("8_030qy")
 [node name="Panneau_Fontaine" type="Node3D" parent="Props/Signs" unique_id=1663912563 instance=ExtResource("9_fculp")]
 transform = Transform3D(1.3, 0, 0, 0, 1.3, 0, 0, 0, 1.3, 219.5, 0, 127.8)
 script = ExtResource("10_tyjma")
-destinations = PackedStringArray("Place du village|0", "Clairière|180", "Scierie abandonnée|263", "Clairière du Vieux Chêne|76")
+destinations = PackedStringArray("Ruins of Agony|0", "Clairière|180", "Scierie abandonnée|263", "Clairière du Vieux Chêne|76")
 
 [node name="Panneau_PortailEst" type="Node3D" parent="Props/Signs" unique_id=1548651217 instance=ExtResource("9_fculp")]
 transform = Transform3D(1.3, 0, 0, 0, 1.3, 0, 0, 0, 1.3, 433, 0, 130.5)
 script = ExtResource("10_tyjma")
-destinations = PackedStringArray("Place du village|0", "Fontaine|180")
+destinations = PackedStringArray("Ruins of Agony|0", "Fontaine|180")
 
 [node name="Panneau_PortailOuest" type="Node3D" parent="Props/Signs" unique_id=87171378 instance=ExtResource("9_fculp")]
 transform = Transform3D(1.3, 0, 0, 0, 1.3, 0, 0, 0, 1.3, 17, 0, 130.5)
@@ -259,17 +259,17 @@ destinations = PackedStringArray("Vallon moussu|80", "Fontaine|352", "Clairière
 [node name="Panneau_east_north" type="Node3D" parent="Props/Signs" unique_id=758699426 instance=ExtResource("9_fculp")]
 transform = Transform3D(1.3, 0, 0, 0, 1.3, 0, 0, 0, 1.3, 387.7262, 0, 136.66603)
 script = ExtResource("10_tyjma")
-destinations = PackedStringArray("Rochers de l\'Est|281", "Place du village|357", "Fontaine|178")
+destinations = PackedStringArray("Rochers de l\'Est|281", "Ruins of Agony|357", "Fontaine|178")
 
 [node name="Panneau_east_south" type="Node3D" parent="Props/Signs" unique_id=1817170944 instance=ExtResource("9_fculp")]
 transform = Transform3D(1.3, 0, 0, 0, 1.3, 0, 0, 0, 1.3, 408.00806, 0, 143.58607)
 script = ExtResource("10_tyjma")
-destinations = PackedStringArray("Sous-bois|77", "Place du village|353", "Fontaine|174")
+destinations = PackedStringArray("Sous-bois|77", "Ruins of Agony|353", "Fontaine|174")
 
 [node name="Panneau_BoucleSud" type="Node3D" parent="Props/Signs" unique_id=124366386 instance=ExtResource("9_fculp")]
 transform = Transform3D(1.3, 0, 0, 0, 1.3, 0, 0, 0, 1.3, 335.93918, 0, 135.55554)
 script = ExtResource("10_tyjma")
-destinations = PackedStringArray("Clairière du Vieux Chêne|77", "Place du village|20", "Fontaine|199")
+destinations = PackedStringArray("Clairière du Vieux Chêne|77", "Ruins of Agony|20", "Fontaine|199")
 
 [node name="Panneau_CarrefourOuest" type="Node3D" parent="Props/Signs" unique_id=703108417 instance=ExtResource("9_fculp")]
 transform = Transform3D(1.3, 0, 0, 0, 1.3, 0, 0, 0, 1.3, 90.83809, 0, 74.26211)
@@ -284,7 +284,7 @@ destinations = PackedStringArray("Fontaine|35", "Bois des Renards|182")
 [node name="Panneau_Saulaie" type="Node3D" parent="Props/Signs" unique_id=728186143 instance=ExtResource("9_fculp")]
 transform = Transform3D(1.3, 0, 0, 0, 1.3, 0, 0, 0, 1.3, 271.47296, 0, 124.40299)
 script = ExtResource("10_tyjma")
-destinations = PackedStringArray("Saulaie|277", "Place du village|349", "Fontaine|170")
+destinations = PackedStringArray("Saulaie|277", "Ruins of Agony|349", "Fontaine|170")
 
 [node name="Panneau_RochersOuest" type="Node3D" parent="Props/Signs" unique_id=1854269693 instance=ExtResource("9_fculp")]
 transform = Transform3D(1.3, 0, 0, 0, 1.3, 0, 0, 0, 1.3, 393.48932, 0, 55.842724)
@@ -294,7 +294,7 @@ destinations = PackedStringArray("Saulaie|169")
 [node name="Panneau_VieuxChene" type="Node3D" parent="Props/Signs" unique_id=1144289801 instance=ExtResource("9_fculp")]
 transform = Transform3D(1.3, 0, 0, 0, 1.3, 0, 0, 0, 1.3, 257.00052, 0, 219.92648)
 script = ExtResource("10_tyjma")
-destinations = PackedStringArray("Mare aux Keltirs|144", "Fontaine|213", "Place du village|351")
+destinations = PackedStringArray("Mare aux Keltirs|144", "Fontaine|213", "Ruins of Agony|351")
 
 [node name="Panneau_Mare" type="Node3D" parent="Props/Signs" unique_id=1611729251 instance=ExtResource("9_fculp")]
 transform = Transform3D(1.3, 0, 0, 0, 1.3, 0, 0, 0, 1.3, 160.96628, 0, 200.90575)
@@ -569,9 +569,9 @@ target_y = 576.0
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 442, 0, 135)
 script = ExtResource("4_vjg5j")
 direction = "E"
-target_map_id = "5e4ada37-37e1-438c-9233-581f10c055c7"
-target_x = 160.0
-target_y = 1472.0
+target_map_id = "9793019d-1705-4d11-a6b4-bcadd8839851"
+target_x = 176.0
+target_y = 3216.0
 
 [node name="MonsterSpawnGroup_Orée_de_la_forêt" type="Node3D" parent="Objects" unique_id=271182303]
 script = ExtResource("6_f0gl2")

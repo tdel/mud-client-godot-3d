@@ -5,7 +5,7 @@ extends SceneTree
 ## tools/export_map_to_tmx.gd. Relancer ce script ÉCRASE la scène.
 ##
 ## Disposition :
-##   - portail vers la Clairière à l'extrême ouest, portail vers la Place du village à
+##   - portail vers la Clairière à l'extrême ouest, portail vers les Ruins of Agony à
 ##     l'extrême est (ville à droite de la carte), reliés par une vieille route pavée
 ##     sinueuse, bordée de lampadaires ;
 ##   - au milieu de la route, une place pavée avec une fontaine ;
@@ -38,9 +38,11 @@ const SEED := 20260926
 
 const MAP_ID := "9a884ac7-b954-4cd6-ab67-c677d472cb0f"
 const MAP_NAME := "Orée de la forêt"
-const DESCRIPTION := "Une vieille route pavée traverse la forêt, de la Clairière jusqu'aux portes du village. Une fontaine en marque le milieu ; des sentiers de terre s'enfoncent sous les arbres, jusqu'à une scierie abandonnée. À l'est, le Ru d'Argent coule entre ses berges : on ne le passe que par ses ponts. Par endroits, la forêt se referme en fourrés impénétrables."
+const DESCRIPTION := "Une vieille route pavée traverse la forêt, de la Clairière jusqu'aux ruines d'Agonie. Une fontaine en marque le milieu ; des sentiers de terre s'enfoncent sous les arbres, jusqu'à une scierie abandonnée. À l'est, le Ru d'Argent coule entre ses berges : on ne le passe que par ses ponts. Par endroits, la forêt se referme en fourrés impénétrables."
 const CLAIRIERE_ID := "7f55fd0c-23f8-4a3b-82a2-95a79bdbf2b5"
-const VILLAGE_ID := "5e4ada37-37e1-438c-9233-581f10c055c7"
+## Portail est : vers les Ruins of Agony (région de Gludio, voir GludioRegion.gd), arrivée
+## sur leur portail ouest (5.5, 100.5).
+const AGONY_ID := "9793019d-1705-4d11-a6b4-bcadd8839851"
 const FOX_ID := "0a88e27c-5487-40d5-b494-b7ea49148171"
 const KELTIR_ID := "de87e00a-eb3f-4885-b6a4-922c426d5fb8"
 const SPAWN_GROUP := "Orée_de_la_forêt"
@@ -62,7 +64,7 @@ enum T { GRASS, FOREST, DIRT, PAVED, TREE, WATER, THICKET, BRIDGE }
 const T_NAMES := ["grass", "forestFloor", "dirtPath", "pavedStone", "tree", "water", "thicket", "bridge"]
 
 ## Prolongée au-delà des deux bords : la route sort visuellement de la carte (voir
-## TerrainGround.margin / Vegetation.outer_margin) vers la Clairière et le village.
+## TerrainGround.margin / Vegetation.outer_margin) vers la Clairière et les ruines d'Agonie.
 const ROAD := [Vector2(-6, 135), Vector2(8, 135), Vector2(30, 134), Vector2(58, 129), Vector2(90, 126), Vector2(122, 131),
 		Vector2(156, 141), Vector2(190, 139), Vector2(225, 135), Vector2(258, 130), Vector2(280, 126),
 		Vector2(286, 125.5), Vector2(306, 125.5), Vector2(312, 126), Vector2(330, 129), Vector2(368, 141), Vector2(404, 140), Vector2(442, 135), Vector2(456, 135)]
@@ -417,23 +419,23 @@ func _place_signs() -> void:
 	var saw: Array = paths["sawmill"]
 	var loop: Array = paths["south_loop"]
 	_sign(signs, "Fontaine", FOUNTAIN + Vector2(-5.5, -7.2), [
-		["Place du village", 0.0], ["Clairière", 180.0],
+		["Ruins of Agony", 0.0], ["Clairière", 180.0],
 		["Scierie abandonnée", _heading(FOUNTAIN, saw[1])], ["Clairière du Vieux Chêne", _heading(FOUNTAIN, loop[1])]])
-	_sign(signs, "PortailEst", PORTAL_EAST + Vector2(-9.0, -4.5), [["Place du village", 0.0], ["Fontaine", 180.0]])
+	_sign(signs, "PortailEst", PORTAL_EAST + Vector2(-9.0, -4.5), [["Ruins of Agony", 0.0], ["Fontaine", 180.0]])
 	_sign(signs, "PortailOuest", PORTAL_WEST + Vector2(9.0, -4.5), [["Clairière", 180.0], ["Fontaine", 0.0]])
 	# Embranchements sur la route : destination du chemin + les deux sens de la route.
 	for entry in [["west", "Bois des Renards"], ["south_west", "Vallon moussu"],
 			["east_north", "Rochers de l'Est"], ["east_south", "Sous-bois"]]:
 		var pts: Array = paths[entry[0]]
 		var start: Vector2 = pts[0]
-		var east_label := "Place du village" if start.x > FOUNTAIN.x else "Fontaine"
+		var east_label := "Ruins of Agony" if start.x > FOUNTAIN.x else "Fontaine"
 		var west_label := "Fontaine" if start.x > FOUNTAIN.x else "Clairière"
 		_sign(signs, entry[0], _beside(start, pts[1]), [[entry[1], _heading(start, pts[1])],
 				[east_label, _road_heading_toward(start, PORTAL_EAST)], [west_label, _road_heading_toward(start, PORTAL_WEST)]])
 	var loop_end: Vector2 = loop[loop.size() - 1]
 	_sign(signs, "BoucleSud", _beside(loop_end, loop[loop.size() - 2]), [
 		["Clairière du Vieux Chêne", _heading(loop_end, loop[loop.size() - 2])],
-		["Place du village", _road_heading_toward(loop_end, PORTAL_EAST)], ["Fontaine", _road_heading_toward(loop_end, PORTAL_WEST)]])
+		["Ruins of Agony", _road_heading_toward(loop_end, PORTAL_EAST)], ["Fontaine", _road_heading_toward(loop_end, PORTAL_WEST)]])
 	# Carrefours en forêt.
 	var ws: Array = paths["west_sawmill"]
 	var west: Array = paths["west"]
@@ -444,14 +446,14 @@ func _place_signs() -> void:
 			["Bois des Renards", _heading(saw_end, ws[ws.size() - 2])]])
 	var north: Array = paths["river_north"]
 	_sign(signs, "Saulaie", _beside(north[0], north[1]), [["Saulaie", _heading(north[0], north[1])],
-			["Place du village", _road_heading_toward(north[0], PORTAL_EAST)],
+			["Ruins of Agony", _road_heading_toward(north[0], PORTAL_EAST)],
 			["Fontaine", _road_heading_toward(north[0], PORTAL_WEST)]])
 	var north_end: Vector2 = north[north.size() - 1]
 	_sign(signs, "RochersOuest", _beside(north_end, north[north.size() - 2]), [
 		["Saulaie", _heading(north_end, north[north.size() - 2])]])
 	var link: Array = paths["glade_link"]
 	_sign(signs, "VieuxChene", _beside(link[0], link[1]), [["Mare aux Keltirs", _heading(link[0], link[1])],
-			["Fontaine", _heading(loop[4], loop[3])], ["Place du village", _heading(loop[4], loop[5])]])
+			["Fontaine", _heading(loop[4], loop[3])], ["Ruins of Agony", _heading(loop[4], loop[5])]])
 	var link_end: Vector2 = link[link.size() - 1]
 	_sign(signs, "Mare", _beside(link_end, link[link.size() - 2]), [
 		["Clairière du Vieux Chêne", _heading(link_end, link[link.size() - 2])]])
@@ -532,9 +534,9 @@ func _place_markers_static() -> void:
 	_add(_objects, west)
 	var east := _marker("Portal_E", "res://map_objects/PortalMarker3D.gd", PORTAL_EAST)
 	east.direction = "E"
-	east.target_map_id = VILLAGE_ID
-	east.target_x = 160.0
-	east.target_y = 1472.0
+	east.target_map_id = AGONY_ID
+	east.target_x = 176.0
+	east.target_y = 3216.0
 	_add(_objects, east)
 	var group := Node3D.new()
 	group.name = "MonsterSpawnGroup_" + SPAWN_GROUP

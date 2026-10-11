@@ -30,6 +30,16 @@ const PBR := {
 	"rubble_stone": ["Bricks102", Vector2(1, 2), Color(0.9, 0.88, 0.85)],
 	"plaster": ["Plaster003", Vector2(1, 1), Color(0.96, 0.92, 0.84)],
 	"roof_tiles": ["RoofingTiles006", Vector2(1, 1), Color(0.85, 0.72, 0.66)],
+	# Structures façon Lineage 2 (tools/env_gen/build_l2_structures.py).
+	"marble": ["Bricks076A", Vector2(1, 1), Color(1.5, 1.46, 1.36)],
+	"marble_smooth": ["Rock020", Vector2(1, 1), Color(1.5, 1.46, 1.36)],
+	"bronze": ["Metal021", Vector2(1, 1), Color(0.88, 0.64, 0.36)],
+	"gold_trim": ["Metal021", Vector2(1, 1), Color(1.35, 1.02, 0.42)],
+	"ruin_stone": ["Bricks102", Vector2(1, 2), Color(0.78, 0.82, 0.7)],
+	"ruin_smooth": ["Rock020", Vector2(1, 1), Color(0.86, 0.89, 0.78)],
+	"moss": ["Grass004", Vector2(1, 1), Color(0.4, 0.48, 0.3)],
+	"bone": ["Rock020", Vector2(1, 1), Color(1.3, 1.22, 1.02)],
+	"bark_swamp": ["Bark014", Vector2(1, 1), Color(0.46, 0.45, 0.4)],
 }
 ## Matériaux unis (sans texture) : nom -> [teinte, couleur d'émission, énergie d'émission de
 ## jour, énergie de nuit]. Les vitres ne s'allument que la nuit ; runes et braises brillent
@@ -39,6 +49,7 @@ const FLAT := {
 	"lamp_glass": [Color(1.0, 0.85, 0.6), Color(1.0, 0.7, 0.38), 0.2, 3.7],
 	"rune_glow": [Color(0.3, 0.6, 1.0), Color(0.35, 0.65, 1.0), 1.3, 2.8],
 	"forge_fire": [Color(1.0, 0.45, 0.12), Color(1.0, 0.42, 0.1), 2.6, 3.6],
+	"rune_red": [Color(0.6, 0.06, 0.04), Color(1.0, 0.14, 0.07), 1.4, 3.0],
 	"cloth_red": [Color(0.48, 0.07, 0.06), Color.BLACK, 0.0, 0.0],
 	"cloth_blue": [Color(0.1, 0.17, 0.42), Color.BLACK, 0.0, 0.0],
 	"cloth_cream": [Color(0.76, 0.7, 0.56), Color.BLACK, 0.0, 0.0],
@@ -51,6 +62,7 @@ const FOLIAGE := {
 	"foliage_fir": ["foliage_fir.png", Color(0.58, 0.68, 0.58), 0.06, 10.0, 0.25],
 	"foliage_grass": ["foliage_grass.png", Color(0.62, 0.72, 0.5), 0.08, 0.6, 0.45],
 	"foliage_grass_seed": ["foliage_grass_seed.png", Color(0.68, 0.72, 0.55), 0.1, 0.7, 0.45],
+	"moss_hanging": ["foliage_moss.png", Color(0.8, 0.82, 0.7), 0.05, 7.0, 0.4],
 }
 
 static var _cache: Dictionary = {}

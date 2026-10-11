@@ -15,7 +15,9 @@ extends Node3D
 ##     buissons, cailloux, souches — jamais sous l'emprise d'un obstacle posé
 ##     (ObstacleFootprint3D), jamais sur les pavés, rarement sur la terre battue, jamais dans
 ##     une rivière ni sur un pont ("water"/"bridge", lit creusé par TerrainGround) ; des
-##     roseaux (graminées hautes) le long des berges.
+##     roseaux (graminées hautes) le long des berges ;
+##   - marais et ruines : roselières infranchissables ("denseTallGrass"), roseaux épars
+##     ("tallGrass"), arbres morts ("deadTree"), éboulis de pierres ("rubble").
 ## Rendu en MultiMeshInstance3D par bloc de `chunk_size` cases et par modèle, pour que le
 ## moteur n'affiche (et n'ombre) que les blocs visibles. Après avoir repeint le GridMap
 ## dans l'éditeur, cliquer "Régénérer la végétation".
@@ -43,6 +45,14 @@ const GRASS_VISIBILITY_END := 115.0
 @export_range(0.0, 1.0) var forest_grass_density := 0.22
 @export_range(0.0, 0.2) var bush_density := 0.035
 @export_range(0.0, 0.2) var rock_density := 0.012
+## Bande extérieure : probabilité d'un arbre par case et part d'arbres morts (marais).
+@export_range(0.0, 1.0) var outer_density := 0.42
+@export_range(0.0, 1.0) var outer_dead_ratio := 0.0
+## Part d'arbres morts parmi les cases "tree" (marais, landes des ruines).
+@export_range(0.0, 1.0) var dead_tree_ratio := 0.02
+## Teinte multipliée à celle des feuillages (herbes, roseaux, buissons, feuilles) de cette
+## carte seulement : herbe terne et jaunie du marais de Cruma, landes des ruines.
+@export var foliage_tint := Color.WHITE
 @export_tool_button("Régénérer la végétation", "Reload") var regenerate_action := rebuild
 
 var _meshes: Dictionary = {}
@@ -99,6 +109,13 @@ func rebuild() -> void:
 				_place_tree(buckets, rng, terrain, width, height, x, z, forest_type)
 			elif t == "thicket":
 				_place_thicket(buckets, rng, terrain, width, height, x, z, forest_type)
+			elif t == "deadTree":
+				_add(buckets, "tree_dead_0", x, z, Vector3(x + 0.5 + rng.randf_range(-0.2, 0.2), 0.0,
+						z + 0.5 + rng.randf_range(-0.2, 0.2)), rng.randf() * TAU, rng.randf_range(0.75, 1.2))
+			elif t == "denseTallGrass" or t == "tallGrass":
+				_place_reeds(buckets, rng, x, z, t == "denseTallGrass")
+			elif t == "rubble":
+				_place_rubble(buckets, rng, x, z)
 			elif t != "bridge" and not ZoneAssets.BLOCKING_TERRAINS.has(t) and not blocked.has(Vector2i(x, z)):
 				_place_decor(buckets, rng, terrain, width, height, x, z, t, clump)
 
@@ -133,8 +150,24 @@ func _load_meshes() -> void:
 		var node: Node = stack.pop_back()
 		stack.append_array(node.get_children())
 		if node is MeshInstance3D:
-			_meshes[String(node.name)] = EnvMaterials.remap_mesh(node.mesh)
+			_meshes[String(node.name)] = _tinted(EnvMaterials.remap_mesh(node.mesh))
 	scene.free()
+
+
+## Copie des matériaux de feuillage partagés, teinte multipliée par foliage_tint (les
+## autres cartes gardent les matériaux partagés d'EnvMaterials).
+func _tinted(mesh: Mesh) -> Mesh:
+	if foliage_tint == Color.WHITE:
+		return mesh
+	for i in mesh.get_surface_count():
+		var mat := mesh.surface_get_material(i) as ShaderMaterial
+		if mat == null or mat.shader != EnvMaterials.FOLIAGE_SHADER:
+			continue
+		var copy := mat.duplicate() as ShaderMaterial
+		var tint: Color = mat.get_shader_parameter("tint")
+		copy.set_shader_parameter("tint", tint * foliage_tint)
+		mesh.surface_set_material(i, copy)
+	return mesh
 
 
 func _obstacle_cells() -> Dictionary:
@@ -167,7 +200,7 @@ func _place_tree(buckets: Dictionary, rng: RandomNumberGenerator, terrain: Packe
 	var kind := forest_type.get_noise_2d(x, z)
 	var mesh_name: String
 	var roll := rng.randf()
-	if roll < 0.02:
+	if roll < dead_tree_ratio:
 		mesh_name = "tree_dead_0"
 	elif tree_neighbours <= 5 and roll < 0.3:
 		mesh_name = BIRCHES[rng.randi() % BIRCHES.size()]
@@ -284,12 +317,39 @@ func _place_outer_forest(buckets: Dictionary, rng: RandomNumberGenerator, terrai
 			if _near_edge_road(terrain, width, height, x, z):
 				continue
 			rng.seed = _cell_hash(x + 100000, z + 100000)
-			if rng.randf() > 0.42:
+			if rng.randf() > outer_density:
 				continue
 			var roll := rng.randf()
 			var mesh_name: String = FIRS[rng.randi() % FIRS.size()] if roll < 0.55 else OAKS[rng.randi() % OAKS.size()]
+			if rng.randf() < outer_dead_ratio:
+				mesh_name = "tree_dead_0" if rng.randf() < 0.6 else ("bush_0" if rng.randf() < 0.5 else "bush_1")
 			var pos := Vector3(x + 0.5 + rng.randf_range(-0.3, 0.3), 0.0, z + 0.5 + rng.randf_range(-0.3, 0.3))
 			_add(buckets, mesh_name, x, z, pos, rng.randf() * TAU, rng.randf_range(0.85, 1.25))
+
+
+## Roseaux : touffes de graminées hautes, serrées et hautes sur une roselière (case
+## bloquante), éparses sinon.
+func _place_reeds(buckets: Dictionary, rng: RandomNumberGenerator, x: int, z: int, dense: bool) -> void:
+	var count := rng.randi_range(4, 6) if dense else rng.randi_range(1, 3)
+	for i in count:
+		var pos := Vector3(x + rng.randf_range(0.0, 1.0), 0.0, z + rng.randf_range(0.0, 1.0))
+		_add(buckets, "grass_1", x, z, pos, rng.randf() * TAU, rng.randf_range(1.5, 2.3) if dense else rng.randf_range(1.0, 1.5))
+	if dense and rng.randf() < 0.12:
+		_add(buckets, "bush_1", x, z, Vector3(x + 0.5, 0.0, z + 0.5), rng.randf() * TAU, rng.randf_range(0.8, 1.2))
+	elif not dense and rng.randf() < 0.5:
+		_add(buckets, "grass_0", x, z, Vector3(x + rng.randf(), 0.0, z + rng.randf()), rng.randf() * TAU, 1.0)
+
+
+## Éboulis : blocs de pierre serrés (case bloquante).
+func _place_rubble(buckets: Dictionary, rng: RandomNumberGenerator, x: int, z: int) -> void:
+	var roll := rng.randf()
+	if roll < 0.35:
+		_add(buckets, "rock_1", x, z, Vector3(x + 0.5, 0.0, z + 0.5), rng.randf() * TAU, rng.randf_range(0.6, 0.95))
+	for i in rng.randi_range(1, 3):
+		var pos := Vector3(x + rng.randf_range(0.1, 0.9), 0.0, z + rng.randf_range(0.1, 0.9))
+		_add(buckets, "rock_0", x, z, pos, rng.randf() * TAU, rng.randf_range(0.9, 1.8))
+	if rng.randf() < 0.3:
+		_add(buckets, "grass_0", x, z, Vector3(x + rng.randf(), 0.0, z + rng.randf()), rng.randf() * TAU, 0.9)
 
 
 ## Vrai si une case de bord de carte proche (à ±5 cases le long du bord) de la case hors

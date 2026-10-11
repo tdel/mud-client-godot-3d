@@ -674,4 +674,6 @@ def main():
     export("teleporter.glb", ["teleporter", "teleporter_crystals"])
 
 
-main()
+# Garde : build_l2_structures.py importe ce module pour ses outils (Facade, fenêtres, toits).
+if __name__ == "__main__":
+    main()

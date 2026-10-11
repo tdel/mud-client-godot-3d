@@ -2,7 +2,7 @@ extends Node
 ## Outil de développement (hors jeu) : vidéo de démo scriptée, sans serveur. Rejoue de faux
 ## messages serveur (Net.message_received) dans la vraie scène de jeu (Game.tscn : HUD, VFX,
 ## sons, musique) : Aelwyn (guerrier, le joueur) et Morwen (mystique, son groupe) quittent la
-## Place du village par le portail ouest, arrivent à l'Orée de la forêt et y affrontent un
+## Town of Gludio par le portail ouest, arrivent à l'Orée de la forêt et y affrontent un
 ## Brown Keltir et deux Fox, avec soulshots, spiritshots et compétences.
 ##
 ## Enregistrement via Movie Maker (pas fixe, sortie PNG + WAV), puis montage ffmpeg :
@@ -15,7 +15,7 @@ extends Node
 ## ni lues ni écrites (comme tools/ui_preview).
 
 const HOTBAR_CFG := "user://hotbar.cfg"
-const VILLAGE := "Place du village"
+const VILLAGE := "Town of Gludio"
 const OREE := "Orée de la forêt"
 const OREE_SCENE := "res://scenes/maps/Orée_de_la_forêt.tscn"
 
@@ -31,11 +31,14 @@ const FOX_B_ID := "demo-fox-b"
 const RUN_SPEED := 4.0
 const MONSTER_SPEED := 4.6
 
-## Place du village : départ sur l'avenue, juste avant la porte ouest ; portail ouest (5, 46)
-## qui mène au portail est de l'Orée (442, 135) — voir Portal_O dans Place_du_village.tscn.
-const VILLAGE_START := Vector2(34.5, 45.4)
-const VILLAGE_MATE_START := Vector2(35.4, 46.9)
-const VILLAGE_PORTAL := Vector2(5.0, 46.0)
+## Town of Gludio : départ sur l'avenue de l'ouest, juste avant la porte ouest (x = 38) ;
+## portail ouest (5.5, 92.5). Raccourci de démo : on arrive au portail est de l'Orée (442, 135),
+## qui en jeu se trouve désormais au bout des Ruins of Agony (voir GludioRegion.gd).
+const VILLAGE_START := Vector2(46.5, 91.9)
+const VILLAGE_MATE_START := Vector2(47.4, 93.4)
+const VILLAGE_PORTAL := Vector2(5.5, 92.5)
+## Pied extérieur de la porte ouest : sortie de la ville.
+const VILLAGE_GATE_X := 37.5
 const OREE_ARRIVAL := Vector2(442.0, 135.0)
 
 var _game: Node
@@ -115,9 +118,9 @@ func _play_village() -> void:
 	await _wait(0.35)
 	_move_entity(MATE_ID, MATE_NAME, VILLAGE_PORTAL + Vector2(1.2, 1.1), RUN_SPEED)
 	# Porte ouest (remparts x 23..28) : sortie de la zone paisible du village.
-	await _wait(maxf((VILLAGE_START.x - 25.5) / RUN_SPEED - 0.35, 0.0))
+	await _wait(maxf((VILLAGE_START.x - VILLAGE_GATE_X) / RUN_SPEED - 0.35, 0.0))
 	_emit("PeaceZoneExited", {"zoneName": VILLAGE})
-	await _wait(maxf(run - (VILLAGE_START.x - 25.5) / RUN_SPEED, 0.0) + 0.05)
+	await _wait(maxf(run - (VILLAGE_START.x - VILLAGE_GATE_X) / RUN_SPEED, 0.0) + 0.05)
 
 
 func _play_oree() -> void:
