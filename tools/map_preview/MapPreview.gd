@@ -6,8 +6,8 @@ extends Node3D
 ##
 ## Usage :
 ##   Godot_console.exe --path . res://tools/map_preview/MapPreview.tscn -- \
-##       --map=res://scenes/maps/Orée_de_la_forêt.tscn --at=225,140 --time=day \
-##       --size=16 --yaw=0 --out=C:/tmp/oree.png
+##       --map=res://scenes/maps/Town_of_Gludio.tscn --at=100,105 --time=day \
+##       --size=16 --yaw=0 --out=C:/tmp/gludio.png
 ## --time : day (13h), dusk (21h30), night (1h) ; --size : taille de la caméra orthographique
 ## (zoom, 6..30 en jeu) ; --top : vue du dessus de toute la carte (plan) ; --hero=0 : sans
 ## mannequin ; --portals=0 : sans effet de portail. Les portails (marqueurs PortalMarker3D) reçoivent l'effet PortalVfx du jeu.
@@ -29,8 +29,8 @@ const DAY_SUN_ENERGY := 1.15
 const DAY_SUN_COLOR := Color(1.0, 0.96, 0.88, 1.0)
 const MOON_MAX_ENERGY := 0.35
 
-var _map_path := "res://scenes/maps/Orée_de_la_forêt.tscn"
-var _at := Vector2(225, 140)
+var _map_path := "res://scenes/maps/Town_of_Gludio.tscn"
+var _at := Vector2(100, 105)
 var _time := "day"
 var _size := 16.0
 var _yaw := 0.0

@@ -2,7 +2,7 @@ extends Node
 ## Outil de développement (hors jeu) : vidéo de démo scriptée, sans serveur. Rejoue de faux
 ## messages serveur (Net.message_received) dans la vraie scène de jeu (Game.tscn : HUD, VFX,
 ## sons, musique) : Aelwyn (guerrier, le joueur) et Morwen (mystique, son groupe) quittent la
-## Town of Gludio par le portail ouest, arrivent à l'Orée de la forêt et y affrontent un
+## Town of Gludio par le portail ouest, arrivent aux Ruins of Agony et y affrontent un
 ## Brown Keltir et deux Fox, avec soulshots, spiritshots et compétences.
 ##
 ## Enregistrement via Movie Maker (pas fixe, sortie PNG + WAV), puis montage ffmpeg :
@@ -16,8 +16,8 @@ extends Node
 
 const HOTBAR_CFG := "user://hotbar.cfg"
 const VILLAGE := "Town of Gludio"
-const OREE := "Orée de la forêt"
-const OREE_SCENE := "res://scenes/maps/Orée_de_la_forêt.tscn"
+const AGONY := "Ruins of Agony"
+const AGONY_SCENE := "res://scenes/maps/Ruins_of_Agony.tscn"
 
 const PLAYER_ID := "demo-aelwyn"
 const PLAYER_NAME := "Aelwyn"
@@ -32,14 +32,14 @@ const RUN_SPEED := 4.0
 const MONSTER_SPEED := 4.6
 
 ## Town of Gludio : départ sur l'avenue de l'ouest, juste avant la porte ouest (x = 38) ;
-## portail ouest (5.5, 92.5). Raccourci de démo : on arrive au portail est de l'Orée (442, 135),
-## qui en jeu se trouve désormais au bout des Ruins of Agony (voir GludioRegion.gd).
+## portail ouest (5.5, 92.5), qui mène au portail est des Ruins of Agony (254.5, 100.5), voir
+## GludioRegion.gd.
 const VILLAGE_START := Vector2(46.5, 91.9)
 const VILLAGE_MATE_START := Vector2(47.4, 93.4)
 const VILLAGE_PORTAL := Vector2(5.5, 92.5)
 ## Pied extérieur de la porte ouest : sortie de la ville.
 const VILLAGE_GATE_X := 37.5
-const OREE_ARRIVAL := Vector2(442.0, 135.0)
+const AGONY_ARRIVAL := Vector2(254.5, 100.5)
 
 var _game: Node
 ## Incrémenté à chaque changement de carte : les fins de déplacement encore en attente sur la
@@ -54,9 +54,9 @@ var _soulshots := 250
 var _mana := 62
 var _hotbar_backup: PackedByteArray
 var _hotbar_existed := false
-## Gardée en mémoire pour que le chargement de l'Orée (threaded, voir Game3D._advance_map_load)
+## Gardée en mémoire pour que le chargement des ruines (threaded, voir Game3D._advance_map_load)
 ## sorte du cache : sous Movie Maker, chaque image d'attente du disque serait filmée.
-var _oree_packed: PackedScene
+var _agony_packed: PackedScene
 
 
 func _ready() -> void:
@@ -73,7 +73,7 @@ func _ready() -> void:
 
 
 func _run() -> void:
-	_oree_packed = load(OREE_SCENE)
+	_agony_packed = load(AGONY_SCENE)
 	_feed_initial_state()
 	var scene: Node = load("res://scenes/game/Game.tscn").instantiate()
 	get_tree().root.add_child(scene)
@@ -81,7 +81,7 @@ func _run() -> void:
 	_game = scene
 	_enter_map(VILLAGE, VILLAGE_START, PI)
 	await _wait_map_loaded()
-	# Musique de la forêt dès le village (même piste à l'Orée, donc sans coupure).
+	# Musique de la forêt dès le village (même piste aux ruines, donc sans coupure).
 	ZoneMusic.play_for_biome(MapData.Biome.FOREST)
 	_setup_hotbar()
 	_game._zoom_camera(14.0 - float(_game._camera_size))
@@ -89,7 +89,7 @@ func _run() -> void:
 	await _frames(20)
 	print("DEMO_START_SEC=%.4f" % GameClock.now())
 	await _play_village()
-	await _play_oree()
+	await _play_agony()
 	print("DEMO_END_SEC=%.4f" % GameClock.now())
 	_restore_hotbar()
 	get_tree().quit()
@@ -100,7 +100,7 @@ func _run() -> void:
 # ---------------------------------------------------------------------------
 
 func _play_village() -> void:
-	_party_chat(MATE_NAME, "Prêt ? Direction l'Orée de la forêt !")
+	_party_chat(MATE_NAME, "Prêt ? Direction les ruines d'Agonie !")
 	await _wait(0.5)
 	_emit("ShotGradeChanged", {"shotType": "SOULSHOT", "grade": "NOGRADE"})
 	GameState.player_stats["activeSoulshotGrade"] = "NOGRADE"
@@ -123,24 +123,24 @@ func _play_village() -> void:
 	await _wait(maxf(run - (VILLAGE_START.x - VILLAGE_GATE_X) / RUN_SPEED, 0.0) + 0.05)
 
 
-func _play_oree() -> void:
+func _play_agony() -> void:
 	# Passage du portail : MapView/MapEnter comme le serveur, Morwen arrive avec nous.
-	_enter_map(OREE, OREE_ARRIVAL, PI)
-	_emit("PortalAppeared", {"portals": [{"id": "demo-portal-oree-e", "name": VILLAGE, "title": "Téléporteur",
-		"targetMapName": VILLAGE, "x": 442.0, "y": 135.0, "triggerRadius": 0.7}]})
+	_enter_map(AGONY, AGONY_ARRIVAL, PI)
+	_emit("PortalAppeared", {"portals": [{"id": "demo-portal-agony-e", "name": VILLAGE, "title": "Téléporteur",
+		"targetMapName": VILLAGE, "x": AGONY_ARRIVAL.x, "y": AGONY_ARRIVAL.y, "triggerRadius": 0.7}]})
 	_emit("EntityAppeared", {"entities": [
-		_mate_entry(OREE_ARRIVAL + Vector2(0.6, 1.3)),
-		_monster_entry(KELTIR_ID, "Brown Keltir", Vector2(416.5, 134.5), 55, 2, 0.2),
-		_monster_entry(FOX_A_ID, "Fox", Vector2(415.0, 139.0), 44, 2, -0.4),
-		_monster_entry(FOX_B_ID, "Fox", Vector2(411.5, 137.5), 44, 2, 0.1),
+		_mate_entry(AGONY_ARRIVAL + Vector2(0.6, 1.3)),
+		_monster_entry(KELTIR_ID, "Brown Keltir", Vector2(228.5, 98.5), 55, 2, 0.2),
+		_monster_entry(FOX_A_ID, "Fox", Vector2(226.0, 100.3), 44, 2, -0.4),
+		_monster_entry(FOX_B_ID, "Fox", Vector2(222.5, 98.8), 44, 2, 0.1),
 	]})
 	_emit("PartyMemberVitalsUpdated", {"characterId": MATE_ID, "characterName": MATE_NAME,
 		"currentHealth": _hp[MATE_ID], "maxHealth": _max_hp[MATE_ID], "currentMana": 90, "maxMana": 90})
 	await _wait_map_loaded()
 	await _wait(0.25)
 
-	var fight_spot := Vector2(427.5, 137.2)
-	var mate_spot := Vector2(431.0, 136.0)
+	var fight_spot := Vector2(240.0, 100.4)
+	var mate_spot := Vector2(243.5, 99.4)
 	_move_player(fight_spot)
 	_zoom_to(12.5, 2.0)
 	await _wait(0.2)
@@ -200,7 +200,7 @@ func _play_oree() -> void:
 	_emit("GamePlayerStats", stats)
 	_emit("GoldLooted", {"amount": 37})
 	await _wait(0.6)
-	_party_chat(MATE_NAME, "Bien joué ! On pousse plus loin dans la forêt ?")
+	_party_chat(MATE_NAME, "Bien joué ! On pousse plus loin dans les ruines ?")
 	await _wait(1.4)
 
 
@@ -259,8 +259,8 @@ func _spawn_village() -> void:
 		{"id": "demo-guard-o2", "name": "Gate Guard", "kind": "npc", "title": "City Guard", "x": 30.5, "y": 48.2,
 			"heading": -PI / 2.0, "npcType": "GUARD", "gender": "WOMAN"},
 	]})
-	_emit("PortalAppeared", {"portals": [{"id": "demo-portal-village-o", "name": OREE, "title": "Téléporteur",
-		"targetMapName": OREE, "x": VILLAGE_PORTAL.x, "y": VILLAGE_PORTAL.y, "triggerRadius": 0.7}]})
+	_emit("PortalAppeared", {"portals": [{"id": "demo-portal-village-o", "name": AGONY, "title": "Téléporteur",
+		"targetMapName": AGONY, "x": VILLAGE_PORTAL.x, "y": VILLAGE_PORTAL.y, "triggerRadius": 0.7}]})
 
 
 func _mate_entry(pos: Vector2) -> Dictionary:
@@ -553,7 +553,7 @@ func _frames(count: int) -> void:
 
 ## Dimensions de la carte lues sur le GridMap "Terrain" de sa scène (comme UIPreview._map_size).
 func _scene_size(map_name: String) -> Vector2i:
-	var packed: PackedScene = _oree_packed if map_name == OREE else load(ZoneAssets3D.get_map_scene_path(map_name))
+	var packed: PackedScene = _agony_packed if map_name == AGONY else load(ZoneAssets3D.get_map_scene_path(map_name))
 	# Hors de l'arbre : pas de _ready, donc pas de végétation construite pour rien.
 	var instance: Node = packed.instantiate()
 	var grid_map := instance.get_node_or_null("Terrain") as GridMap

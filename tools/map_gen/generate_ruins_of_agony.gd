@@ -9,14 +9,14 @@ extends "res://tools/map_gen/MapGenBase.gd"
 ## Disposition (voir tools/map_gen/GludioRegion.gd pour la région) :
 ##   - une lande d'herbe sombre ondulée, semée de bosquets, ceinte de forêt et de fourrés ;
 ##   - la vieille route pavée et moussue, sinueuse, du téléporteur de l'est (Gludio) à celui
-##     de l'ouest (l'Orée de la forêt) ;
+##     de l'ouest (le lac de Fellmere) ;
 ##   - au nord de la route, la cité antique : une voie processionnelle bordée de colonnades
 ##     et d'arches brisées monte vers le sanctuaire du crâne géant (le repère des ruines sur
 ##     la carte de Lineage 2), entre des édifices effondrés et deux pans de l'ancienne
 ##     enceinte ; à l'ouest, le temple en ruine et son autel ;
 ##   - au sud-est de la route, la ville basse : maisons éventrées autour d'une placette et
 ##     de sa statue ;
-##   - au sud-ouest, le lac de Fellmere, ses roseaux et deux colonnes englouties ;
+##   - au sud-ouest, l'étang englouti, ses roseaux et deux colonnes englouties ;
 ##   - des chemins de terre vers le temple, la ville basse et le lac, des poteaux
 ##     indicateurs aux embranchements et près des téléporteurs.
 ##
@@ -28,7 +28,7 @@ const M := preload("res://tools/map_gen/L2Monsters.gd")
 
 const ROAD_HALF := 2.5
 const WAY_HALF := 3.0
-## Vieille route, de l'est (Gludio) à l'ouest (l'Orée), prolongée au-delà des bords.
+## Vieille route, de l'est (Gludio) à l'ouest (le lac de Fellmere), prolongée au-delà des bords.
 const ROAD := [Vector2(268, 100.5), Vector2(254.5, 100.5), Vector2(238, 100), Vector2(220, 96.5), Vector2(200, 93.5),
 		Vector2(175, 94), Vector2(150, 97), Vector2(135, 98.5), Vector2(115, 101), Vector2(92, 107), Vector2(70, 109.5),
 		Vector2(45, 104), Vector2(22, 100.5), Vector2(5.5, 100.5), Vector2(-8, 100.5)]
@@ -43,7 +43,7 @@ const TEMPLE := Vector2(65.5, 58.0)
 const TEMPLE_SIZE := Vector2(30, 22)
 ## Ville basse (sud-est) : placette.
 const SQUARE := Vector2(189.5, 142.0)
-## Lac de Fellmere (sud-ouest).
+## Étang englouti (sud-ouest).
 const LAKE := Vector2(48.0, 161.0)
 const LAKE_R := 18.5
 ## Bosquets : [centre, rayon].
@@ -62,7 +62,7 @@ func _setup() -> void:
 	SEED = 20261011
 	MAP_ID = R.AGONY_ID
 	MAP_NAME = R.AGONY
-	DESCRIPTION = "Les ruines d'une cité antique, à l'ouest de Gludio : une lande sombre où la vieille route pavée serpente entre colonnades brisées, édifices effondrés et le sanctuaire du crâne géant. Au sud-ouest dort le lac de Fellmere ; la route mène à l'est vers Gludio, à l'ouest vers l'Orée de la forêt."
+	DESCRIPTION = "Les ruines d'une cité antique, à l'ouest de Gludio : une lande sombre où la vieille route pavée serpente entre colonnades brisées, édifices effondrés et le sanctuaire du crâne géant. Au sud-ouest dort l'étang englouti ; la route mène à l'est vers Gludio, à l'ouest vers le lac de Fellmere."
 	OUT_PATH = "res://scenes/maps/Ruins_of_Agony.tscn" if OS.get_environment("MAPGEN_OUT").is_empty() else OS.get_environment("MAPGEN_OUT")
 	IS_TOWN = false
 	BIOME = MapData.Biome.FOREST
@@ -86,7 +86,7 @@ func _layout() -> void:
 			if moor.get_noise_2d(x, z) > 0.12:
 				_terrain[z * W + x] = T.DARK_GRASS
 
-	# Lac de Fellmere, roseaux et roselières sur ses rives.
+	# Étang englouti, roseaux et roselières sur ses rives.
 	_pond(LAKE, LAKE_R)
 	for z in H:
 		for x in W:
@@ -111,7 +111,7 @@ func _layout() -> void:
 		_paint_disc(portal, 4.2, T.PAVED, [T.WATER])
 		_stamp("open", portal, 10.0, 20.0)
 	_road([Vector2(WAY_X, WAY_START), Vector2(WAY_X, PLAZA.y + PLAZA_R - 2.0)], WAY_HALF, T.PAVED, 1.5, 0.2)
-	# Vers le temple (nord-ouest), la ville basse (sud-est) et le lac (sud-ouest).
+	# Vers le temple (nord-ouest), la ville basse (sud-est) et l'étang (sud-ouest).
 	_road([Vector2(69, 108), Vector2(68, 92), Vector2(66.5, 80), Vector2(TEMPLE.x, TEMPLE.y + TEMPLE_SIZE.y / 2.0 + 1.0)],
 			1.3, T.DIRT, 2.0, 0.4)
 	_road([Vector2(186, 95), Vector2(187.5, 110), Vector2(188.5, 124), SQUARE], 1.3, T.DIRT, 2.0, 0.4)
@@ -138,7 +138,7 @@ func _decorate() -> void:
 	_wilds()
 	_place_signs()
 	_portal("E", R.AGONY_PORTAL_E, R.GLUDIO_ID, R.GLUDIO_PORTAL_W, R.GLUDIO)
-	_portal("O", R.AGONY_PORTAL_W, R.OREE_ID, R.OREE_PORTAL_E, R.OREE)
+	_portal("O", R.AGONY_PORTAL_W, R.FELLMERE_ID, R.FELLMERE_PORTAL_E, R.FELLMERE)
 	_hunting_grounds()
 
 
@@ -270,7 +270,7 @@ func _lower_town(parent: Node) -> void:
 	_checks["Placette de la ville basse"] = SQUARE + Vector2(0, 4.5)
 
 
-## Lac de Fellmere : colonnes englouties, fût tombé sur la rive.
+## Étang englouti : colonnes englouties, fût tombé sur la rive.
 func _lake_ruins(parent: Node) -> void:
 	var group := _add(parent, _node("Lac"))
 	# Colonnes à demi englouties : posées sur le fond du lac (lit creusé par TerrainGround).
@@ -280,7 +280,7 @@ func _lake_ruins(parent: Node) -> void:
 		node.position.y = -1.7
 		node.rotation.z = _rng.randf_range(-0.12, 0.12)
 		_occupy(c[0], 1.0)
-	_checks["Rive du lac"] = Vector2(62.5, 143.5)
+	_checks["Rive de l'étang"] = Vector2(62.5, 143.5)
 
 
 ## Aqueduc effondré au sud de la route : file d'arches dont une partie s'est écroulée.
@@ -343,12 +343,12 @@ func _wilds() -> void:
 
 func _place_signs() -> void:
 	var signs := _add(_props, _node("Panneaux"))
-	_sign_at(signs, "Teleporteur_E", R.AGONY_PORTAL_E + Vector2(-6.0, -5.5), [[R.GLUDIO, 0.0], [R.OREE, 180.0]])
-	_sign_at(signs, "Teleporteur_O", R.AGONY_PORTAL_W + Vector2(6.0, -5.5), [[R.OREE, 180.0], [R.GLUDIO, 0.0]])
-	_sign_at(signs, "Voie", Vector2(WAY_X - 6.0, 93.0), [[R.GLUDIO, 0.0], [R.OREE, 180.0], ["Sanctuaire du crâne", 270.0]])
-	_sign_at(signs, "Temple", Vector2(64.5, 104.5), [["Temple en ruine", 270.0], [R.GLUDIO, -10.0], [R.OREE, 190.0]])
-	_sign_at(signs, "Lac", Vector2(88.5, 112.5), [["Lac de Fellmere", 115.0], [R.GLUDIO, -15.0], [R.OREE, 170.0]])
-	_sign_at(signs, "Ville_basse", Vector2(181.0, 99.0), [["Ville basse", 90.0], [R.GLUDIO, 0.0], [R.OREE, 180.0]])
+	_sign_at(signs, "Teleporteur_E", R.AGONY_PORTAL_E + Vector2(-6.0, -5.5), [[R.GLUDIO, 0.0], [R.FELLMERE, 180.0]])
+	_sign_at(signs, "Teleporteur_O", R.AGONY_PORTAL_W + Vector2(6.0, -5.5), [[R.FELLMERE, 180.0], [R.GLUDIO, 0.0]])
+	_sign_at(signs, "Voie", Vector2(WAY_X - 6.0, 93.0), [[R.GLUDIO, 0.0], [R.FELLMERE, 180.0], ["Sanctuaire du crâne", 270.0]])
+	_sign_at(signs, "Temple", Vector2(64.5, 104.5), [["Temple en ruine", 270.0], [R.GLUDIO, -10.0], [R.FELLMERE, 190.0]])
+	_sign_at(signs, "Lac", Vector2(88.5, 112.5), [["Étang englouti", 115.0], [R.GLUDIO, -15.0], [R.FELLMERE, 170.0]])
+	_sign_at(signs, "Ville_basse", Vector2(181.0, 99.0), [["Ville basse", 90.0], [R.GLUDIO, 0.0], [R.FELLMERE, 180.0]])
 
 
 # ---------------------------------------------------------------------------

@@ -36,6 +36,9 @@ Tous générés par `tools/env_gen/build_environment.py` (Blender, sans ressourc
 autre que les textures ci-dessus) : arbres, buissons, rochers, fontaine, lampadaire, panneau,
 scierie et ses abords. `models/village/` (remparts, tours, porte fortifiée, maisons, auberge,
 forge, téléporteur, étals, puits, clôture) : générés par `tools/env_gen/build_village.py`.
+`models/l2/tent*.glb`, `palisade*.glb`, `campfire.glb`, `watch_tower_wood.glb`, `gallows.glb`,
+`scaffold.glb`, `gravestone*.glb`, `cage.glb`, `weapon_rack.glb` (camps Ol Mahum, lieux
+d'exécution, cimetières) : générés par `tools/env_gen/build_l2_camps.py`.
 
 ## Son
 

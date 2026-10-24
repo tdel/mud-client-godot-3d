@@ -20,7 +20,8 @@ extends "res://tools/map_gen/MapGenBase.gd"
 ##     franchie par le pont de pierre de la route de l'est ;
 ##   - quatre routes jusqu'aux téléporteurs des bords : au nord le château de Gludio, à
 ##     l'ouest les ruines d'Agonie, au sud les ruines du Désespoir, à l'est les marais de
-##     Cruma.
+##     Cruma ; deux routes secondaires : au coin nord-ouest vers la Neutral Zone (elle contourne
+##     le château par l'ouest), au sud-est la route directe de Dion.
 ##
 ## Lancer avec :
 ##   godot --headless --path . --script res://tools/map_gen/generate_town_of_gludio.gd
@@ -87,7 +88,7 @@ func _setup() -> void:
 	SEED = 20261010
 	MAP_ID = R.GLUDIO_ID
 	MAP_NAME = R.GLUDIO
-	DESCRIPTION = "La cité de Gludio, coeur du royaume : une grande enceinte gardée autour de la place du monument, le temple d'Einhasad, l'auberge et la forge. Ses quatre portes ouvrent sur le château de Gludio au nord, les ruines d'Agonie à l'ouest, les ruines du Désespoir au sud et, passé la rivière, les marais de Cruma à l'est."
+	DESCRIPTION = "La cité de Gludio, coeur du royaume : une grande enceinte gardée autour de la place du monument, le temple d'Einhasad, l'auberge et la forge. Ses quatre portes ouvrent sur le château de Gludio au nord, les ruines d'Agonie à l'ouest, les ruines du Désespoir au sud et, passé la rivière, les marais de Cruma à l'est ; des routes de traverse mènent à la Neutral Zone, au nord-ouest, et tout droit à Dion, au sud-est."
 	OUT_PATH = "res://scenes/maps/Town_of_Gludio.tscn" if OS.get_environment("MAPGEN_OUT").is_empty() else OS.get_environment("MAPGEN_OUT")
 	IS_TOWN = true
 	IS_STARTING_MAP = true
@@ -142,6 +143,15 @@ func _layout() -> void:
 	_road([Vector2(33, 94), Vector2(33.5, 110), Vector2(32, 125), Vector2(31, 138)], 1.2, T.DIRT, 2.0, 0.35)
 	_road([Vector2(100.5, 156), Vector2(90, 156.5), Vector2(74, 156)], 1.2, T.DIRT, 2.0, 0.35)
 	_road([Vector2(100.5, 30), Vector2(80, 33), Vector2(52, 36), Vector2(30, 46)], 1.2, T.DIRT, 2.0, 0.35)
+	# Routes de traverse : la Neutral Zone au coin nord-ouest (depuis le chemin des champs du
+	# nord), Dion au sud-est (depuis le téléporteur du sud, entre les champs et la rivière).
+	_road([Vector2(-8, 12.5), R.GLUDIO_PORTAL_NW, Vector2(20, 16), Vector2(34, 25), Vector2(46, 33), Vector2(58, 35.5)],
+			1.8, T.DIRT, 3.0, 0.3)
+	_road([Vector2(104, 172.5), Vector2(128, 171.5), Vector2(148, 173), R.GLUDIO_PORTAL_SE, Vector2(160.5, H + 8)],
+			2.0, T.DIRT, 3.0, 0.3)
+	for portal in [R.GLUDIO_PORTAL_NW, R.GLUDIO_PORTAL_SE]:
+		_paint_disc(portal, 4.2, T.PAVED, [T.WATER])
+		_stamp("open", portal, 10.0, 20.0)
 	for field in FIELDS:
 		var rect: Rect2 = field[0]
 		_paint_rect(rect, T.CROP, [T.PAVED, T.DIRT, T.WATER])
@@ -216,7 +226,9 @@ func _decorate() -> void:
 	for portal in [[R.GLUDIO_PORTAL_N, "N", R.CASTLE_ID, R.CASTLE_PORTAL_S, R.CASTLE],
 			[R.GLUDIO_PORTAL_W, "O", R.AGONY_ID, R.AGONY_PORTAL_E, R.AGONY],
 			[R.GLUDIO_PORTAL_S, "S", R.DESPAIR_ID, R.DESPAIR_PORTAL_N, R.DESPAIR],
-			[R.GLUDIO_PORTAL_E, "E", R.CRUMA_ID, R.CRUMA_PORTAL_W, R.CRUMA]]:
+			[R.GLUDIO_PORTAL_E, "E", R.CRUMA_ID, R.CRUMA_PORTAL_W, R.CRUMA],
+			[R.GLUDIO_PORTAL_NW, "NO", R.NEUTRAL_ID, R.NEUTRAL_PORTAL_SW, R.NEUTRAL],
+			[R.GLUDIO_PORTAL_SE, "SE", R.DION_ID, R.DION_PORTAL_NW, R.DION]]:
 		_portal(portal[1], portal[0], portal[2], portal[3], portal[4])
 	_peace_zone(PackedVector2Array([Vector2(0, 0), Vector2(W, 0), Vector2(W, H), Vector2(0, H)]))
 	_checks["Porte nord (dehors)"] = GATE_N + Vector2(0, -5)
@@ -378,6 +390,12 @@ func _place_signs() -> void:
 	_sign(signs, "Teleporteur_S", R.GLUDIO_PORTAL_S + Vector2(5.0, -6.0), [[R.DESPAIR, 90.0], [R.GLUDIO, 270.0]])
 	_sign(signs, "Teleporteur_E", R.GLUDIO_PORTAL_E + Vector2(-6.0, -5.0), [[R.CRUMA, 0.0], [R.GLUDIO, 180.0]])
 	_sign(signs, "Pont", BRIDGE_E + Vector2(-11.0, -4.5), [[R.CRUMA, 0.0], [R.GLUDIO, 180.0]])
+	_sign(signs, "Teleporteur_NO", R.GLUDIO_PORTAL_NW + Vector2(7.0, 5.0), [[R.NEUTRAL, 180.0], [R.GLUDIO, 35.0]])
+	_sign(signs, "Teleporteur_SE", R.GLUDIO_PORTAL_SE + Vector2(-6.0, -5.5), [[R.DION, 90.0], [R.GLUDIO, 180.0]])
+	var fork_nw := Vector2(60.5, 32.0)
+	_sign(signs, "Traverse_NO", fork_nw, [[R.NEUTRAL, _heading(fork_nw, R.GLUDIO_PORTAL_NW)], [R.CASTLE, 270.0],
+			[R.GLUDIO, _heading(fork_nw, CENTER)]])
+	_sign(signs, "Traverse_SE", Vector2(106.5, 169.0), [[R.DION, 0.0], [R.DESPAIR, 90.0], [R.GLUDIO, 270.0]])
 
 
 # ---------------------------------------------------------------------------

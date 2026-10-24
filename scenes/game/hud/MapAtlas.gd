@@ -32,9 +32,10 @@ const RELIEF_SPACING := 30.0
 const REGION_GAP := 60.0
 ## Coin haut-gauche (m) de chaque région sur la carte du monde, à l'échelle (1 case = 1 m),
 ## calé pour que les téléporteurs se fassent face d'une région à l'autre (voir
-## tools/map_gen/GludioRegion.gd) : le château au nord de Gludio, Agonie à l'ouest puis l'Orée
-## et ses clairières, le Désespoir au sud, Cruma à l'est, Dion au sud-est puis le chemin du
-## cimetière. Une carte absente d'ici est placée à côté d'une voisine (voir _auto_place).
+## tools/map_gen/GludioRegion.gd) : le château au nord de Gludio et la Neutral Zone au-delà,
+## Agonie à l'ouest puis le lac de Fellmere, le Désespoir au sud, Cruma à l'est, Dion au
+## sud-est avec les Execution Grounds à l'est et son château au sud. Une carte absente d'ici
+## est placée à côté d'une voisine (voir _auto_place).
 const WORLD_ORIGINS := {
 	"Town of Gludio": Vector2(0, 0),
 	"Gludio Castle": Vector2(-20, -270),
@@ -42,12 +43,10 @@ const WORLD_ORIGINS := {
 	"Ruins of Despair": Vector2(-20, 230),
 	"Cruma Marshlands": Vector2(270, -28),
 	"Town of Dion": Vector2(330, 270),
-	"Orée de la forêt": Vector2(-806, -42),
-	"Clairière": Vector2(-910, 76),
-	"Sentier broussailleux": Vector2(-998, 80),
-	"Repaire sauvage": Vector2(-1070, 76),
-	"Chemin du cimetière": Vector2(538, 322),
-	"Cimetière abandonné": Vector2(626, 322),
+	"Neutral Zone": Vector2(-120, -590),
+	"Fellmere Lake": Vector2(-650, -28),
+	"Execution Grounds": Vector2(580, 220),
+	"Dion Castle": Vector2(285, 470),
 }
 
 ## Région : {name, id, is_town, size: Vector2i, mask_a, mask_b (PackedByteArray RGBA8, une

@@ -16,7 +16,7 @@ par un fondu jusqu'au silence : elle boucle telle quelle depuis le début (voir 
 
 | Fichier | Carte(s) | Origine |
 |---|---|---|
-| `forest_ambience.ogg` | biome Forêt (`MapData.biome`, ex. Orée de la forêt) | Synthèse maison, `tools/music_gen/build_forest_music.py` — aucun crédit requis |
+| `forest_ambience.ogg` | biome Forêt (`MapData.biome`, ex. Ruins of Agony) | Synthèse maison, `tools/music_gen/build_forest_music.py` — aucun crédit requis |
 
 2 min 30, bouclage sans couture depuis 0 (voir autoload/ZoneMusic.gd). Ne pas retoucher l'ogg :
 modifier le script (SEED, STEM_DB…) et le relancer.

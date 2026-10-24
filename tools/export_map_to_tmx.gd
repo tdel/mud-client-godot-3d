@@ -14,7 +14,7 @@ extends SceneTree
 ##
 ## Lancer avec (Godot en ligne de commande, depuis la racine du projet) :
 ##   godot --headless --script res://tools/export_map_to_tmx.gd -- \
-##     res://scenes/maps/Orée_de_la_forêt.tscn \
+##     res://scenes/maps/Town_of_Gludio.tscn \
 ##     //wsl.localhost/Debian/home/<user>/workspace/mud-server-java/src/main/resources/data/maps/
 ## Le second argument est un fichier .tmx ou un dossier (nom = celui de la scène + .tmx).
 ## Des vérifications équivalentes à celles du serveur au démarrage (spawn/portails sur case

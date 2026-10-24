@@ -5,15 +5,16 @@ extends "res://tools/map_gen/MapGenBase.gd"
 ## avec tools/export_map_to_tmx.gd.
 ##
 ## Disposition (voir tools/map_gen/GludioRegion.gd) :
-##   - une enceinte rectangulaire (remparts du village) à trois portes : au nord vers les
-##     marais de Cruma, à l'ouest vers les ruines du Désespoir, à l'est vers le Chemin du
-##     cimetière ; tours rondes sur le côté sud, aveugle ;
+##   - une enceinte rectangulaire (remparts du village) à quatre portes : au nord vers les
+##     marais de Cruma, à l'ouest vers les ruines du Désespoir, à l'est vers les Execution
+##     Grounds, au sud (derrière la chapelle) vers le château de Dion ;
+##   - hors les murs, au nord-ouest, la route directe de Gludio rejoint celle de Cruma ;
 ##   - au centre, la place carrée et sa fontaine, la chapelle d'Einhasad au sud de la place,
 ##     l'échoppe (auberge) au coin nord-ouest, des maisons le long des rues ;
 ##   - la rivière qui descend de Gludio coule à l'ouest de la ville, franchie par un pont de
 ##     pierre sur la route de l'ouest ;
 ##   - au sud, hors les murs, les champs et les fermes (les cultures de Floran, sur la carte
-##     de Lineage 2).
+##     de Lineage 2), de part et d'autre de la route du château.
 ##
 ## Lancer avec :
 ##   godot --headless --path . --script res://tools/map_gen/generate_town_of_dion.gd
@@ -40,6 +41,7 @@ const WALL := [Vector2(40, 30), Vector2(131, 30), Vector2(131, 113), Vector2(40,
 const GATE_N := Vector2(85.5, 30.0)
 const GATE_W := Vector2(40.0, 70.5)
 const GATE_E := Vector2(131.0, 70.5)
+const GATE_S := Vector2(85.5, 113.0)
 const SQUARE := Rect2(69, 56, 33, 22)
 const FOUNTAIN := Vector2(85.5, 67.0)
 const RING := [Vector2(51, 41), Vector2(120, 41), Vector2(120, 102), Vector2(51, 102)]
@@ -52,7 +54,7 @@ const CHAPEL := Vector2(85.5, 88.7)
 const RIVER := [Vector2(26, -12), Vector2(23, 22), Vector2(21, 50), Vector2(21.5, 62), Vector2(21.5, 70.5),
 		Vector2(21.5, 79), Vector2(23, 100), Vector2(29, 125), Vector2(27, 152)]
 const BRIDGE_W := Vector2(21.5, 70.5)
-const FIELDS := [[Rect2(50, 121, 26, 9), true], [Rect2(95, 121, 30, 9), false], [Rect2(138, 116, 20, 13), true],
+const FIELDS := [[Rect2(50, 121, 26, 9), true], [Rect2(98, 121, 27, 9), false], [Rect2(138, 116, 20, 13), true],
 		[Rect2(142, 84, 16, 22), false]]
 
 var _keep_free: Array = []
@@ -64,7 +66,7 @@ func _setup() -> void:
 	SEED = 20261012
 	MAP_ID = R.DION_ID
 	MAP_NAME = R.DION
-	DESCRIPTION = "Dion, petite ville marchande entre les marais de Cruma et les champs de Floran : une place à la fontaine, sa chapelle et ses échoppes, à l'abri de remparts. La rivière venue de Gludio coule à ses portes."
+	DESCRIPTION = "Dion, petite ville marchande entre les marais de Cruma et les champs de Floran : une place à la fontaine, sa chapelle et ses échoppes, à l'abri de remparts. La rivière venue de Gludio coule à ses portes ; ses routes mènent à Gludio, aux marais de Cruma, aux Execution Grounds et au château de Dion."
 	OUT_PATH = "res://scenes/maps/Town_of_Dion.tscn" if OS.get_environment("MAPGEN_OUT").is_empty() else OS.get_environment("MAPGEN_OUT")
 	IS_TOWN = true
 	PLAYER_SPAWN = Vector2(85.5, 75.5)
@@ -91,7 +93,9 @@ func _layout() -> void:
 	_road([Vector2(85.5, -8), R.DION_PORTAL_N, GATE_N], ROAD_HALF, T.PAVED, 5.0)
 	_road([Vector2(-8, 70.5), R.DION_PORTAL_W, BRIDGE_W, GATE_W], ROAD_HALF, T.PAVED, 5.0)
 	_road([GATE_E, R.DION_PORTAL_E, Vector2(W + 8, 70.5)], ROAD_HALF, T.PAVED, 5.0)
-	for portal in [R.DION_PORTAL_N, R.DION_PORTAL_W, R.DION_PORTAL_E]:
+	_road([GATE_S, R.DION_PORTAL_S, Vector2(85.5, H + 8)], ROAD_HALF, T.PAVED, 5.0)
+	_road([Vector2(40.5, -8), R.DION_PORTAL_NW, Vector2(50, 15), Vector2(68, 21), Vector2(85.5, 22)], 2.0, T.DIRT, 3.0, 0.3)
+	for portal in [R.DION_PORTAL_N, R.DION_PORTAL_W, R.DION_PORTAL_E, R.DION_PORTAL_S, R.DION_PORTAL_NW]:
 		_paint_disc(portal, 4.2, T.PAVED, [T.WATER])
 		_stamp("open", portal, 10.0, 20.0)
 	# Chemins de terre vers les champs du sud, autour des remparts.
@@ -104,6 +108,8 @@ func _layout() -> void:
 	_road([GATE_N, CENTER], AVENUE_HALF, T.PAVED, 1.5, 0.1)
 	_road([GATE_W, CENTER], AVENUE_HALF, T.PAVED, 1.5, 0.1)
 	_road([GATE_E, CENTER], AVENUE_HALF, T.PAVED, 1.5, 0.1)
+	# Porte sud : courte avenue jusqu'à la rue de ronde, derrière la chapelle.
+	_road([GATE_S, Vector2(85.5, 102.0)], AVENUE_HALF, T.PAVED, 1.5, 0.1)
 	_road(_densify(RING, 3.0, true), RING_HALF, T.PAVED, 1.0, 0.1)
 	_paint_rect(SQUARE, T.PAVED)
 	_stamp_rect("open", SQUARE, 4.0)
@@ -120,7 +126,7 @@ func _decorate() -> void:
 		[GATE_N, 6.5, "Gatehouse", "Porte_Nord"], [GATE_W, 6.5, "Gatehouse", "Porte_Ouest"],
 		[GATE_E, 6.5, "Gatehouse", "Porte_Est"],
 		[Vector2(62, 30), 3.0, "RampartTower"], [Vector2(109, 30), 3.0, "RampartTower"],
-		[Vector2(63, 113), 3.0, "RampartTower"], [Vector2(85.5, 113), 3.0, "RampartTowerRoofed"],
+		[Vector2(63, 113), 3.0, "RampartTower"], [GATE_S, 6.5, "Gatehouse", "Porte_Sud"],
 		[Vector2(108, 113), 3.0, "RampartTower"], [Vector2(40, 50), 3.0, "RampartTower"],
 		[Vector2(40, 91), 3.0, "RampartTower"], [Vector2(131, 50), 3.0, "RampartTower"],
 		[Vector2(131, 91), 3.0, "RampartTower"],
@@ -177,7 +183,7 @@ func _decorate() -> void:
 	for b in buildings.get_children():
 		_keep_free.append(Vector2(b.position.x, b.position.z) + Vector2(sin(b.rotation.y), cos(b.rotation.y)) * 4.5)
 	print("Maisons : %d" % count)
-	_building("HouseMedium", buildings, Vector2(88.5, 118 + 1.3 + 1.2 + 3.1), Vector2(0, -1), "Ferme_Sud")
+	_building("HouseMedium", buildings, Vector2(131.5, 125.5), Vector2(0, -1), "Ferme_Sud")
 	_building("HouseSmall", buildings, Vector2(138 + 1.3 + 1.2 + 2.6, 111.0), Vector2(-1, 0), "Ferme_Est")
 	var fences := _add(_props, _node("Clotures"))
 	for field in FIELDS:
@@ -207,7 +213,7 @@ func _decorate() -> void:
 	for k in 4:
 		var dir := Vector2.from_angle(PI / 4.0 + k * PI / 2.0)
 		_lamp(lamps, FOUNTAIN + dir * 6.0, -dir)
-	for gate in [[GATE_N, Vector2(0, -1)], [GATE_W, Vector2(-1, 0)], [GATE_E, Vector2(1, 0)]]:
+	for gate in [[GATE_N, Vector2(0, -1)], [GATE_W, Vector2(-1, 0)], [GATE_E, Vector2(1, 0)], [GATE_S, Vector2(0, 1)]]:
 		var dir: Vector2 = gate[1]
 		var side := Vector2(-dir.y, dir.x)
 		for s in [-1.0, 1.0]:
@@ -216,18 +222,25 @@ func _decorate() -> void:
 
 	var signs := _add(_props, _node("Panneaux"))
 	var at := Vector2(SQUARE.position.x + 3.0, SQUARE.end.y - 2.5)
-	_sign(signs, "Place", at, [[R.CRUMA, 270.0], [R.DESPAIR, 180.0], [R.CEMETERY_PATH, 0.0], ["Chapelle", 90.0]])
+	_sign(signs, "Place", at, [[R.CRUMA, 270.0], [R.DESPAIR, 180.0], [R.EXECUTION, 0.0], [R.DION_CASTLE, 90.0],
+			[R.GLUDIO, 225.0]])
 	_sign(signs, "Teleporteur_N", R.DION_PORTAL_N + Vector2(-5.0, 6.0), [[R.CRUMA, 270.0], [R.DION, 90.0]])
 	_sign(signs, "Teleporteur_O", R.DION_PORTAL_W + Vector2(6.0, -5.0), [[R.DESPAIR, 180.0], [R.DION, 0.0]])
-	_sign(signs, "Teleporteur_E", R.DION_PORTAL_E + Vector2(-6.0, -5.0), [[R.CEMETERY_PATH, 0.0], [R.DION, 180.0]])
+	_sign(signs, "Teleporteur_E", R.DION_PORTAL_E + Vector2(-6.0, -5.0), [[R.EXECUTION, 0.0], [R.DION, 180.0]])
+	_sign(signs, "Teleporteur_S", R.DION_PORTAL_S + Vector2(5.0, -6.0), [[R.DION_CASTLE, 90.0], [R.DION, 270.0]])
+	_sign(signs, "Teleporteur_NO", R.DION_PORTAL_NW + Vector2(-5.5, 6.0), [[R.GLUDIO, 270.0], [R.DION, _heading(R.DION_PORTAL_NW, CENTER)]])
+	_sign(signs, "Traverse_NO", Vector2(80.0, 18.5), [[R.GLUDIO, 180.0], [R.CRUMA, 270.0], [R.DION, 90.0]])
 
 	_portal("N", R.DION_PORTAL_N, R.CRUMA_ID, R.CRUMA_PORTAL_S, R.CRUMA)
 	_portal("O", R.DION_PORTAL_W, R.DESPAIR_ID, R.DESPAIR_PORTAL_E, R.DESPAIR)
-	_portal("E", R.DION_PORTAL_E, R.CEMETERY_PATH_ID, R.CEMETERY_PATH_PORTAL_W, R.CEMETERY_PATH)
+	_portal("E", R.DION_PORTAL_E, R.EXECUTION_ID, R.EXECUTION_PORTAL_W, R.EXECUTION)
+	_portal("S", R.DION_PORTAL_S, R.DION_CASTLE_ID, R.DION_CASTLE_PORTAL_N, R.DION_CASTLE)
+	_portal("NO", R.DION_PORTAL_NW, R.GLUDIO_ID, R.GLUDIO_PORTAL_SE, R.GLUDIO)
 	_peace_zone(PackedVector2Array([Vector2(0, 0), Vector2(W, 0), Vector2(W, H), Vector2(0, H)]))
 	_checks["Porte nord (dehors)"] = GATE_N + Vector2(0, -5)
 	_checks["Porte ouest (dehors)"] = GATE_W + Vector2(-5, 0)
 	_checks["Porte est (dehors)"] = GATE_E + Vector2(5, 0)
+	_checks["Porte sud (dehors)"] = GATE_S + Vector2(0, 5)
 
 
 func _fence_rect(parent: Node, rect: Rect2) -> void:

@@ -40,6 +40,11 @@ const PBR := {
 	"moss": ["Grass004", Vector2(1, 1), Color(0.4, 0.48, 0.3)],
 	"bone": ["Rock020", Vector2(1, 1), Color(1.3, 1.22, 1.02)],
 	"bark_swamp": ["Bark014", Vector2(1, 1), Color(0.46, 0.45, 0.4)],
+	# Camps et lieux d'exécution (tools/env_gen/build_l2_camps.py) : rondins immobiles au vent
+	# (pas de préfixe bark_), peaux tendues des tentes.
+	"log_bark": ["Bark012", Vector2(1, 1), Color(0.78, 0.7, 0.62)],
+	"cloth_hide": ["Plaster003", Vector2(1, 1), Color(0.7, 0.5, 0.33)],
+	"cloth_hide_dark": ["Plaster003", Vector2(1, 1), Color(0.42, 0.3, 0.2)],
 }
 ## Matériaux unis (sans texture) : nom -> [teinte, couleur d'émission, énergie d'émission de
 ## jour, énergie de nuit]. Les vitres ne s'allument que la nuit ; runes et braises brillent
@@ -54,6 +59,7 @@ const FLAT := {
 	"cloth_blue": [Color(0.1, 0.17, 0.42), Color.BLACK, 0.0, 0.0],
 	"cloth_cream": [Color(0.76, 0.7, 0.56), Color.BLACK, 0.0, 0.0],
 	"shadow_dark": [Color(0.02, 0.02, 0.02), Color.BLACK, 0.0, 0.0],
+	"rope": [Color(0.5, 0.41, 0.28), Color.BLACK, 0.0, 0.0],
 }
 ## nom -> [texture, tint, vent (amplitude), hauteur de balancement (m), translucidité]
 const FOLIAGE := {

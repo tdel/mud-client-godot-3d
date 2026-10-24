@@ -1,13 +1,13 @@
 extends SceneTree
 ## Base commune des générateurs de cartes décorées de la région de Gludio (façon Lineage 2) :
-## Town of Gludio, Gludio Castle, Ruins of Agony, Ruins of Despair, Cruma Marshlands, Town
-## of Dion. Chaque générateur (tools/map_gen/generate_*.gd) hérite de ce script et fournit :
+## Town of Gludio, Gludio Castle, Neutral Zone, Ruins of Agony, Fellmere Lake, Ruins of
+## Despair, Cruma Marshlands, Town of Dion, Execution Grounds, Dion Castle. Chaque générateur (tools/map_gen/generate_*.gd) hérite de ce script et fournit :
 ##   - _setup()     : dimensions, graine, métadonnées (MapData), point d'apparition... ;
 ##   - _layout()    : le plan au sol (routes, rivières et ponts, places, forêts...) ;
 ##   - _decorate()  : props (bâtiments, remparts, lampadaires, panneaux) et marqueurs
 ##                    (portails, PNJ, zone de paix) ;
 ##   - _configure_ground() / _configure_vegetation() (facultatifs) : textures et densités.
-## La base s'occupe du reste, comme les générateurs historiques (Orée, Place du village) :
+## La base s'occupe du reste, comme les tout premiers générateurs de cartes décorées :
 ## terrain peint sous les ouvrages (minimap, carte du monde), aucun arbre sous un prop,
 ## connexité (des passages sont percés dans les fourrés qui enclavent une zone praticable),
 ## vérification que portails, PNJ, portes et positions de personnages sont atteignables

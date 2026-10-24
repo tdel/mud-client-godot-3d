@@ -1,0 +1,22 @@
+[gd_resource type="Resource" script_class="MonsterModel" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scenes/game/entities/MonsterModel.gd" id="1"]
+[ext_resource type="PackedScene" path="res://assets/monsters/gremlin/hywirl.glb" id="2"]
+
+[resource]
+script = ExtResource("1")
+scene = ExtResource("2")
+model_scale = 0.32
+yaw_degrees = 180.0
+material_colors = Dictionary[String, Color]({
+"Hywirl_Main": Color(0.60, 0.30, 0.34, 1)
+})
+idle_anim = &"CharacterArmature|Flying_Idle"
+run_anim = &"CharacterArmature|Fast_Flying"
+attack_anim = &"CharacterArmature|Headbutt"
+death_anim = &"CharacterArmature|Death"
+run_speed_scale = 1
+attack_speed_scale = 1.0
+head_height = 0.90
+pick_radius = 0.31
+pick_height = 0.90

@@ -1,0 +1,24 @@
+[gd_resource type="Resource" script_class="MonsterModel" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scenes/game/entities/MonsterModel.gd" id="1"]
+[ext_resource type="PackedScene" path="res://assets/monsters/orc/orc.glb" id="2"]
+
+[resource]
+script = ExtResource("1")
+scene = ExtResource("2")
+model_scale = 0.72
+yaw_degrees = 180.0
+material_colors = Dictionary[String, Color]({
+"Orc_Main": Color(0.38, 0.30, 0.24, 1),
+"Orc_Hair": Color(0.62, 0.14, 0.10, 1),
+"Belt": Color(0.70, 0.56, 0.20, 1)
+})
+idle_anim = &"CharacterArmature|Idle"
+run_anim = &"CharacterArmature|Run"
+attack_anim = &"CharacterArmature|Weapon"
+death_anim = &"CharacterArmature|Death"
+run_speed_scale = 1
+attack_speed_scale = 1.0
+head_height = 2.30
+pick_radius = 0.81
+pick_height = 2.30

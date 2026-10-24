@@ -1,0 +1,23 @@
+[gd_resource type="Resource" script_class="MonsterModel" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scenes/game/entities/MonsterModel.gd" id="1"]
+[ext_resource type="PackedScene" path="res://assets/monsters/lizardman/dino.glb" id="2"]
+
+[resource]
+script = ExtResource("1")
+scene = ExtResource("2")
+model_scale = 0.6
+yaw_degrees = 180.0
+material_colors = Dictionary[String, Color]({
+"Dino_Main": Color(0.28, 0.30, 0.52, 1),
+"Dino_Secondary": Color(0.78, 0.74, 0.58, 1)
+})
+idle_anim = &"CharacterArmature|Idle"
+run_anim = &"CharacterArmature|Run"
+attack_anim = &"CharacterArmature|Weapon"
+death_anim = &"CharacterArmature|Death"
+run_speed_scale = 1
+attack_speed_scale = 1.0
+head_height = 1.86
+pick_radius = 0.65
+pick_height = 1.86

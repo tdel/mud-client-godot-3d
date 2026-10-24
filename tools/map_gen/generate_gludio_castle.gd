@@ -15,7 +15,9 @@ extends "res://tools/map_gen/MapGenBase.gd"
 ##     caisses et de bois) pour les assauts ;
 ##   - la route pavée vient du téléporteur du sud (vers Gludio), franchit le bras sud sur un
 ##     pont de pierre et monte au châtelet ; deux passerelles de bois sur les bras est et
-##     ouest mènent aux bois de part et d'autre (prises à revers).
+##     ouest mènent aux bois de part et d'autre (prises à revers) ;
+##   - au nord, le chemin de la poterne franchit le bras ouest sur un pont de pierre et monte au
+##     téléporteur du nord, vers la Neutral Zone.
 ##
 ## Lancer avec :
 ##   godot --headless --path . --script res://tools/map_gen/generate_gludio_castle.gd
@@ -39,7 +41,7 @@ const KEEP := Vector2(120.5, 84.0)
 const ROAD_HALF := 2.5
 ## Bras de la rivière (le bras sud passe en ligne droite est-ouest sous le pont de la route).
 const RIVER_MAIN := [Vector2(123, -12), Vector2(121, 10), Vector2(120, 24)]
-const ARM_WEST := [Vector2(120, 24), Vector2(92, 29), Vector2(58, 40), Vector2(41, 68), Vector2(39, 90.5),
+const ARM_WEST := [Vector2(120, 24), Vector2(112, 26.5), Vector2(104.5, 26.5), Vector2(97, 27.5), Vector2(92, 29), Vector2(58, 40), Vector2(41, 68), Vector2(39, 90.5),
 		Vector2(41, 112), Vector2(48, 148), Vector2(72, 170), Vector2(100, 176.5), Vector2(120.5, 176.5),
 		Vector2(141, 176.5), Vector2(168, 180), Vector2(190, 184)]
 const ARM_EAST := [Vector2(120, 24), Vector2(150, 29), Vector2(184, 42), Vector2(199, 72), Vector2(201, 92.5),
@@ -47,6 +49,8 @@ const ARM_EAST := [Vector2(120, 24), Vector2(150, 29), Vector2(184, 42), Vector2
 const BRIDGE_S := Vector2(120.5, 176.5)
 const BRIDGE_W := Vector2(39.5, 90.5)
 const BRIDGE_E := Vector2(201.5, 92.5)
+## Pont du bras ouest, au nord de l'île (le bras y coule d'est en ouest) : vers la Neutral Zone.
+const BRIDGE_N := Vector2(104.5, 26.5)
 
 
 func _setup() -> void:
@@ -55,10 +59,12 @@ func _setup() -> void:
 	SEED = 20261011
 	MAP_ID = R.CASTLE_ID
 	MAP_NAME = R.CASTLE
-	DESCRIPTION = "Le château de Gludio, sur son île entre les deux bras de la rivière : hautes courtines, grosses tours et donjon. Ici, nul refuge : les clans s'y disputent la place, les armes à la main."
+	DESCRIPTION = "Le château de Gludio, sur son île entre les deux bras de la rivière : hautes courtines, grosses tours et donjon. Ici, nul refuge : les clans s'y disputent la place, les armes à la main. Au nord, passé le pont de la poterne, s'étend la Neutral Zone."
 	OUT_PATH = "res://scenes/maps/Gludio_Castle.tscn" if OS.get_environment("MAPGEN_OUT").is_empty() else OS.get_environment("MAPGEN_OUT")
 	BIOME = MapData.Biome.FOREST
 	PLAYER_SPAWN = R.CASTLE_PORTAL_S + Vector2(0.0, -12.0)
+	# Positions actuelles de personnages sur cette carte (base de dev) : gardées praticables.
+	KEEP_CLEAR = [Vector2(120.02, 105.59)]
 
 
 # ---------------------------------------------------------------------------
@@ -85,6 +91,7 @@ func _layout() -> void:
 	_bridge(BRIDGE_S, "z", true, "Pont_Sud")
 	_bridge(BRIDGE_W, "x", false, "Passerelle_Ouest")
 	_bridge(BRIDGE_E, "x", false, "Passerelle_Est")
+	_bridge(BRIDGE_N, "z", true, "Pont_Nord")
 	_river(RIVER_MAIN, 5.0, 0.6)
 	_river(ARM_WEST, 4.4)
 	_river(ARM_EAST, 4.4)
@@ -96,7 +103,10 @@ func _layout() -> void:
 	_road(_densify([Vector2(70, 45), Vector2(171, 45), Vector2(171, 146), Vector2(70, 146)], 3.0, true), 1.6, T.DIRT, 6.0, 0.4)
 	_road([Vector2(70, 92), Vector2(56, 91), BRIDGE_W, Vector2(22, 90.5), Vector2(8, 86)], 1.3, T.DIRT, 3.0, 0.35)
 	_road([Vector2(171, 93), Vector2(186, 92.5), BRIDGE_E, Vector2(218, 92.5), Vector2(232, 98)], 1.3, T.DIRT, 3.0, 0.35)
-	_road([GATE_N, Vector2(120.5, 45)], 2.0, T.DIRT, 3.0, 0.2)
+	_road([GATE_N, Vector2(120.5, 45), Vector2(110, 40), Vector2(104.5, 33), BRIDGE_N, Vector2(103, 17),
+			R.CASTLE_PORTAL_N, Vector2(95.5, -8)], 2.0, T.DIRT, 3.0, 0.2)
+	_paint_disc(R.CASTLE_PORTAL_N, 4.2, T.PAVED, [T.WATER])
+	_stamp("open", R.CASTLE_PORTAL_N, 10.0, 20.0)
 	# Cour du château en terre battue ; allée pavée du châtelet au donjon, parvis du donjon.
 	_paint_field("castle", -1.0, T.DIRT, 0.6, [T.WATER])
 	_paint_rect(Rect2(115.5, 92, 10, 44), T.PAVED)
@@ -138,7 +148,10 @@ func _decorate() -> void:
 	var signs := _add(_props, _node("Panneaux"))
 	_sign(signs, "Teleporteur", R.CASTLE_PORTAL_S + Vector2(5.0, -6.0), [[R.GLUDIO, 90.0], [R.CASTLE, 270.0]])
 	_sign(signs, "Pont", BRIDGE_S + Vector2(-4.5, -11.0), [[R.CASTLE, 270.0], [R.GLUDIO, 90.0]])
+	_sign(signs, "Teleporteur_N", R.CASTLE_PORTAL_N + Vector2(6.0, 6.0), [[R.NEUTRAL, 270.0], [R.CASTLE, 90.0]])
+	_sign(signs, "Pont_Nord", BRIDGE_N + Vector2(4.5, 11.0), [[R.NEUTRAL, 270.0], [R.CASTLE, 90.0]])
 	_portal("S", R.CASTLE_PORTAL_S, R.GLUDIO_ID, R.GLUDIO_PORTAL_N, R.GLUDIO)
+	_portal("N", R.CASTLE_PORTAL_N, R.NEUTRAL_ID, R.NEUTRAL_PORTAL_S, R.NEUTRAL)
 	_checks["Châtelet (dehors)"] = GATE_S + Vector2(0, 7)
 	_checks["Poterne (dehors)"] = GATE_N + Vector2(0, -6)
 	_checks["Cour"] = Vector2(120.5, 118.5)

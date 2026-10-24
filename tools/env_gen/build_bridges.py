@@ -1,4 +1,4 @@
-"""Générateur des ponts posés sur les rivières des cartes décorées (Orée de la forêt),
+"""Générateur des ponts posés sur les rivières des cartes décorées (Gludio, château de Gludio, Dion...),
 exportés en glTF binaire pour Godot. Réutilise les outils de maillage et les matériaux de
 build_environment.py.
 

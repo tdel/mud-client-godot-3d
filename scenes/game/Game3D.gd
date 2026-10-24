@@ -227,7 +227,7 @@ const PLAYER_KEY := "player"
 
 ## Nom/titre par défaut si le serveur ne les transmet pas encore (PortalView.name/title, voir
 ## _apply_appeared_portal) — même dégradation gracieuse que targetMapName ci-dessous.
-const PORTAL_NAME_DEFAULT := "Clairière"
+const PORTAL_NAME_DEFAULT := "Teleport"
 const PORTAL_TITLE_DEFAULT := "Téléporteur"
 ## Portée de téléportation si le serveur ne transmet pas triggerRadius (ancienne zone
 ## d'activation). La sélection au clic passe par un vrai rayon physique 3D sur tout l'objet
@@ -1617,7 +1617,7 @@ func _make_portal_node(portal_name: String, portal_title: String) -> Node3D:
 	root.add_child(pick_area)
 
 	# Nom/titre façon personnage (voir _make_entity_node/TITLE_LABEL_COLOR) plutôt que l'ancien
-	# libellé unique affichant la carte cible : "Clairière"/"Téléporteur" identifient l'objet
+	# libellé unique affichant la carte cible : "Teleport"/"Téléporteur" identifient l'objet
 	# lui-même, la destination reste affichée dans %TargetStatusBar (voir _select_portal).
 	var label := Label3D.new()
 	label.name = "NameLabel"

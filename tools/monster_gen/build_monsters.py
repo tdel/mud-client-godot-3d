@@ -1,6 +1,6 @@
 """Outil hors-ligne : fiches monstres du serveur (backend data/monsters.xml) tirées des PNJ de
 Lineage 2 High Five (datapack L2JMobius H5, stats/npcs/*.xml) pour les zones de la région de
-Gludio et les anciennes petites zones de départ, plus la table nom -> templateId utilisée par
+Gludio (anciennes petites zones de départ comprises), plus la table nom -> templateId utilisée par
 les générateurs de cartes (tools/map_gen/L2Monsters.gd).
 
 Repris tels quels de L2 (table L2_NPC) : nom, niveau, race, agressivité, valeurs de base PV,
@@ -172,6 +172,100 @@ L2_NPC = {
             attrs=(40, 30, 43, 21, 20, 20)),
     20532: dict(name='Brown Keltir', level=2, hp=48.09, pAtk=9.32, mAtk=6.37, pDef=46.15, mDef=30.73, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=110.0,
             attrs=(40, 30, 43, 21, 20, 20)),
+    20410: dict(name='Scavenger Spider', level=15, hp=246.95, pAtk=32.58, mAtk=24.47, pDef=66.93, mDef=44.56, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=130.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20369: dict(name='Moonstone Beast', level=17, hp=282.57, pAtk=38.39, mAtk=28.84, pDef=71.6, mDef=47.67, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=120.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20039: dict(name='Scavenger Wererat', level=18, hp=301.67, pAtk=41.61, mAtk=31.26, pDef=74.03, mDef=49.29, acc=0.0, eva=0.0, crit=8, atkSpd=253, run=120.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20043: dict(name='Arachnid Tracker', level=19, hp=321.64, pAtk=37.28, mAtk=23.22, pDef=92.48, mDef=61.58, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=140.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20049: dict(name='Lycanthrope', level=20, hp=342.51, pAtk=48.76, mAtk=36.63, pDef=79.05, mDef=52.63, acc=9.0, eva=0.0, crit=1, atkSpd=253, run=120.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20008: dict(name='Felim Lizardman', level=14, hp=230.39, pAtk=24.79, mAtk=15.44, pDef=78.19, mDef=52.06, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=130.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20010: dict(name='Felim Lizardman Scout', level=15, hp=246.95, pAtk=32.58, mAtk=24.47, pDef=66.93, mDef=44.56, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=130.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20014: dict(name='Felim Lizardman Warrior', level=17, hp=282.57, pAtk=38.39, mAtk=28.84, pDef=71.6, mDef=47.67, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=130.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20021: dict(name='Red Bear', level=14, hp=230.39, pAtk=29.97, mAtk=22.51, pDef=64.68, mDef=43.07, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=110.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20012: dict(name='Gora Werewolf', level=16, hp=264.34, pAtk=35.38, mAtk=26.58, pDef=69.24, mDef=46.1, acc=9.0, eva=0.0, crit=1, atkSpd=253, run=120.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20335: dict(name='Grizzly Bear', level=17, hp=282.57, pAtk=31.76, mAtk=19.78, pDef=86.55, mDef=57.63, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=110.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20050: dict(name='Arachnid Predator', level=20, hp=342.51, pAtk=48.76, mAtk=36.63, pDef=79.05, mDef=52.63, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=140.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20359: dict(name='Ratman Warrior', level=19, hp=321.64, pAtk=45.07, mAtk=33.85, pDef=76.51, mDef=50.94, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=120.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20782: dict(name='Ol Mahum Novice', level=17, hp=282.57, pAtk=34.9, mAtk=23.83, pDef=78.68, mDef=52.39, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=110.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20437: dict(name='Ol Mahum Recruit', level=21, hp=364.3, pAtk=43.61, mAtk=27.16, pDef=98.7, mDef=65.72, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=110.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20053: dict(name='Ol Mahum Patrol', level=21, hp=364.3, pAtk=47.92, mAtk=32.72, pDef=89.73, mDef=59.74, acc=0.0, eva=0.0, crit=8, atkSpd=253, run=110.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20058: dict(name='Ol Mahum Guard', level=22, hp=387.03, pAtk=56.93, mAtk=42.76, pDef=84.32, mDef=56.14, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=110.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20436: dict(name='Ol Mahum Supplier', level=23, hp=410.7, pAtk=50.82, mAtk=31.65, pDef=105.21, mDef=70.05, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=110.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20061: dict(name='Ol Mahum Straggler', level=23, hp=410.7, pAtk=55.84, mAtk=38.13, pDef=95.65, mDef=63.68, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=110.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20439: dict(name='Ol Mahum Officer', level=24, hp=435.34, pAtk=54.78, mAtk=34.12, pDef=108.58, mDef=72.29, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=110.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20066: dict(name='Ol Mahum Captain', level=25, hp=460.96, pAtk=71.32, mAtk=53.57, pDef=92.67, mDef=61.7, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=110.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20059: dict(name='Hungry Eye', level=22, hp=387.03, pAtk=56.93, mAtk=42.76, pDef=84.32, mDef=56.14, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=159.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20055: dict(name='Wandering Eye', level=21, hp=364.3, pAtk=43.61, mAtk=27.16, pDef=98.7, mDef=65.72, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=159.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    25076: dict(name='Princess Molrang', level=25, hp=43316.31, pAtk=74.22, mAtk=4.68, pDef=305.51, mDef=149.04, acc=9.0, eva=-18.0, crit=1, atkSpd=253, run=170.0,
+            attrs=(60, 73, 57, 76, 70, 80)),
+    25001: dict(name='Greyclaw Kutus', level=23, hp=40330.26, pAtk=62.85, mAtk=3.96, pDef=286.95, mDef=139.98, acc=4.75, eva=-18.0, crit=4, atkSpd=253, run=170.0,
+            attrs=(60, 73, 57, 76, 70, 80)),
+    20171: dict(name='Specter', level=26, hp=487.57, pAtk=69.76, mAtk=47.64, pDef=105.03, mDef=69.93, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=100.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20197: dict(name='Sorrow Maiden', level=27, hp=515.18, pAtk=74.99, mAtk=51.21, pDef=108.29, mDef=72.1, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=60.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20160: dict(name='Neer Crawler', level=28, hp=543.8, pAtk=88.59, mAtk=66.55, pDef=101.57, mDef=67.63, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=90.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20198: dict(name='Neer Ghoul Berserker', level=29, hp=573.43, pAtk=95.06, mAtk=71.41, pDef=104.66, mDef=69.68, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=90.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20199: dict(name='Amber Basilisk', level=30, hp=604.08, pAtk=84.3, mAtk=52.51, pDef=130.31, mDef=86.76, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=131.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20200: dict(name='Strain', level=31, hp=635.76, pAtk=109.14, mAtk=81.98, pDef=111.01, mDef=73.91, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=120.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20201: dict(name='Ghoul', level=32, hp=668.47, pAtk=116.78, mAtk=87.72, pDef=114.28, mDef=162.2, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=15.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20083: dict(name='Granite Golem', level=33, hp=702.2, pAtk=103.28, mAtk=64.32, pDef=276.55, mDef=94.65, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=23.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20202: dict(name='Dead Seeker', level=34, hp=736.96, pAtk=121.21, mAtk=82.77, pDef=132.95, mDef=88.52, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=80.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20144: dict(name='Hangman Tree', level=35, hp=772.74, pAtk=129.33, mAtk=88.31, pDef=136.73, mDef=91.04, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=174.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    25118: dict(name='Guillotine, Warden of the Execution Grounds', level=35, hp=138899.14, pAtk=327.39, mAtk=51.72, pDef=410.19, mDef=200.1, acc=4.75, eva=-18.0, crit=4, atkSpd=253, run=170.0,
+            attrs=(60, 73, 57, 76, 70, 80)),
+    25383: dict(name='Revenant of Sir Calibus', level=34, hp=65791.67, pAtk=151.74, mAtk=12.04, pDef=398.85, mDef=194.58, acc=4.75, eva=-18.0, crit=4, atkSpd=253, run=190.0,
+            attrs=(60, 73, 57, 76, 70, 80)),
+    20062: dict(name='Tumran Bugbear', level=23, hp=410.7, pAtk=50.82, mAtk=31.65, pDef=105.21, mDef=70.05, acc=9.0, eva=0.0, crit=1, atkSpd=253, run=130.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20205: dict(name='Dire Wolf', level=24, hp=435.34, pAtk=66.22, mAtk=49.74, pDef=89.83, mDef=59.81, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=110.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20266: dict(name='Monster Eye Gazer', level=25, hp=460.96, pAtk=59.0, mAtk=36.75, pDef=112.02, mDef=74.58, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=159.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    21102: dict(name='Watchman of the Plains', level=30, hp=604.08, pAtk=92.64, mAtk=63.26, pDef=118.46, mDef=78.87, acc=9.0, eva=0.0, crit=1, atkSpd=253, run=160.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    21103: dict(name='Roughly Hewn Rock Golem', level=31, hp=635.76, pAtk=99.22, mAtk=67.75, pDef=121.99, mDef=81.22, acc=9.0, eva=0.0, crit=1, atkSpd=253, run=23.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    21104: dict(name='Delu Lizardman Supplier', level=32, hp=668.47, pAtk=106.17, mAtk=72.5, pDef=125.58, mDef=83.61, acc=0.0, eva=0.0, crit=8, atkSpd=253, run=135.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    21105: dict(name='Delu Lizardman Special Agent', level=33, hp=702.2, pAtk=124.84, mAtk=93.77, pDef=117.6, mDef=78.3, acc=0.0, eva=0.0, crit=8, atkSpd=253, run=135.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    21106: dict(name='Cursed Seer', level=34, hp=736.96, pAtk=121.21, mAtk=82.77, pDef=132.95, mDef=88.52, acc=9.0, eva=0.0, crit=1, atkSpd=253, run=160.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    20781: dict(name='Delu Lizardman Shaman', level=35, hp=772.74, pAtk=142.26, mAtk=106.86, pDef=124.42, mDef=82.84, acc=9.0, eva=0.0, crit=1, atkSpd=253, run=174.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
+    21107: dict(name='Delu Lizardman Commander', level=35, hp=1545.48, pAtk=129.33, mAtk=88.31, pDef=136.73, mDef=91.04, acc=4.75, eva=0.0, crit=4, atkSpd=253, run=135.0,
+            attrs=(40, 30, 43, 21, 20, 20)),
 }
 
 # Fiches historiques (hors bloc généré) : stats réécrites en place depuis L2_NPC.
@@ -245,12 +339,13 @@ def raid(name, l2id, race, xp, res=None, loot=()):
 
 
 I = ITEMS
-# --- Sentier broussailleux (niveaux 3-5) : keltirs, loups et crapauds des bois ---------------
+# --- Anciennes petites zones (retirées du monde, fiches gardées sans point d'apparition) -------
+# Niveaux 3-5 : keltirs, loups et crapauds des bois.
 mob("Elder Keltir", 20544, "ANIMAL", False, 105, loot=[(I["Leather Pants"], 0.03), (I["Leather Tunic"], 0.03)])
 mob("Wolf", 20120, "ANIMAL", False, 141, loot=[(I["Wooden Bow"], 0.02)])
 mob("Elder Wolf", 20442, "ANIMAL", False, 176, loot=[(I["Leather Gloves"], 0.03)])
 mob("Giant Toad", 20121, "ANIMAL", False, 178, loot=[(I["Leather Boots"], 0.03)])
-# --- Repaire sauvage (niveaux 5-10) : camp d'orques, gobelins et loups-garous -----------------
+# Niveaux 5-10 : orques, gobelins et loups-garous.
 mob("Goblin", 20003, "HUMANOID", False, 176, loot=[(I["Garnet Ring"], 0.03), (I["Garnet Earring"], 0.02)])
 mob("Orc", 20130, "HUMANOID", False, 213, loot=[(I["Wooden Club"], 0.03)])
 mob("Orc Grunt", 20131, "HUMANOID", False, 249, loot=[(I["Wooden Shield"], 0.04)])
@@ -258,7 +353,7 @@ mob("Orc Archer", 20006, "HUMANOID", False, 293, loot=[(I["Wooden Bow"], 0.05)])
 mob("Goblin Scout", 20326, "HUMANOID", False, 284, loot=[(I["Leather Cap"], 0.04), (I["Leather Tunic"], 0.01)])
 mob("Werewolf", 20132, "HUMANOID", False, 321, loot=[(I["Leather Cap"], 0.03)])
 mob("Orc Fighter", 20093, "HUMANOID", True, 363, loot=[(I["Short Sword"], 0.04), (I["Long Sword +1"], 0.01)])
-# --- Chemin du cimetière (niveaux 10-15) : loups-garous chasseurs, orques Vuku, bêtes d'ombre --
+# Niveaux 10-15 : loups-garous chasseurs, orques Vuku, bêtes d'ombre.
 mob("Werewolf Hunter", 20343, "HUMANOID", True, 363, loot=[(I["Garnet Ring"], 0.02)])
 mob("Vuku Orc", 20009, "HUMANOID", False, 650, loot=[(I["Spear"], 0.02)])
 mob("Vuku Orc Archer", 20011, "HUMANOID", False, 700, loot=[(I["Wooden Bow"], 0.04)])
@@ -320,6 +415,62 @@ mob("Ratman Sub Chieftain", 21093, "HUMANOID", True, 691, loot=[(I["Saber"], 0.0
 mob("Ratman Chieftain", 21094, "HUMANOID", False, 712, loot=[(I["Saber"], 0.003), (I["Iron Helmet"], 0.03)])
 raid("Sukar Wererat Chief", 25357, "HUMANOID", 2646357, None,
      [(I["Tsurugi"], 0.3), (I["Chain Mail"], 0.4), (I["Amethyst Ring"], 0.2), (MAJOR_HEALING, 0.4)])
+# --- Neutral Zone (niveaux 15-20) : araignées charognardes, bêtes de pierre de lune, lycanthropes --
+mob("Scavenger Spider", 20410, "BUG", True, 545, BUG_RES, [(I["Leather Armor"], 0.02)])
+mob("Moonstone Beast", 20369, "BEAST", False, 599, loot=[(I["Amber Earring"], 0.02)])
+mob("Scavenger Wererat", 20039, "HUMANOID", False, 640, loot=[(I["Dagger"], 0.04)])
+mob("Arachnid Tracker", 20043, "BUG", True, 760, BUG_RES, [(I["Padded Armor"], 0.03)])
+mob("Lycanthrope", 20049, "HUMANOID", True, 726, loot=[(I["Iron Helmet"], 0.03), (I["Saber"], 0.01)])
+# --- Fellmere Lake (niveaux 14-25) : lézards Felim des rives, ours et loups-garous des bois, camp
+# abandonné des Ol Mahum au sud du lac ---------------------------------------------------------
+mob("Felim Lizardman", 20008, "HUMANOID", False, 498, loot=[(I["Spear"], 0.03)])
+mob("Red Bear", 20021, "ANIMAL", False, 498, loot=[(I["Leather Armor"], 0.02)])
+mob("Felim Lizardman Scout", 20010, "HUMANOID", False, 534, loot=[(I["Wooden Bow"], 0.04)])
+mob("Gora Werewolf", 20012, "HUMANOID", True, 582, loot=[(I["Leather Cap"], 0.03), (I["Padded Helmet"], 0.02)])
+mob("Felim Lizardman Warrior", 20014, "HUMANOID", False, 605, loot=[(I["Pike"], 0.02), (I["Shield"], 0.02)])
+mob("Grizzly Bear", 20335, "ANIMAL", False, 599, loot=[(I["Padded Helmet"], 0.03)])
+mob("Ol Mahum Novice", 20782, "HUMANOID", True, 618, loot=[(I["Short Sword"], 0.04)])
+mob("Ratman Warrior", 20359, "HUMANOID", False, 678, loot=[(I["Saber"], 0.03)])
+mob("Arachnid Predator", 20050, "BUG", True, 799, BUG_RES, [(I["Amber Ring"], 0.02)])
+mob("Wandering Eye", 20055, "CONSTRUCT", False, 917, loot=[(I["Amber Earring"], 0.02)])
+mob("Ol Mahum Recruit", 20437, "HUMANOID", False, 917, loot=[(I["Spear"], 0.03)])
+mob("Ol Mahum Patrol", 20053, "HUMANOID", False, 944, loot=[(I["Iron Helmet"], 0.03)])
+mob("Hungry Eye", 20059, "CONSTRUCT", False, 985, loot=[(I["Amber Necklace"], 0.015)])
+mob("Ol Mahum Guard", 20058, "HUMANOID", False, 985, loot=[(I["Shield"], 0.03), (I["Chain Mail"], 0.008)])
+mob("Ol Mahum Supplier", 20436, "HUMANOID", False, 1054, loot=[(GREATER_HEALING, 0.08), (ESCAPE, 0.03)])
+mob("Ol Mahum Straggler", 20061, "HUMANOID", True, 1075, loot=[(I["Battle Axe"], 0.003), (I["Leather Armor"], 0.02)])
+mob("Ol Mahum Officer", 20439, "HUMANOID", False, 1122, loot=[(I["Tsurugi"], 0.004), (I["Chain Mail"], 0.01)])
+mob("Ol Mahum Captain", 20066, "HUMANOID", True, 1263, loot=[(I["Helm of Terror"], 0.01), (I["Pike"], 0.02)])
+raid("Greyclaw Kutus", 25001, "HUMANOID", 2690116, None,
+     [(I["Sword of Valhalla"], 0.2), (I["Doom Helmet"], 0.3), (I["Chain Mail"], 0.4), (MAJOR_HEALING, 0.4)])
+raid("Princess Molrang", 25076, "ANIMAL", 2541012, None,
+     [(I["Bow of Peril"], 0.25), (I["Zealot's Armor"], 0.3), (I["Amethyst Necklace"], 0.2), (MAJOR_HEALING, 0.5)])
+# --- Execution Grounds (niveaux 26-35) : spectres et goules des suppliciés, golems, pendus ------
+mob("Specter", 20171, "UNDEAD", True, 1293, UNDEAD_RES, [(I["Amber Necklace"], 0.015)])
+mob("Sorrow Maiden", 20197, "ELEMENTAL", False, 1322, {"DARK": 20, "HOLY": -20}, [(I["Wand of Flames"], 0.01)])
+mob("Neer Crawler", 20160, "UNDEAD", True, 1442, UNDEAD_RES, [(I["Chain Mail"], 0.01)])
+mob("Neer Ghoul Berserker", 20198, "UNDEAD", True, 1522, UNDEAD_RES, [(I["Battle Axe"], 0.004)])
+mob("Amber Basilisk", 20199, "BEAST", False, 1869, loot=[(I["Amber Ring"], 0.02)])
+mob("Strain", 20200, "UNDEAD", False, 1660, UNDEAD_RES, [(I["Iron Helmet"], 0.03)])
+mob("Ghoul", 20201, "UNDEAD", False, 2502, UNDEAD_RES, [(I["Helm of Terror"], 0.01)])
+mob("Granite Golem", 20083, "CONSTRUCT", False, 2687, {"EARTH": 30, "WIND": -20}, [(I["Plate Armor"], 0.004)])
+mob("Dead Seeker", 20202, "ANIMAL", False, 1997, loot=[(I["Zealot's Armor"], 0.004)])
+mob("Hangman Tree", 20144, "PLANT", True, 2180, {"FIRE": -30}, [(I["Doom Gloves"], 0.006)])
+raid("Revenant of Sir Calibus", 25383, "UNDEAD", 1918616, UNDEAD_RES,
+     [(I["Hammer of Ruin"], 0.2), (I["Doom Helmet"], 0.3), (I["Amethyst Ring"], 0.25), (MAJOR_HEALING, 0.5)])
+raid("Guillotine, Warden of the Execution Grounds", 25118, "UNDEAD", 1912394, UNDEAD_RES,
+     [(I["Sword of Miracle"], 0.15), (I["Doom Breastplate"], 0.3), (I["Plate Armor"], 0.2), (MAJOR_HEALING, 0.5)])
+# --- Dion Castle : plaines de Dion et abords de Floran (niveaux 23-35), lézards Delu, golems ----
+mob("Tumran Bugbear", 20062, "GIANT", False, 1054, loot=[(I["Pike"], 0.03)])
+mob("Dire Wolf", 20205, "ANIMAL", True, 1145, loot=[(I["Leather Armor"], 0.02)])
+mob("Monster Eye Gazer", 20266, "CONSTRUCT", False, 1190, loot=[(I["Amber Earring"], 0.02)])
+mob("Watchman of the Plains", 21102, "CONSTRUCT", True, 1602, loot=[(I["Amethyst Ring"], 0.005)])
+mob("Roughly Hewn Rock Golem", 21103, "CONSTRUCT", False, 1677, {"EARTH": 30, "WIND": -20}, [(I["Shield +1"], 0.006)])
+mob("Delu Lizardman Supplier", 21104, "HUMANOID", False, 2105, loot=[(I["Dagger"], 0.04), (I["Chain Mail"], 0.01)])
+mob("Delu Lizardman Special Agent", 21105, "HUMANOID", False, 2426, loot=[(I["Bow of Peril"], 0.004)])
+mob("Cursed Seer", 21106, "CONSTRUCT", True, 2057, loot=[(I["Wand of Flames"], 0.008)])
+mob("Delu Lizardman Shaman", 20781, "HUMANOID", False, 2137, loot=[(I["Basic Wizard Staff"], 0.03)])
+mob("Delu Lizardman Commander", 21107, "HUMANOID", False, 4354, loot=[(I["Tsurugi"], 0.006), (I["Helm of Terror"], 0.01)])
 
 
 ATTRS = ("STR", "DEX", "CON", "INT", "WIT", "MEN")
